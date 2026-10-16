@@ -1,0 +1,28 @@
+# Gradle
+.gradle/
+build/
+!gradle/wrapper/gradle-wrapper.jar
+local.properties
+
+# Android
+*.apk
+*.aab
+*.keystore
+!debug.keystore
+captures/
+.cxx/
+
+# IDE
+.idea/
+*.iml
+.vscode/
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Project
+app/schemas/
+
+# Claude Code 本机设置（个人权限白名单，不进仓库）
+.claude/settings.local.json

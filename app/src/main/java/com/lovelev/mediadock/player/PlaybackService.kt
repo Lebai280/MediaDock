@@ -1,0 +1,151 @@
+package com.lovelev.mediadock.player
+
+import android.app.PendingIntent
+import android.content.Intent
+import androidx.media3.common.AudioAttributes
+import androidx.media3.common.C
+import androidx.media3.common.Player
+import androidx.media3.datasource.DefaultDataSource
+import androidx.media3.exoplayer.ExoPlayer
+import androidx.media3.exoplayer.source.DefaultMediaSourceFactory
+import androidx.media3.exoplayer.trackselection.DefaultTrackSelector
+import androidx.media3.session.MediaSession
+import androidx.media3.session.MediaSessionService
+import com.lovelev.mediadock.MainActivity
+import com.lovelev.mediadock.MediaDockApp
+import com.lovelev.mediadock.data.repo.ProgressRepository
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.isActive
+import kotlinx.coroutines.launch
+
+/**
+ * 后台播放的载体。播放器本身住在服务里，界面只是通过 MediaController 挂上去 ——
+ * 所以**旋转屏幕 / 退出播放页都不会打断播放**，通知栏里也能继续控制。
+ *
+ * 进度也是在这里落的：界面走了、锁屏了，播放还在继续，进度就得继续记。
+ */
+class PlaybackService : MediaSessionService() {
+
+    private var player: ExoPlayer? = null
+    private var session: MediaSession? = null
+
+    private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Main.immediate)
+    private var ticker: Job? = null
+    private lateinit var progress: ProgressRepository
+
+    override fun onCreate() {
+        super.onCreate()
+        val container = (application as MediaDockApp).container
+        progress = container.progress
+
+        val exo = ExoPlayer.Builder(this)
+            .setMediaSourceFactory(
+                DefaultMediaSourceFactory(
+                    // 外面包一层 DefaultDataSource：它把 file:// / content:// 交给本地/内容数据源，
+                    // 其余（http(s) 的片子、WebDAV 字幕）才落到下面这层补鉴权的 factory。
+                    // **不包这层的话，本地字幕文件（file://）读不了。**
+                    DefaultDataSource.Factory(
+                        this,
+                        WebDavMediaDataSource.Factory(container.mediaOkHttpClient) {
+                            container.credentials.cached
+                        },
+                    ),
+                ),
+            )
+            // 同级目录的字幕是「没有语言标记」的字幕轨，media3 默认**不会**自动选中它，
+            // 表现就是「明明有字幕却不显示」。打开这个开关让这类轨自动上。
+            // 内嵌轨（带语言标记）不自动选，交给播放器控件里的字幕按钮手动切。
+            .setTrackSelector(
+                DefaultTrackSelector(this).apply {
+                    parameters = buildUponParameters()
+                        .setSelectUndeterminedTextLanguage(true)
+                        .build()
+                },
+            )
+            .setAudioAttributes(
+                AudioAttributes.Builder()
+                    .setUsage(C.USAGE_MEDIA)
+                    .setContentType(C.AUDIO_CONTENT_TYPE_MOVIE)
+                    .build(),
+                /* handleAudioFocus = */ true,
+            )
+            .setHandleAudioBecomingNoisy(true)
+            .build()
+
+        // 播放中就每 5 秒记一次位置；一暂停立刻补记一次并把计时器停掉（不播放时不空转）
+        exo.addListener(object : Player.Listener {
+            override fun onIsPlayingChanged(isPlaying: Boolean) {
+                if (isPlaying) startTicker() else stopTickerAndSave()
+            }
+        })
+
+        // sessionActivity 一设，通知点一下就能回到 App，而且从最近任务里划掉时
+        // 服务不会被顺带停掉（后台播放要的就是这个）。
+        val openApp = PendingIntent.getActivity(
+            this,
+            0,
+            Intent(this, MainActivity::class.java).apply {
+                addFlags(Intent.FLAG_ACTIVITY_SINGLE_TOP or Intent.FLAG_ACTIVITY_CLEAR_TOP)
+            },
+            PendingIntent.FLAG_IMMUTABLE,
+        )
+
+        player = exo
+        session = MediaSession.Builder(this, exo)
+            .setSessionActivity(openApp)
+            .build()
+    }
+
+    private fun startTicker() {
+        if (ticker?.isActive == true) return
+        ticker = scope.launch {
+            while (isActive) {
+                delay(SAVE_INTERVAL_MS)
+                saveProgress()
+            }
+        }
+    }
+
+    private fun stopTickerAndSave() {
+        ticker?.cancel()
+        ticker = null
+        saveProgress()
+    }
+
+    private fun saveProgress() {
+        val current = player ?: return
+        val path = current.currentMediaItem?.mediaId ?: return
+        val duration = current.duration
+        // 时长未知（直播 / 还没解析出来）就不记 —— 没有分母，进度条和续播都没意义
+        if (duration <= 0L) return
+        val position = current.currentPosition
+        scope.launch { progress.save(path, position, duration) }
+    }
+
+    override fun onGetSession(controllerInfo: MediaSession.ControllerInfo): MediaSession? = session
+
+    override fun onDestroy() {
+        // 先取一次位置再放掉播放器 —— release() 之后就问不出来了
+        saveProgress()
+        session?.release()
+        session = null
+        player?.release()
+        player = null
+        // **只停计时器，不 cancel 整个 scope。**
+        // saveProgress() 是把「真正的库写入」launch 到 scope 上异步做的；这里紧跟着
+        // scope.cancel() 会把它一起取消掉，于是退场时最后一段进度就丢了 ——
+        // 进度是用户数据，宁可让这个 scope 随服务实例一起被回收。
+        ticker?.cancel()
+        ticker = null
+        super.onDestroy()
+    }
+
+    private companion object {
+        /** 节流：播放中每 5 秒落一次，别每帧都写库。 */
+        const val SAVE_INTERVAL_MS = 5_000L
+    }
+}

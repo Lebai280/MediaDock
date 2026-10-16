@@ -1,0 +1,264 @@
+package com.lovelev.mediadock
+
+import android.os.Bundle
+import androidx.activity.ComponentActivity
+import androidx.activity.compose.setContent
+import androidx.activity.enableEdgeToEdge
+import androidx.compose.foundation.layout.RowScope
+import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.padding
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Favorite
+import androidx.compose.material.icons.filled.FavoriteBorder
+import androidx.compose.material.icons.filled.Home
+import androidx.compose.material.icons.automirrored.filled.List
+import androidx.compose.material.icons.filled.Settings
+import androidx.compose.material3.Icon
+import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.NavigationBar
+import androidx.compose.material3.NavigationBarItem
+import androidx.compose.material3.NavigationBarItemDefaults
+import androidx.compose.material3.Scaffold
+import androidx.compose.material3.Text
+import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.lifecycle.viewmodel.compose.viewModel
+import androidx.navigation.NavHostController
+import androidx.navigation.compose.NavHost
+import androidx.navigation.compose.composable
+import androidx.navigation.compose.currentBackStackEntryAsState
+import androidx.navigation.compose.rememberNavController
+import com.lovelev.mediadock.di.AppContainer
+import com.lovelev.mediadock.ui.browse.BrowserScreen
+import com.lovelev.mediadock.ui.browse.BrowserViewModel
+import com.lovelev.mediadock.ui.detail.DetailScreen
+import com.lovelev.mediadock.ui.detail.DetailViewModel
+import com.lovelev.mediadock.ui.favorites.FavoritesScreen
+import com.lovelev.mediadock.ui.favorites.FavoritesViewModel
+import com.lovelev.mediadock.ui.library.LibraryScreen
+import com.lovelev.mediadock.ui.library.LibraryViewModel
+import com.lovelev.mediadock.ui.nav.PlayerImmersive
+import com.lovelev.mediadock.ui.nav.PlayerOrientation
+import com.lovelev.mediadock.ui.nav.Routes
+import com.lovelev.mediadock.ui.player.PlayerScreen
+import com.lovelev.mediadock.ui.player.PlayerViewModel
+import com.lovelev.mediadock.ui.settings.SettingsScreen
+import com.lovelev.mediadock.ui.settings.SettingsViewModel
+import com.lovelev.mediadock.ui.source.AddSourceScreen
+import com.lovelev.mediadock.ui.source.SourceViewModel
+import com.lovelev.mediadock.ui.theme.MediaDockTheme
+
+class MainActivity : ComponentActivity() {
+    override fun onCreate(savedInstanceState: Bundle?) {
+        enableEdgeToEdge()
+        super.onCreate(savedInstanceState)
+
+        val container = (application as MediaDockApp).container
+
+        setContent {
+            MediaDockTheme {
+                val navController = rememberNavController()
+
+                // 起始页看本地有没有已保存的数据源。只读 DataStore，不发任何网络请求。
+                var startRoute by remember { mutableStateOf<String?>(null) }
+                LaunchedEffect(Unit) {
+                    startRoute =
+                        if (container.credentials.load() != null) Routes.LIBRARY else Routes.ADD_SOURCE
+                }
+
+                val start = startRoute
+                if (start != null) {
+                    HomeScaffold(navController, start, container)
+                }
+            }
+        }
+    }
+}
+
+/** 四个 Tab 的顺序就是参考图里的顺序：媒体库在最左，启动也落在它上面。 */
+private val TABS = listOf(
+    Triple(Routes.LIBRARY, "媒体库", Icons.Filled.Home),
+    Triple(Routes.FAVORITES, "收藏", Icons.Filled.FavoriteBorder),
+    Triple(Routes.BROWSE, "浏览", Icons.AutoMirrored.Filled.List),
+    Triple(Routes.SETTINGS, "设置", Icons.Filled.Settings),
+)
+
+/**
+ * 底部四个 Tab：媒体库 / 收藏 / 浏览 / 设置。
+ * 详情页和播放页不放 Tab —— 它们是压进去的页面，各自全屏。
+ */
+@Composable
+private fun HomeScaffold(
+    navController: NavHostController,
+    start: String,
+    container: AppContainer,
+) {
+    val entry by navController.currentBackStackEntryAsState()
+    val currentRoute = entry?.destination?.route
+    val onTab = TABS.any { it.first == currentRoute }
+
+    // 播放页自动横屏、离开时还回系统（见 PlayerOrientation 里的注释，别挪回播放页里）
+    PlayerOrientation(currentRoute)
+    PlayerImmersive(currentRoute)
+
+    Scaffold(
+        modifier = Modifier.fillMaxSize(),
+        bottomBar = {
+            if (onTab) {
+                // 覆盖 M3 默认：它默认的 secondaryContainer 是淡紫的，跟柠檬绿不搭；
+                // 选中态改成淡柠檬绿胶囊 + 深色字（浅色主题下才读得清）。
+                NavigationBar(containerColor = MaterialTheme.colorScheme.surface) {
+                    TABS.forEach { (route, label, icon) ->
+                        TabItem(route, label, icon, currentRoute, navController)
+                    }
+                }
+            }
+        },
+    ) { insets ->
+        // 播放页不套 Scaffold 的内边距 —— 不然视频会被状态栏/导航栏夹出黑边（用户提过）
+        val contentModifier =
+            if (currentRoute == Routes.PLAYER) Modifier else Modifier.padding(insets)
+        AppNavHost(
+            navController = navController,
+            startRoute = start,
+            modifier = contentModifier,
+            container = container,
+        )
+    }
+}
+
+/**
+ * 拿文字当图标：这个 App 还没有图标体系，硬留一个空图标位反而把标签挤歪，
+ * 选中态交给 Material3 自带的指示器。
+ */
+@Composable
+private fun RowScope.TabItem(
+    route: String,
+    label: String,
+    icon: ImageVector,
+    currentRoute: String?,
+    navController: NavHostController,
+) {
+    NavigationBarItem(
+        selected = currentRoute == route,
+        onClick = {
+            if (currentRoute != route) {
+                navController.navigate(route) {
+                    // saveState/restoreState 让每个 Tab 各自记住自己的浏览位置，来回切不会越堆越深
+                    popUpTo(navController.graph.startDestinationId) { saveState = true }
+                    launchSingleTop = true
+                    restoreState = true
+                }
+            }
+        },
+        // 只放图标不放文字（用户要求）；label 仍保留给无障碍朗读
+        icon = {
+            // 收藏那个按主流做法：未选中空心、选中实心
+            val shown = if (label == "收藏" && currentRoute == route) Icons.Filled.Favorite else icon
+            Icon(imageVector = shown, contentDescription = label)
+        },
+        colors = NavigationBarItemDefaults.colors(
+            selectedTextColor = MaterialTheme.colorScheme.onSurface,
+            selectedIconColor = MaterialTheme.colorScheme.onSurface,
+            indicatorColor = MaterialTheme.colorScheme.primaryContainer,
+            unselectedTextColor = MaterialTheme.colorScheme.onSurfaceVariant,
+            unselectedIconColor = MaterialTheme.colorScheme.onSurfaceVariant,
+        ),
+    )
+}
+
+@Composable
+private fun AppNavHost(
+    navController: NavHostController,
+    startRoute: String,
+    modifier: Modifier,
+    container: AppContainer,
+) {
+    // 401/429 之后唯一的出口（以及设置页的「退出登录」）：回数据源页重填密码。
+    // 用 graph.id 弹整个图 —— 底部 Tab 切换会把根页面从回退栈里弹掉（saveState），
+    // 所以不能指望 popUpTo(BROWSE) 能清干净。
+    val relogin: () -> Unit = {
+        container.library.reset() // 仓库是应用作用域的，封锁不会自己消失，得显式解开
+        navController.navigate(Routes.ADD_SOURCE) {
+            popUpTo(navController.graph.id) { inclusive = true }
+        }
+    }
+
+    val openDetail: (List<String>) -> Unit = { paths ->
+        container.detailSelection.set(paths)
+        navController.navigate(Routes.DETAIL)
+    }
+
+    NavHost(
+        navController = navController,
+        startDestination = startRoute,
+        modifier = modifier,
+    ) {
+        composable(Routes.ADD_SOURCE) {
+            val vm: SourceViewModel = viewModel(factory = SourceViewModel.factory(container))
+            AddSourceScreen(
+                vm = vm,
+                onConnected = {
+                    navController.navigate(Routes.LIBRARY) {
+                        popUpTo(navController.graph.id) { inclusive = true }
+                    }
+                },
+            )
+        }
+
+        composable(Routes.LIBRARY) {
+            val vm: LibraryViewModel = viewModel(factory = LibraryViewModel.factory(container))
+            LibraryScreen(
+                vm = vm,
+                onOpenDetail = openDetail,
+                onAddSource = { navController.navigate(Routes.ADD_SOURCE) },
+                onRelogin = relogin,
+            )
+        }
+
+        composable(Routes.FAVORITES) {
+            val vm: FavoritesViewModel = viewModel(factory = FavoritesViewModel.factory(container))
+            FavoritesScreen(vm = vm, onOpenDetail = openDetail)
+        }
+
+        composable(Routes.BROWSE) {
+            val vm: BrowserViewModel = viewModel(factory = BrowserViewModel.factory(container))
+            BrowserScreen(
+                vm = vm,
+                onPlay = { path, queue ->
+                    container.playbackSelection.set(path, queue)
+                    navController.navigate(Routes.PLAYER)
+                },
+                onRelogin = relogin,
+            )
+        }
+
+        composable(Routes.SETTINGS) {
+            val vm: SettingsViewModel = viewModel(factory = SettingsViewModel.factory(container))
+            SettingsScreen(vm = vm, onLoggedOut = relogin)
+        }
+
+        composable(Routes.DETAIL) {
+            val vm: DetailViewModel = viewModel(factory = DetailViewModel.factory(container))
+            DetailScreen(
+                vm = vm,
+                onPlay = { path, queue ->
+                    container.playbackSelection.set(path, queue)
+                    navController.navigate(Routes.PLAYER)
+                },
+                onBack = { navController.popBackStack() },
+            )
+        }
+
+        composable(Routes.PLAYER) {
+            val vm: PlayerViewModel = viewModel(factory = PlayerViewModel.factory(container))
+            PlayerScreen(vm)
+        }
+    }
+}

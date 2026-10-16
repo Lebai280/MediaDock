@@ -1,0 +1,8 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!--
+      仅作为 Activity 启动主题使用最小平台主题，真正的配色全部由 Compose 的
+      Material3 theme（ui/theme/Theme.kt）负责，避免引入 material XML 依赖。
+    -->
+    <style name="Theme.MediaDock" parent="android:Theme.Material.Light.NoActionBar" />
+</resources>

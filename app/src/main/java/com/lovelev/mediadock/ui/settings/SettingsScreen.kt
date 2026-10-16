@@ -1,0 +1,399 @@
+package com.lovelev.mediadock.ui.settings
+
+import androidx.compose.foundation.clickable
+import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
+import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.Button
+import androidx.compose.material3.HorizontalDivider
+import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.OutlinedTextField
+import androidx.compose.material3.Surface
+import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
+import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.collectAsState
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.setValue
+import androidx.compose.ui.Alignment
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.unit.dp
+import android.content.ClipData
+import android.content.ClipboardManager
+import android.content.Context
+import android.content.Intent
+import android.net.Uri
+import com.lovelev.mediadock.BuildConfig
+import kotlinx.coroutines.launch
+
+/** 需要二次确认的不可逆操作。 */
+private enum class Confirmable(val title: String, val detail: String) {
+    ClearLibrary("清空媒体库", "海报墙会变空，需要重新扫描。播放进度和收藏会保留。"),
+    Logout("退出登录", "会清除已保存的数据源地址、账号和密码。媒体库与播放进度会留在本机。"),
+}
+
+@Composable
+fun SettingsScreen(
+    vm: SettingsViewModel,
+    onLoggedOut: () -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    LaunchedEffect(Unit) {
+        vm.load()
+        vm.loadSubtitles()
+        // 启动时静默查一次更新（失败不吭声，命中了才在「关于」那行留个标记）
+        vm.checkUpdate(manual = false)
+    }
+
+    var confirming by remember { mutableStateOf<Confirmable?>(null) }
+    val context = LocalContext.current
+    val scope = rememberCoroutineScope()
+    var shareHint by remember { mutableStateOf<String?>(null) }
+    val saved = vm.tmdbSecret.isNotBlank()
+    val host = vm.sourceHost
+    val itemCount by vm.itemCount.collectAsState()
+
+    Column(
+        modifier = modifier
+            .fillMaxSize()
+            .verticalScroll(rememberScrollState())
+            .padding(horizontal = 16.dp),
+        verticalArrangement = Arrangement.spacedBy(18.dp),
+    ) {
+        Spacer(Modifier.height(4.dp))
+
+        // ---- 数据源 ----
+        Section("数据源") {
+            Row(
+                modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 14.dp),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                Text("WebDAV", style = MaterialTheme.typography.bodyLarge, modifier = Modifier.weight(1f))
+                Text(
+                    text = host.ifBlank { "未配置" },
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                )
+            }
+            HorizontalDivider()
+            // 分享给朋友：把 地址/账号/密码 拼成一段文本复制走，朋友在「添加数据源」页会自动填入
+            Text(
+                text = "分享给朋友",
+                style = MaterialTheme.typography.bodyLarge,
+                color = MaterialTheme.colorScheme.onSurface,
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .clickable {
+                        scope.launch {
+                            val text = vm.buildShareText()
+                            shareHint = if (text == null) {
+                                "没有可分享的数据源"
+                            } else {
+                                copyToClipboard(context, text)
+                                "已复制 · 朋友在「添加数据源」页会自动填入"
+                            }
+                        }
+                    }
+                    .padding(horizontal = 16.dp, vertical = 14.dp),
+            )
+            shareHint?.let {
+                Text(
+                    text = it,
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    modifier = Modifier.padding(start = 16.dp, end = 16.dp, bottom = 12.dp),
+                )
+            }
+            HorizontalDivider()
+            DestructiveRow("退出登录") { confirming = Confirmable.Logout }
+        }
+
+        // ---- 刮削 ----
+        Section("刮削") {
+            Column(modifier = Modifier.fillMaxWidth().padding(16.dp)) {
+                OutlinedTextField(
+                    value = vm.tmdbSecret,
+                    onValueChange = vm::editTmdbSecret,
+                    label = { Text("TMDB 凭据") },
+                    placeholder = { Text("API Read Access Token 或 API Key") },
+                    singleLine = true,
+                    modifier = Modifier.fillMaxWidth(),
+                )
+                Spacer(Modifier.height(12.dp))
+                Button(
+                    onClick = vm::save,
+                    enabled = vm.tmdbSecret.isNotBlank() && !vm.saved,
+                    modifier = Modifier.fillMaxWidth(),
+                ) {
+                    Text(if (vm.saved) "已保存" else if (saved) "更新" else "保存")
+                }
+            }
+        }
+
+        // ---- 字幕源 ----
+        Section("字幕源") {
+            Column(modifier = Modifier.fillMaxWidth().padding(16.dp)) {
+                OutlinedTextField(
+                    value = vm.subtitleKey,
+                    onValueChange = vm::editSubtitleKey,
+                    label = { Text("OpenSubtitles API Key") },
+                    singleLine = true,
+                    modifier = Modifier.fillMaxWidth(),
+                )
+                Spacer(Modifier.height(10.dp))
+                OutlinedTextField(
+                    value = vm.subtitleUser,
+                    onValueChange = vm::editSubtitleUser,
+                    label = { Text("账号") },
+                    singleLine = true,
+                    modifier = Modifier.fillMaxWidth(),
+                )
+                Spacer(Modifier.height(10.dp))
+                OutlinedTextField(
+                    value = vm.subtitlePass,
+                    onValueChange = vm::editSubtitlePass,
+                    label = { Text("密码") },
+                    singleLine = true,
+                    modifier = Modifier.fillMaxWidth(),
+                )
+                Spacer(Modifier.height(12.dp))
+                Button(
+                    onClick = vm::saveSubtitles,
+                    enabled = vm.subtitleKey.isNotBlank() && vm.subtitleUser.isNotBlank() &&
+                        vm.subtitlePass.isNotBlank() && !vm.subtitleSaved,
+                    modifier = Modifier.fillMaxWidth(),
+                ) {
+                    Text(if (vm.subtitleSaved) "已保存" else "保存")
+                }
+                Text(
+                    text = "在 opensubtitles.com 免费注册：应用页拿 API Key，注册账号用于下载字幕" +
+                        "（免费账号每天有下载额度）。只填了也能用「从本地文件加载字幕」。",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    modifier = Modifier.padding(top = 10.dp),
+                )
+            }
+        }
+
+        // ---- 媒体库 ----
+        Section("媒体库") {
+            Row(
+                modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 14.dp),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                Text("影片数", style = MaterialTheme.typography.bodyLarge, modifier = Modifier.weight(1f))
+                Text(
+                    text = itemCount.toString(),
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+            }
+            HorizontalDivider()
+            DestructiveRow("清空媒体库") { confirming = Confirmable.ClearLibrary }
+        }
+
+        // ---- 关于 ----
+        Section("关于") {
+            Row(
+                modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 14.dp),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                Text("版本", style = MaterialTheme.typography.bodyLarge, modifier = Modifier.weight(1f))
+                Text(
+                    text = BuildConfig.VERSION_NAME,
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+            }
+            HorizontalDivider()
+
+            // 检查更新：命中新版本就展开成一条「下载新版本」；其余状态就一行字，点一下重新查
+            when (val state = vm.update) {
+                is UpdateUiState.Available -> Column(Modifier.fillMaxWidth().padding(16.dp)) {
+                    Text(
+                        text = "发现新版本 ${state.manifest.versionName}",
+                        style = MaterialTheme.typography.bodyLarge,
+                        color = MaterialTheme.colorScheme.tertiary,
+                    )
+                    state.manifest.notes?.takeIf { it.isNotBlank() }?.let {
+                        Spacer(Modifier.height(6.dp))
+                        Text(
+                            text = it,
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
+                    }
+                    Spacer(Modifier.height(12.dp))
+                    Button(
+                        onClick = { openUrl(context, state.manifest.url) },
+                        modifier = Modifier.fillMaxWidth(),
+                    ) { Text("下载新版本") }
+                }
+
+                else -> ValueRow(
+                    label = "检查更新",
+                    value = when (state) {
+                        UpdateUiState.Checking -> "检查中…"
+                        UpdateUiState.UpToDate -> "已是最新版本"
+                        is UpdateUiState.Failed -> state.message
+                        else -> ""
+                    },
+                    valueIsError = state is UpdateUiState.Failed,
+                    onClick = { vm.checkUpdate(manual = true) },
+                )
+            }
+
+            HorizontalDivider()
+
+            // 用户的网站（站点品牌叫「星屿」）
+            ValueRow(
+                label = SITE_LABEL,
+                value = SITE_HOST,
+                onClick = { openUrl(context, SITE_URL) },
+            )
+
+            HorizontalDivider()
+            // 申请 TMDB key 时承诺过要在应用里显示署名，这里就是那一处 —— 别删
+            Text(
+                text = "This product uses the TMDB API but is not endorsed or certified by TMDB.",
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                modifier = Modifier.padding(16.dp),
+            )
+        }
+
+        Spacer(Modifier.height(16.dp))
+    }
+
+    confirming?.let { action ->
+        AlertDialog(
+            onDismissRequest = { confirming = null },
+            title = { Text(action.title) },
+            text = { Text(action.detail) },
+            confirmButton = {
+                TextButton(
+                    onClick = {
+                        confirming = null
+                        when (action) {
+                            Confirmable.ClearLibrary -> vm.clearLibrary()
+                            Confirmable.Logout -> {
+                                vm.logout()
+                                onLoggedOut()
+                            }
+                        }
+                    },
+                ) {
+                    Text("确定", color = MaterialTheme.colorScheme.error)
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { confirming = null }) { Text("取消") }
+            },
+        )
+    }
+}
+
+@Composable
+private fun Section(title: String, content: @Composable () -> Unit) {
+    Column(modifier = Modifier.fillMaxWidth()) {
+        Text(
+            text = title,
+            style = MaterialTheme.typography.labelLarge,
+            // 用 tertiary 不用 primary：亮柠檬绿当文字在浅底上看不清
+            color = MaterialTheme.colorScheme.tertiary,
+            modifier = Modifier.padding(start = 4.dp, bottom = 8.dp),
+        )
+        Surface(
+            shape = MaterialTheme.shapes.medium,
+            color = MaterialTheme.colorScheme.surfaceVariant,
+            modifier = Modifier.fillMaxWidth(),
+        ) {
+            Column { content() }
+        }
+    }
+}
+
+@Composable
+private fun DestructiveRow(label: String, onClick: () -> Unit) {
+    Text(
+        text = label,
+        style = MaterialTheme.typography.bodyLarge,
+        color = MaterialTheme.colorScheme.error,
+        modifier = Modifier
+            .fillMaxWidth()
+            .clickable(onClick = onClick)
+            .padding(horizontal = 16.dp, vertical = 14.dp),
+    )
+}
+
+/** 把分享文本放进剪贴板（用平台 API，别用已废弃的 Compose 剪贴板包装）。 */
+private fun copyToClipboard(context: Context, text: String) {
+    val manager = context.getSystemService(Context.CLIPBOARD_SERVICE) as? ClipboardManager ?: return
+    manager.setPrimaryClip(ClipData.newPlainText("MediaDock 数据源", text))
+}
+
+/** 用系统浏览器 / 下载器打开一个 http(s) 链接。 */
+private fun openUrl(context: Context, url: String) {
+    if (url.isBlank()) return
+    runCatching {
+        context.startActivity(
+            Intent(Intent.ACTION_VIEW, Uri.parse(url)).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK),
+        )
+    }
+}
+
+/** 左标题右值的一行；给了 [onClick] 才可点。 */
+@Composable
+private fun ValueRow(
+    label: String,
+    value: String,
+    valueIsError: Boolean = false,
+    onClick: (() -> Unit)? = null,
+) {
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .then(if (onClick != null) Modifier.clickable(onClick = onClick) else Modifier)
+            .padding(horizontal = 16.dp, vertical = 14.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Text(
+            text = label,
+            style = MaterialTheme.typography.bodyLarge,
+            color = MaterialTheme.colorScheme.onSurface,
+            modifier = Modifier.weight(1f),
+        )
+        Text(
+            text = value,
+            style = MaterialTheme.typography.bodySmall,
+            color = if (valueIsError) {
+                MaterialTheme.colorScheme.error
+            } else {
+                MaterialTheme.colorScheme.onSurfaceVariant
+            },
+            maxLines = 2,
+            overflow = TextOverflow.Ellipsis,
+        )
+    }
+}
+
+/** 用户站点（发版信息也放这儿：`mediadock/version.json`）。 */
+private const val SITE_URL = "https://lovelev.eu.cc"
+private const val SITE_LABEL = "星屿 · 我的网站"
+private const val SITE_HOST = "lovelev.eu.cc"
