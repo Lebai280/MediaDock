@@ -1301,6 +1301,27 @@ lock tapped / unlock tapped
 `标题 + 已暂停 + 播放/停止` 三个节点；**「已暂停」同时证明坑 37 那条行为没被破坏**。
 另：首次返回没生效（当时正在旋回竖屏），再按一次才退出来 —— 属操作时序，不是缺陷。
 
+### 0.4.0 · 换新图标（2026-10-16）
+
+图标是用户在 `E:\code\icons\` 里自己做的（方案 G「折面播放」：青柠圆角播放三角 + 一道
+斜切口翻成青绿），导出包在 `E:\code\icons\export\`，连 README 和生成脚本一起给了。
+
+按它的 README 走**矢量方案**（比 PNG 那套省事、各密度都清晰）：
+
+    cp android-vector/ic_launcher_{background,foreground,monochrome}.xml  res/drawable/
+    cp android-vector/ic_launcher.xml                                    res/mipmap-anydpi-v26/
+
+- 顺带启用了 **Android 13+ 主题图标**（新的 `ic_launcher.xml` 带 `<monochrome>` 那行）。
+- manifest 里只引了 `@mipmap/ic_launcher`，**没有 `roundIcon`**，所以不用管圆形那套。
+- 原来 drawable 里是**金色占位图标**（`#E8B44A`），换成青柠折面。
+- 前景用的是 `<group scaleX/Y="0.78">` + 渐变（`aapt:attr`）。0.78 是导出包算好的：
+  安全圆直径 66/108 = 61.1%，标记最远点 77%，0.611/0.77 ≈ 0.78 —— **别随手改**，
+  改大了圆形遮罩会啃掉三角左上/左下的尖角。minSdk 26 ≥ 24，矢量渐变可用。
+
+**验证**：`aapt2 dump resources` 确认 APK 里有 `drawable/ic_launcher_{background,foreground,monochrome}`
+与 `mipmap/ic_launcher`，且 `$ic_launcher_foreground__0/__1` 说明渐变成功编进去了
+（release 构建会把资源名缩短，所以按文件名 `unzip` 是查不到的，得用 aapt2）。
+
 ### 0.3.7 · 日志落盘 + App 内日志页（2026-10-16）
 
 之前出问题只能靠 logcat —— 对朋友来说等于没有（要么截图截不全，要么连电脑）。
