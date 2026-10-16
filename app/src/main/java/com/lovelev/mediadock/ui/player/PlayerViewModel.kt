@@ -1,6 +1,8 @@
 package com.lovelev.mediadock.ui.player
 
 import android.content.ComponentName
+import android.net.Uri
+import android.provider.DocumentsContract
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
@@ -12,6 +14,7 @@ import androidx.lifecycle.viewmodel.initializer
 import androidx.lifecycle.viewmodel.viewModelFactory
 import androidx.media3.session.MediaController
 import androidx.media3.session.SessionToken
+import com.lovelev.mediadock.data.local.LocalMedia
 import com.lovelev.mediadock.data.MediaTypes
 import com.lovelev.mediadock.data.prefs.StoredSource
 import com.lovelev.mediadock.data.repo.LocalSubtitle
@@ -125,26 +128,67 @@ class PlayerViewModel(private val container: AppContainer) : ViewModel() {
             // 这一步顺带把凭据刷进 credentials.cached，媒体请求用它补 Authorization 头
             val saved = container.credentials.load()
             val root = saved?.let { WebDavUrl.rootCollection(it.url, it.rootPath) }
-            if (saved == null || root == null) {
+            // 本地条目不需要 WebDAV 数据源 —— 整队都是本地的就不该因为没配数据源而拒绝播放
+            val allLocal = queue.all(LocalMedia::isLocal)
+            if (!allLocal && (saved == null || root == null)) {
                 state = PlayerState.Unavailable("数据源不可用，请重新添加")
                 return@launch
             }
 
-            val subtitles = findSubtitles(root, saved)
-            state = PlayerState.Ready(
-                items = queue.map {
+            // 本地没有「同级目录 PROPFIND」这回事，字幕由用户自己从本地文件挂。
+            // 提到外面算成「相对路径 → 绝对地址」的表，避免在下面的 lambda 里再碰可空 root。
+            val subtitleUrls: Map<String, List<String>> =
+                if (allLocal || root == null || saved == null) {
+                    emptyMap()
+                } else {
+                    findSubtitles(root, saved).mapValues { (_, subs) ->
+                        subs.map { WebDavUrl.child(root, it).toString() }
+                    }
+                }
+
+            val items = queue.mapNotNull { path ->
+                resolveUrl(path, root)?.let { url ->
                     Playable(
-                        path = it,
-                        url = WebDavUrl.child(root, it).toString(),
-                        subtitleUrls = subtitles[it].orEmpty()
-                            .map { sub -> WebDavUrl.child(root, sub).toString() },
+                        path = path,
+                        url = url,
+                        subtitleUrls = subtitleUrls[path].orEmpty(),
                     )
-                },
-                startIndex = queue.indexOf(selected).coerceAtLeast(0),
+                }
+            }
+            if (items.isEmpty()) {
+                state = PlayerState.Unavailable("解析不出可播的地址")
+                return@launch
+            }
+            state = PlayerState.Ready(
+                items = items,
+                startIndex = items.indexOfFirst { it.path == selected }.coerceAtLeast(0),
                 startPositionMs = container.progress.resumePositionMs(selected) ?: 0L,
             )
         }
     }
+
+    /**
+     * 一条队列项 → 真正要播的地址。
+     *
+     * 本地条目的地址是**现拼**的：库里存的是「相对目录树根的路径」，
+     * SAF 的 document URI 依赖那次授权拿到的树，存下来重启就会失效（见 [LocalMedia]）。
+     */
+    private suspend fun resolveUrl(path: String, root: HttpUrl?): String? {
+        val relative = LocalMedia.decode(path)
+        if (relative != null) {
+            val tree = container.credentials.loadLocalTree() ?: return null
+            return buildLocalUri(Uri.parse(tree), relative)?.toString()
+        }
+        return root?.let { WebDavUrl.child(it, path).toString() }
+    }
+
+    private fun buildLocalUri(treeUri: Uri, relative: String): Uri? = runCatching {
+        val treeId = DocumentsContract.getTreeDocumentId(treeUri)
+        DocumentsContract.buildDocumentUriUsingTree(
+            treeUri,
+            LocalMedia.childDocumentId(treeId, relative),
+        )
+    }.getOrNull()
 
     /**
      * 找同级目录的字幕：**一次 PROPFIND** 拿整个目录，本地按文件名配对。

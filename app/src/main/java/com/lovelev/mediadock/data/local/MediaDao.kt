@@ -30,6 +30,17 @@ interface MediaDao {
     @Query("DELETE FROM media_items")
     suspend fun deleteAll()
 
+    /**
+     * 只删某一半。库里现在同时装 WebDAV 和本地两个来源（见 [LocalMedia]），
+     * 扫描是「整批替换」，所以**不能再用 [deleteAll]** —— 那会把另一半也扫掉。
+     * 前缀只可能是 `local/`，不含 LIKE 的通配符，所以直接拼。
+     */
+    @Query("DELETE FROM media_items WHERE path LIKE :prefix || '%'")
+    suspend fun deleteWherePathStartsWith(prefix: String)
+
+    @Query("DELETE FROM media_items WHERE path NOT LIKE :prefix || '%'")
+    suspend fun deleteWherePathNotStartsWith(prefix: String)
+
     @Query(
         """
         UPDATE media_items SET

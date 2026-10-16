@@ -1,5 +1,7 @@
 package com.lovelev.mediadock.ui.settings
 
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
@@ -67,6 +69,12 @@ fun SettingsScreen(
     val host = vm.sourceHost
     val itemCount by vm.itemCount.collectAsState()
 
+    // 选一个本地文件夹（SAF 目录树）。**这一步没法自动化验** ——
+    // 系统选择器吃不下 adb 注入的点击（WORKLOG 坑 56），得用户自己点。
+    val pickLocalFolder = rememberLauncherForActivityResult(
+        ActivityResultContracts.OpenDocumentTree(),
+    ) { uri -> uri?.let(vm::onLocalFolderPicked) }
+
     Column(
         modifier = modifier
             .fillMaxSize()
@@ -89,6 +97,39 @@ fun SettingsScreen(
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis,
+                )
+            }
+            HorizontalDivider()
+            // 本地媒体：选一个文件夹扫进库。和 WebDAV 是两个独立来源，各扫各的、互不覆盖。
+            Text(
+                text = if (vm.localFolderLabel.isBlank()) "添加本地文件夹…" else "本地媒体 · ${vm.localFolderLabel}",
+                style = MaterialTheme.typography.bodyLarge,
+                color = MaterialTheme.colorScheme.onSurface,
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .clickable {
+                        if (vm.localFolderLabel.isBlank()) pickLocalFolder.launch(null) else vm.scanLocal()
+                    }
+                    .padding(horizontal = 16.dp, vertical = 14.dp),
+            )
+            vm.localHint?.let {
+                Text(
+                    text = it,
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    modifier = Modifier.padding(start = 16.dp, end = 16.dp, bottom = 10.dp),
+                )
+            }
+            if (vm.localFolderLabel.isNotBlank()) {
+                HorizontalDivider()
+                Text(
+                    text = "移除本地文件夹",
+                    style = MaterialTheme.typography.bodyLarge,
+                    color = MaterialTheme.colorScheme.error,
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .clickable { vm.removeLocal() }
+                        .padding(horizontal = 16.dp, vertical = 14.dp),
                 )
             }
             HorizontalDivider()

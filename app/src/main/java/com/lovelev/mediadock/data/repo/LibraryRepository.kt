@@ -1,6 +1,10 @@
 package com.lovelev.mediadock.data.repo
 
+import android.net.Uri
 import androidx.room.withTransaction
+import com.lovelev.mediadock.data.local.LocalScanner
+import com.lovelev.mediadock.data.local.LocalMedia
+import com.lovelev.mediadock.data.local.LocalFile
 import com.lovelev.mediadock.data.MediaTypes
 import com.lovelev.mediadock.data.local.MediaDatabase
 import com.lovelev.mediadock.data.local.MediaItemEntity
@@ -75,6 +79,7 @@ class LibraryRepository(
     private val client: WebDavClient,
     private val tmdb: TmdbClient,
     private val credentials: SecureCredentialStore,
+    private val localScanner: LocalScanner,
 ) {
 
     /** 应用作用域：扫描不跟着页面走，退出媒体库页/旋屏都不会把它打断。 */
@@ -226,7 +231,8 @@ class LibraryRepository(
 
                 db.withTransaction {
                     val dao = db.mediaDao()
-                    dao.deleteAll()
+                    // **不是 deleteAll**：库里还有本地媒体那一半，一起删会把它们扫掉
+                    dao.deleteWherePathNotStartsWith(LocalMedia.PREFIX)
                     dao.insertAll(found)
                 }
                 _scan.value = ScanState.Done(files = found.size, truncated = truncated)
@@ -250,6 +256,70 @@ class LibraryRepository(
             name = name,
             sizeBytes = size,
             lastModified = lastModified,
+            parsedTitle = parsed.title,
+            year = parsed.year,
+            season = parsed.season,
+            episode = parsed.episode,
+        )
+    }
+
+    // ---------------------------------------------------------------- 本地媒体
+
+    /**
+     * 本地媒体扫描（用户选的 SAF 目录树）。
+     *
+     * 和 WebDAV 那次是**同一张表的两半**，各扫各的、互不覆盖 ——
+     * 所以两边都用「按前缀删」而不是整表删。
+     *
+     * 本地遍历不涉及网络，也就没有那条「不许高频请求」的硬约束，跑起来快得多。
+     */
+    fun startLocal(treeUri: Uri) {
+        if (scanJob?.isActive == true) return
+        if (scrapeJob?.isActive == true) return
+
+        scanJob = scope.launch {
+            _scan.value = ScanState.Running(directories = 0, files = 0)
+            val outcome = localScanner.scan(treeUri) { dirs, files ->
+                _scan.value = ScanState.Running(directories = dirs, files = files)
+            }
+
+            // 取消：不写库，保留上一次的完整结果
+            if (!isActive) return@launch
+
+            if (!outcome.readable) {
+                _scan.value = ScanState.Failed("读不了这个文件夹，可能授权被撤销了", blocked = false)
+                return@launch
+            }
+
+            val entities = outcome.files.map { it.toEntity() }
+            db.withTransaction {
+                val dao = db.mediaDao()
+                dao.deleteWherePathStartsWith(LocalMedia.PREFIX)
+                dao.insertAll(entities)
+            }
+            _scan.value = ScanState.Done(files = entities.size, truncated = outcome.truncated)
+        }
+    }
+
+    /**
+     * 只清本地媒体那一半。`clearLibrary()` 是「清空媒体库」（两半都清），
+     * 这个只用在「移除本地文件夹」上 —— WebDAV 那边一根汗毛都不动。
+     */
+    suspend fun clearLocalItems() {
+        db.mediaDao().deleteWherePathStartsWith(LocalMedia.PREFIX)
+    }
+
+    /** 和 WebDAV 条目走同一个解析器 —— 所以本地文件扫进来也有像样的片名和海报墙。 */
+    private fun LocalFile.toEntity(): MediaItemEntity {
+        val folderName = relativePath.substringBeforeLast('/', "").substringAfterLast('/')
+        val parsed = TitleParser.parse(fileName = name, folderName = folderName)
+        return MediaItemEntity(
+            path = LocalMedia.encode(relativePath),
+            name = name,
+            sizeBytes = sizeBytes,
+            // 实体里这列是 String?（WebDAV 那边存的是 RFC1123 字符串）。
+            // 本地拿到的是毫秒数，直接转字符串 —— 这列目前不用来比较，只当元信息存着。
+            lastModified = lastModified.toString(),
             parsedTitle = parsed.title,
             year = parsed.year,
             season = parsed.season,

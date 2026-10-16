@@ -1,5 +1,8 @@
 package com.lovelev.mediadock.ui.settings
 
+import android.content.Intent
+import android.net.Uri
+import android.provider.DocumentsContract
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
@@ -65,11 +68,81 @@ class SettingsViewModel(private val container: AppContainer) : ViewModel() {
         .map { it.size }
         .stateIn(viewModelScope, SharingStarted.Eagerly, 0)
 
+    /** 本地媒体目录显示成什么（取最后一段路径，别把整串 content:// 甩给用户）。 */
+    var localFolderLabel by mutableStateOf("")
+        private set
+
+    var localHint by mutableStateOf<String?>(null)
+        private set
+
     init {
         viewModelScope.launch {
             val savedSource = container.credentials.load()
             sourceHost = savedSource?.let { WebDavUrl.parse(it.url)?.host }.orEmpty()
+            localFolderLabel = container.credentials.loadLocalTree().orEmpty().let(::friendlyFolderName)
         }
+    }
+
+    /**
+     * 用户选好目录了：**先把授权持久化**再落盘。
+     *
+     * 不 take 的话只在本次进程有效，重启后那棵树就打不开了 —— 表现是「扫过一次，下次全没了」。
+     */
+    fun onLocalFolderPicked(uri: Uri) {
+        viewModelScope.launch {
+            val taken = runCatching {
+                container.appContext.contentResolver.takePersistableUriPermission(
+                    uri,
+                    Intent.FLAG_GRANT_READ_URI_PERMISSION,
+                )
+            }.isSuccess
+            if (!taken) {
+                localHint = "拿不到这个文件夹的长期权限，换一个试试"
+                return@launch
+            }
+            container.credentials.saveLocalTree(uri.toString())
+            localFolderLabel = friendlyFolderName(uri.toString())
+            localHint = "已选中，开始扫描…"
+            container.library.startLocal(uri)
+        }
+    }
+
+    fun scanLocal() {
+        viewModelScope.launch {
+            val uri = container.credentials.loadLocalTree() ?: return@launch
+            localHint = "重新扫描中…"
+            container.library.startLocal(Uri.parse(uri))
+        }
+    }
+
+    /** 移除本地目录：授权和库里的本地条目一起清掉。WebDAV 那边一根汗毛都不动。 */
+    fun removeLocal() {
+        viewModelScope.launch {
+            val tree = container.credentials.loadLocalTree()
+            if (tree != null) {
+                runCatching {
+                    container.appContext.contentResolver.releasePersistableUriPermission(
+                        Uri.parse(tree),
+                        Intent.FLAG_GRANT_READ_URI_PERMISSION,
+                    )
+                }
+            }
+            container.credentials.clearLocalTree()
+            container.library.clearLocalItems()
+            localFolderLabel = ""
+            localHint = "已移除本地文件夹"
+        }
+    }
+
+    /** `content://…/tree/primary%3AMovies` → `Movies`。取不出来就退回「已选择」。 */
+    private fun friendlyFolderName(treeUri: String): String {
+        if (treeUri.isBlank()) return ""
+        return runCatching {
+            DocumentsContract.getTreeDocumentId(Uri.parse(treeUri))
+                .substringAfterLast(':', missingDelimiterValue = "")
+                .substringAfterLast('/')
+                .takeIf { it.isNotBlank() }
+        }.getOrNull() ?: "已选择"
     }
 
     fun load() {

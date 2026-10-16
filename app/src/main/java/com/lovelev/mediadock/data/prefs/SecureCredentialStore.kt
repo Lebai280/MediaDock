@@ -49,6 +49,24 @@ class SecureCredentialStore(private val context: Context) {
     private val keySubPass = stringPreferencesKey("subtitle_pass_enc")
 
     /**
+     * 本地媒体目录（SAF 树 URI）。**不是机密**，放在这里只为省一个 DataStore 实例 ——
+     * 它是「本地」这个数据源的配置，和 WebDAV 那套平行。
+     */
+    private val keyLocalTree = stringPreferencesKey("local_tree_uri")
+
+    suspend fun loadLocalTree(): String? =
+        context.credentialDataStore.data.first()[keyLocalTree]?.takeIf { it.isNotBlank() }
+
+    suspend fun saveLocalTree(uri: String) {
+        context.credentialDataStore.edit { it[keyLocalTree] = uri.trim() }
+    }
+
+    /** 只清本地媒体目录 —— 和「退出登录」是两回事，别顺手把 WebDAV 凭据也清了。 */
+    suspend fun clearLocalTree() {
+        context.credentialDataStore.edit { it.remove(keyLocalTree) }
+    }
+
+    /**
      * 最近一次读到 / 写入的凭据，供**不能挂起**的地方同步取用 ——
      * 特别是 OkHttpDataSource 在发媒体请求时补 Authorization 头。
      */
