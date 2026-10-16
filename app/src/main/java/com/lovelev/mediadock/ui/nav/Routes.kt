@@ -16,4 +16,7 @@ object Routes {
      * 路径里有中文与 `/`，放进 nav 参数得来回百分号编码，而且会进 saved instance state。
      */
     const val PLAYER = "player"
+
+    /** 运行日志（设置 → 关于里的入口）。出问题时用户能自己看、自己复制。 */
+    const val LOGS = "logs"
 }

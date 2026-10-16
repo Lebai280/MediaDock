@@ -94,6 +94,7 @@ import androidx.media3.common.Tracks
 import androidx.media3.datasource.HttpDataSource
 import androidx.media3.session.MediaController
 import androidx.media3.ui.PlayerView
+import com.lovelev.mediadock.data.log.AppLog
 import com.lovelev.mediadock.data.repo.LocalSubtitle
 import com.lovelev.mediadock.data.subtitle.SubtitleHit
 import com.lovelev.mediadock.data.subtitle.subtitleLanguageLabel
@@ -228,10 +229,12 @@ private fun PlayerSurface(
         // 如果监听器挂上去时播放器早就 prepare 完了（续播、旋转屏、从迷你条进来都会这样），
         // 那个回调永远不会补发，tracks 就一直是 null：音轨菜单和字幕菜单会整块消失。
         tracks = c.currentTracks
-        Log.d(TAG, "tracks attached: ${c.currentTracks.groups.size} groups")
+        AppLog.d("player", "tracks attached: ${c.currentTracks.groups.size} groups")
         val listener = object : Player.Listener {
             override fun onPlayerError(error: PlaybackException) {
                 message = describePlaybackError(error)
+                // 带上原始异常 —— 给用户看的是人话，落到日志里的是能查的堆栈
+                AppLog.e("player", "播放出错: $message", error)
             }
 
             override fun onIsPlayingChanged(isPlaying: Boolean) {
@@ -239,7 +242,7 @@ private fun PlayerSurface(
             }
 
             override fun onTracksChanged(tracks2: Tracks) {
-                Log.d(TAG, "tracks changed: ${tracks2.groups.size} groups")
+                AppLog.d("player", "tracks changed: ${tracks2.groups.size} groups")
                 tracks = tracks2
             }
         }
@@ -260,7 +263,7 @@ private fun PlayerSurface(
             c.prepare()
         }
         c.play()
-        Log.d(TAG, "player: play() called on ${c.mediaItemCount} items")
+        AppLog.d("player", "player: play() called on ${c.mediaItemCount} items")
     }
 
     // 位置 / 时长 / 标题轮询。控制器上报的位置是**隔一阵才来一次**的，直接显示秒数会卡着跳；
@@ -291,7 +294,7 @@ private fun PlayerSurface(
         if (controlsVisible && playing && !locked) {
             delay(CONTROLS_HIDE_MS)
             controlsVisible = false
-            Log.d(TAG, "controls auto-hide")
+            AppLog.d("player", "controls auto-hide")
         }
     }
 
@@ -303,7 +306,7 @@ private fun PlayerSurface(
         if (locked && unlockHintVisible) {
             delay(LOCK_HINT_MS)
             unlockHintVisible = false
-            Log.d(TAG, "unlock button auto-hide")
+            AppLog.d("player", "unlock button auto-hide")
         }
     }
 
@@ -362,13 +365,13 @@ private fun PlayerSurface(
                                     val next = (startBrightness + fraction).coerceIn(0.02f, 1f)
                                     applyBrightness(context, next)
                                     hint = "亮度 ${(next * 100).toInt()}%"
-                                    Log.d(TAG, "brightness -> $next (total=$travelledY)")
+                                    AppLog.d("player", "brightness -> $next (total=$travelledY)")
                                 } else {
                                     val next = (startVolume + fraction * maxVolume)
                                         .toInt().coerceIn(0, maxVolume)
                                     audio.setStreamVolume(AudioManager.STREAM_MUSIC, next, 0)
                                     hint = "音量 ${next * 100 / maxVolume}%"
-                                    Log.d(TAG, "volume -> $next (total=$travelledY)")
+                                    AppLog.d("player", "volume -> $next (total=$travelledY)")
                                 }
                                 change.consume()
                             }
@@ -377,10 +380,10 @@ private fun PlayerSurface(
                         // 没成拖拽就当成「点了一下」
                         if (!dragging) {
                             if (locked) {
-                                Log.d(TAG, "tap while locked -> show unlock")
+                                AppLog.d("player", "tap while locked -> show unlock")
                                 unlockHintVisible = true
                             } else {
-                                Log.d(TAG, "overlay tap -> controls ${if (controlsVisible) "hide" else "show"}")
+                                AppLog.d("player", "overlay tap -> controls ${if (controlsVisible) "hide" else "show"}")
                                 controlsVisible = !controlsVisible
                             }
                         }
@@ -397,11 +400,11 @@ private fun PlayerSurface(
                     locked = locked,
                     onClick = {
                         if (locked) {
-                            Log.d(TAG, "unlock tapped")
+                            AppLog.d("player", "unlock tapped")
                             locked = false
                             controlsVisible = true
                         } else {
-                            Log.d(TAG, "lock tapped")
+                            AppLog.d("player", "lock tapped")
                             locked = true
                             controlsVisible = false
                         }
@@ -423,28 +426,28 @@ private fun PlayerSurface(
                     duration = duration,
                     playing = playing,
                     onSeek = { target ->
-                        Log.d(TAG, "seek -> $target")
+                        AppLog.d("player", "seek -> $target")
                         controller.seekTo(target)
                         position = target
                     },
                     onInfo = {
-                        Log.d(TAG, "info tapped")
+                        AppLog.d("player", "info tapped")
                         infoOpen = true
                     },
                     onScreenshot = {
-                        Log.d(TAG, "screenshot tapped")
+                        AppLog.d("player", "screenshot tapped")
                         captureFrame(context, playerView) { result -> hint = result }
                     },
                     onLoadLocalSubtitle = {
-                        Log.d(TAG, "load local subtitle tapped")
+                        AppLog.d("player", "load local subtitle tapped")
                         pickSubtitle.launch(arrayOf("*/*"))
                     },
                     onSearchSubtitles = {
-                        Log.d(TAG, "search subtitles tapped")
+                        AppLog.d("player", "search subtitles tapped")
                         searchOpen = true
                     },
                     onBack = {
-                        Log.d(TAG, "back tapped")
+                        AppLog.d("player", "back tapped")
                         backDispatcher?.onBackPressed()
                     },
                 )
@@ -613,7 +616,7 @@ private fun PlayerControls(
                         DropdownMenuItem(
                             text = { Text(if (group.isSelected) "● $label" else label) },
                             onClick = {
-                                Log.d(TAG, "audio -> $label")
+                                AppLog.d("player", "audio -> $label")
                                 controller.trackSelectionParameters = controller.trackSelectionParameters
                                     .buildUpon()
                                     .setOverrideForType(TrackSelectionOverride(group.mediaTrackGroup, 0))
@@ -632,7 +635,7 @@ private fun PlayerControls(
                     DropdownMenuItem(
                         text = { Text("关闭字幕") },
                         onClick = {
-                            Log.d(TAG, "subtitle -> off")
+                            AppLog.d("player", "subtitle -> off")
                             controller.trackSelectionParameters = controller.trackSelectionParameters
                                 .buildUpon().setTrackTypeDisabled(C.TRACK_TYPE_TEXT, true).build()
                             subtitleExpanded = false
@@ -646,7 +649,7 @@ private fun PlayerControls(
                         DropdownMenuItem(
                             text = { Text(if (group.isSelected) "● $label" else label) },
                             onClick = {
-                                Log.d(TAG, "subtitle -> $label")
+                                AppLog.d("player", "subtitle -> $label")
                                 controller.trackSelectionParameters = controller.trackSelectionParameters
                                     .buildUpon()
                                     .setTrackTypeDisabled(C.TRACK_TYPE_TEXT, false)
@@ -672,7 +675,7 @@ private fun PlayerControls(
         // ---- 中间：大播放/暂停键 ----
         IconButton(
             onClick = {
-                Log.d(TAG, "center play/pause tapped (isPlaying=${controller.isPlaying})")
+                AppLog.d("player", "center play/pause tapped (isPlaying=${controller.isPlaying})")
                 if (controller.isPlaying) controller.pause() else controller.play()
             },
             modifier = Modifier.align(Alignment.Center).size(72.dp),
@@ -712,7 +715,7 @@ private fun PlayerControls(
                 )
                 Box {
                     TextButton(onClick = {
-                        Log.d(TAG, "speed tapped")
+                        AppLog.d("player", "speed tapped")
                         speedExpanded = true
                     }) {
                         Text(text = speedLabel(speed), color = Color.White)
@@ -722,7 +725,7 @@ private fun PlayerControls(
                             DropdownMenuItem(
                                 text = { Text(speedLabel(value)) },
                                 onClick = {
-                                    Log.d(TAG, "speed -> $value")
+                                    AppLog.d("player", "speed -> $value")
                                     controller.setPlaybackSpeed(value)
                                     speed = value
                                     speedExpanded = false
@@ -829,7 +832,7 @@ private fun ThinSeekBar(
                         change.consume()
                     }
                     dragging = false
-                    Log.d(TAG, "seekbar ${if (moved) "drag" else "tap"} -> $dragValue")
+                    AppLog.d("player", "seekbar ${if (moved) "drag" else "tap"} -> $dragValue")
                     onSeek(dragValue)
                 }
             },
@@ -888,7 +891,7 @@ private fun captureFrame(context: Context, root: View?, onDone: (String) -> Unit
             bitmap,
             { result ->
                 if (result != PixelCopy.SUCCESS) {
-                    Log.d(TAG, "PixelCopy failed: $result")
+                    AppLog.d("player", "PixelCopy failed: $result")
                     onDone("截图失败")
                     return@request
                 }
@@ -897,7 +900,7 @@ private fun captureFrame(context: Context, root: View?, onDone: (String) -> Unit
             Handler(Looper.getMainLooper()),
         )
     } catch (e: Exception) {
-        Log.d(TAG, "PixelCopy threw: ${e.message}")
+        AppLog.d("player", "PixelCopy threw: ${e.message}")
         onDone("截图失败：${e.message}")
     }
 }
@@ -920,7 +923,7 @@ private fun saveToGallery(context: Context, bitmap: Bitmap): String {
         }
         "已保存到相册"
     } catch (e: Exception) {
-        Log.d(TAG, "saveToGallery failed: ${e.message}")
+        AppLog.d("player", "saveToGallery failed: ${e.message}")
         "截图保存失败：${e.message}"
     } finally {
         bitmap.recycle()
@@ -995,7 +998,7 @@ private fun mountSubtitle(controller: MediaController?, local: LocalSubtitle) {
     )
     c.prepare()
     c.play()
-    Log.d(TAG, "subtitle mounted: ${local.file.name} @${position}ms")
+    AppLog.d("player", "subtitle mounted: ${local.file.name} @${position}ms")
 }
 
 /** 从 SAF 的 content:// 里问出显示名（带扩展名，好判断字幕类型）。 */
@@ -1085,7 +1088,7 @@ private fun SubtitleSearchDialog(
                                             languages = languages,
                                         )
                                         if (results.isEmpty()) notice = "没找到，换个片名试试"
-                                        Log.d(TAG, "subtitle search '$keyword' -> ${results.size}")
+                                        AppLog.d("player", "subtitle search '$keyword' -> ${results.size}")
                                     } catch (e: CancellationException) {
                                         throw e
                                     } catch (e: Exception) {

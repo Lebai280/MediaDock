@@ -2,6 +2,7 @@ package com.lovelev.mediadock.data.repo
 
 import android.net.Uri
 import androidx.room.withTransaction
+import com.lovelev.mediadock.data.log.AppLog
 import com.lovelev.mediadock.data.local.LocalScanner
 import com.lovelev.mediadock.data.local.LocalMedia
 import com.lovelev.mediadock.data.local.LocalFile
@@ -239,6 +240,7 @@ class LibraryRepository(
             } catch (e: WebDavException) {
                 // 单次尝试即返回，绝不重试
                 val blocked = e is WebDavException.Unauthorized || e is WebDavException.Locked
+                AppLog.e("scan", "扫描失败(blocked=$blocked): ${e.userMessage}")
                 _scan.value = ScanState.Failed(e.userMessage, blocked)
             }
         }

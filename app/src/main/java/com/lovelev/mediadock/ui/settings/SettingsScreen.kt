@@ -39,6 +39,8 @@ import android.content.ClipboardManager
 import android.content.Context
 import android.content.Intent
 import android.net.Uri
+import com.lovelev.mediadock.ui.formatSize
+import com.lovelev.mediadock.data.log.AppLog
 import com.lovelev.mediadock.BuildConfig
 import kotlinx.coroutines.launch
 
@@ -52,6 +54,7 @@ private enum class Confirmable(val title: String, val detail: String) {
 fun SettingsScreen(
     vm: SettingsViewModel,
     onLoggedOut: () -> Unit,
+    onOpenLogs: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
     LaunchedEffect(Unit) {
@@ -264,6 +267,15 @@ fun SettingsScreen(
             }
             HorizontalDivider()
 
+            HorizontalDivider()
+            // 运行日志：出问题时让用户自己看、自己复制，不用连电脑
+            ValueRow(
+                label = "运行日志",
+                value = formatSize(AppLog.fileSizeBytes()),
+                onClick = onOpenLogs,
+            )
+            HorizontalDivider()
+
             // 检查更新：命中新版本就展开成一条「下载新版本」；其余状态就一行字，点一下重新查
             when (val state = vm.update) {
                 is UpdateUiState.Available -> Column(Modifier.fillMaxWidth().padding(16.dp)) {
@@ -384,7 +396,7 @@ private fun DestructiveRow(label: String, onClick: () -> Unit) {
 }
 
 /** 把分享文本放进剪贴板（用平台 API，别用已废弃的 Compose 剪贴板包装）。 */
-private fun copyToClipboard(context: Context, text: String) {
+internal fun copyToClipboard(context: Context, text: String) {
     val manager = context.getSystemService(Context.CLIPBOARD_SERVICE) as? ClipboardManager ?: return
     manager.setPrimaryClip(ClipData.newPlainText("MediaDock 数据源", text))
 }

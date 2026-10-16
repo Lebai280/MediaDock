@@ -54,6 +54,7 @@ import com.lovelev.mediadock.ui.player.MiniPlayerBar
 import com.lovelev.mediadock.ui.player.NowPlayingViewModel
 import com.lovelev.mediadock.ui.player.PlayerScreen
 import com.lovelev.mediadock.ui.player.PlayerViewModel
+import com.lovelev.mediadock.ui.settings.LogScreen
 import com.lovelev.mediadock.ui.settings.SettingsScreen
 import com.lovelev.mediadock.ui.settings.SettingsViewModel
 import com.lovelev.mediadock.ui.source.AddSourceScreen
@@ -276,7 +277,15 @@ private fun AppNavHost(
 
         composable(Routes.SETTINGS) {
             val vm: SettingsViewModel = viewModel(factory = SettingsViewModel.factory(container))
-            SettingsScreen(vm = vm, onLoggedOut = relogin)
+            SettingsScreen(
+                vm = vm,
+                onLoggedOut = relogin,
+                onOpenLogs = { navController.navigate(Routes.LOGS) },
+            )
+        }
+
+        composable(Routes.LOGS) {
+            LogScreen(onBack = { navController.popBackStack() })
         }
 
         composable(Routes.DETAIL) {
