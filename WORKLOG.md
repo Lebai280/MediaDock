@@ -1,7 +1,7 @@
 # MediaDock — 交接文档
 
 > **新会话请从这里读。** 决策 / 结果 / 坑 / 下一步全部在这一个文件里，不记流水账。
-> 最后更新：2026-10-15
+> 最后更新：2026-10-16（已纳入 git，远程 `Lebai280/MediaDock` 私有仓库）
 >
 > 📋 `NEXT_SESSION.md` 是一段**已经写好、可直接整段复制**的交接提示词（含构建命令与下一步），
 > 开新窗口时把它贴进去即可。本文件是细节归档。
@@ -26,7 +26,7 @@
 
 - 项目路径：`E:\code\MediaDock`
 - 包名 / applicationId：`com.lovelev.mediadock`
-- 当前版本：`0.1.0`（versionCode 1）
+- 当前版本：`0.3.0`（versionCode 3）—— 首个**正式签名**的发布版
 
 ---
 
@@ -413,7 +413,7 @@ compileSdk **37.2** / targetSdk **36** / minSdk **26**
 | `ui/player/PlayerViewModel.kt` | 由 path 拼出绝对地址（顺带刷新 `credentials.cached`）+ 队列指纹 + 续播位置 |
 | `ui/player/PlayerScreen.kt` | `MediaController` + `AndroidView(PlayerView)`；**自绘控件**（`useController=false`）：顶部返回/标题/字幕/倍速/锁定、中间大播放键、底部细进度条；左右半屏上下滑调亮度/音量；自动隐藏；`setMediaItems(队列, 起播位, 续播位)`；旋屏不重设；把 401/429/404 翻成人话。**触摸层结构见坑 53，别改回兄弟节点** |
 | `data/local/MediaItemEntity.kt` | 库表：`path` 当主键（相对数据源根，天然唯一，还能直接喂回 `child()`）；含解析结果与刮削结果 |
-| `data/local/MediaDao.kt` / `MediaDatabase.kt` | 只读 Flow + 整体替换 + 标记单条刮削结果。**表是缓存**，结构一变就 destructive migration 丢表重扫。DB 现在 v3 |
+| `data/local/MediaDao.kt` / `MediaDatabase.kt` | 只读 Flow + 整体替换 + 标记单条刮削结果。**`media_items` 是缓存**（丢表重扫只影响它）；进度 / 收藏 / 改名 / 详情是用户数据，只走真迁移。DB 现在 **v6**（迁移链 3→4→5→6，全在 `MIGRATIONS` 数组，见坑 39 / 45） |
 | `data/local/PlaybackProgress.kt` | 进度表 + DAO。独立于媒体条目，见坑 23 |
 | `data/repo/ProgressRepository.kt` | 存进度 / 查续播点（片尾 30 秒内不算）/ 给海报墙的 Flow |
 | `data/MediaTypes.kt` | 「哪些扩展名算视频 / 算字幕」+ **字幕与视频的配对规则**的唯一定义。配对有单测（`MediaTypesTest`） |
@@ -448,9 +448,13 @@ compileSdk **37.2** / targetSdk **36** / minSdk **26**
 构建文件：`settings.gradle.kts`、`build.gradle.kts`、`gradle.properties`、`gradle/libs.versions.toml`、
 `gradle/wrapper/*`、`app/build.gradle.kts`、`app/proguard-rules.pro`、`.gitignore`
 
-**计划中但尚未创建**的目录：（暂无 —— `domain/` 目前用不上）
+**计划中但尚未创建**的目录：（暂无 —— `domain/` 用不上）
 
-> 注意：项目**还不是 git 仓库**。要不要 `git init` 由用户决定。
+> **版本管理（2026-10-16 起）**：项目已是 git 仓库，远程在
+> **https://github.com/Lebai280/MediaDock**（**私有**），分支 `master`。
+> `.gitignore` 已排除 `local.properties` / `*.keystore` / `*.apk` / `build/` / `.gradle/`。
+> ⚠️ 本文件要上 GitHub，**运维细节（WebDAV 地址 / 服务器 / SSH / 账号）一律不写进来**（见文件开头）。
+> 另注：`gradle.properties` 里写死了本机 JDK 路径（`org.gradle.java.home`），换机器编译要改。
 
 ---
 
@@ -796,6 +800,24 @@ OkHttp 默认读系统代理，所以设完刮削就能通。**前提是 Clash �
     `when { scan is ScanState.Running -> scan.directories }` 会报
     `Smart cast to 'ScanState.Running' is impossible, because 'scan' is a delegated property`。
     → **先读进局部 val**（`val scanState = scan`）再用。首页那堆状态就是这么处理的。
+
+### 换正式签名 + 发版踩到的（2026-10-16）
+
+60. **⭐ 卸载会销毁该应用在系统 Keystore 里的密钥 —— 于是加密存的东西「备份了也解不开」。**
+    换签名必须卸载重装，我提前想到了备份 Room 库并完整保住了媒体库，
+    但**漏了 DataStore 里的凭据**：WebDAV 密码 / TMDB 密钥是用 Keystore AES-GCM 加密的，
+    而 Android 在卸载时把该应用在 Keystore 里的密钥一起删了。**哪怕提前拷出 DataStore 文件，
+    装回去也解不开密。** 结果用户得重填 WebDAV 密码和 TMDB 密钥。
+    → **教训：判断「什么会被卸载带走」要看它是不是走 Keystore，不是看它在哪个文件里。**
+    免重填的正解：**卸载前在 App 里点「分享给朋友」把配置复制到剪贴板**（那条路输出明文），
+    存下来再卸。见「换成正式签名」那节。
+61. **`run-as` 依赖 `debuggable`，正式包一定用不了 —— 别当成故障。**
+    - 想在正式包上读/写 `databases/`、`shared_prefs/` 是做不到的，报 `package not debuggable`。
+      这正是 `debuggable` 关上了的**证据**（反过来说，能 `run-as` 就说明包还是可调试的）。
+    - 迁移时若需要往正式包里写文件，就**临时**把 `isDebuggable` 打开构建一版，写完再关掉重构建覆盖。
+    - 另：`adb shell pm install /sdcard/Download/xxx.apk` 会报 `Can't open file` ——
+      Android 15 分区存储下那个文件属主是浏览器 uid、mode 700，shell 读不到。
+      **不是包坏了。** 要装就 `adb install -r <本地文件>`（先用 sha256 证明两边字节一致）。
 
 ### 播放器行为调整踩到的（都已修）
 
@@ -1144,6 +1166,108 @@ lock tapped / unlock tapped
 分类行标题靠左且条数是真数（动画 71、喜剧 40、家庭 18、剧情 20）；设置页「关于」三项都在、
 「检查更新」显示「还没发布过更新信息」；搜索回归验过（搜 `Soviet` 仍精准命中《伊凡雷帝》）。单测 46 → **60**。
 
+### 发布 0.2.0 + 上线更新信息（2026-10-16）
+
+第一个真正对外发布的版本。站点上放好了发版信息，**「检查更新」整条链路真机验通**。
+
+**部署**
+
+- 版本 bump：`versionCode 1 → 2`、`versionName 0.1.0 → 0.2.0`（`app/build.gradle.kts`）。
+  `0.1.0` 从未对外发布过，所以 `0.2.0` 是首个发布版。
+- 站点目录 `/var/www/portal/mediadock/`（新建，`www-data:www-data` / 755）里放了：
+  `MediaDock-0.2.0.apk`（26 531 045 字节，debug 构建）+ `version.json`。
+- 传法：`scp` 到 `/tmp` → `sudo mv` 就位 → `chown www-data:www-data`
+  （**`bg` 对 `/var/www` 没有写权限**，必须走 sudo 中转）。
+
+**验证（全链路，逐环节留证，截图在 `app/build/verify/`）**
+
+| 环节 | 证据 |
+|---|---|
+| 站点可取 | `version.json` HTTP 200 / 269 B；APK HTTP 200 / `Content-Length: 26531045` |
+| 传输完整 | 本地构建 / 站点下载 / **手机下载** 三者 sha256 全部 = `68aad847…fdd6ab` |
+| 发现新版本 | 手机 0.1.0 + 站点 0.2.0 → 设置页「发现新版本 0.2.0」+ notes + 「下载新版本」（`01-update-available.png`）|
+| 下载 | 点按钮拉起三星浏览器 → 下载确认 → 落到 `/sdcard/Download/MediaDock-0.2.0.apk`（`02-download.png`）|
+| 安装 | 装成 0.2.0 |
+| 回到最新 | 0.2.0 下「检查更新」→「已是最新版本」（`04-up-to-date.png`）|
+| 升级不丢数据 | 影片数仍 **106** |
+
+**踩到的**
+
+- ⚠️ **`adb shell pm install /sdcard/...` 会报 `Can't open file`** —— Android 15 分区存储下
+  `/sdcard/Download` 里那个文件属主是**浏览器 uid**、mode 700，shell 读不到。
+  **不是包的问题，别据此判断「下载坏了」。** 要装就 `adb install -r <本地文件>`
+  （先用 sha256 证明两边字节一致，再装）。
+- **nginx 给 `.apk` 的 MIME 是 `application/octet-stream`**（标准 `mime.types` 里没有 apk），
+  于是三星浏览器会弹「此类文件可能危害您的手机」、文件名预览成 `MediaDock-0.2.0.apk.bin`。
+  **实际落盘仍是 `.apk`、大小正确、能装**，所以不影响功能。想去掉这个吓人的提示，
+  给 `mediadock` 那个 location 加一条 `types { application/vnd.android.package-archive apk; }` 即可
+  （**没做**，属打磨项）。
+
+**以后发新版**：改 `app/build.gradle.kts` 的 `versionCode`/`versionName` → 构建 →
+传进 `/var/www/portal/mediadock/` → 同步改 `version.json` 的 `versionCode` 与 `url`。
+⚠️ **`versionCode` 只增不减**，否则已升上去的用户收不到后续更新。
+
+### 换成正式签名（2026-10-16）
+
+**为什么**：0.2.0 是 `assembleDebug` 出来的 debug 签名包 —— `debuggable=true`（关掉一部分 ART 优化、
+任何人插上 adb 就能读应用数据）、未裁剪。而**换签名是不可逆的**：已装用户必须卸载重装，所以越早换成本越低。
+
+**做法**
+
+- keystore 生成在**仓库外**：`E:\code\keystore\mediadock-release.jks`（RSA 4096 / 30 年 / `CN=MediaDock`）。
+  同目录 `README.txt` 写了备份说明**和密码**（这样整体备份一个目录就够）。
+- `local.properties`（**已 gitignore**）里 4 行：`mediadock.storeFile / storePassword / keyAlias / keyPassword`。
+  `app/build.gradle.kts` 读它建 `signingConfigs.release`；**没配 keystore 的机器照样能
+  `assembleDebug` / 跑单测**，只是 `assembleRelease` 出未签名包。
+- ⚠️ **keystore 和密码必须备份** —— 丢了以后所有更新都无法覆盖安装，没有补救办法。
+  **仓库里只有路径，没有密码。**
+- **minify 仍关着**：R8 会裁掉 Room / kotlinx-serialization 依赖的反射，要开必须同时补 keep 规则
+  并跑一轮真机验证，属于独立的一步。即使不开，release 也比 debug 小 30%（26.5 MB → **18.6 MB**）。
+
+**debug → release 的迁移流程（真机上跑通过，可复用）**
+
+签名不同不能覆盖安装，必须卸载重装：
+
+1. `run-as` 把 `databases/library.db` + `-wal` + `-shm` 捞出来（debug 包可读）
+2. 本地 `PRAGMA wal_checkpoint(TRUNCATE)` 合并成单文件、`integrity_check` 确认没坏
+3. 卸载 → 装**临时把 `isDebuggable` 打开**的 release 包 → `run-as mkdir -p databases` + `cp` 还原库
+4. **去掉 `isDebuggable`** 重新构建 → 覆盖安装（同签名 = 普通更新，数据保留）
+5. 复验：`run-as` 报 `package not debuggable` = 开关确实关上了
+
+> 第 3 步那个「临时可调试」只是为了还能用 `run-as` 写文件。正式包关掉 debuggable 后 `run-as` 就用不了了 —— **这是对的**。
+
+**⚠️ 这次迁移的代价（重要，别重蹈）**
+
+**DataStore 里的凭据全丢了。** 因为 Android 在**卸载时销毁该应用在系统 Keystore 里的密钥**，
+而 WebDAV 密码 / TMDB 凭据都是用它 AES-GCM 加密存的 ——
+**所以哪怕提前备份了 DataStore 文件，装回去也解不开**（坑 60）。
+
+- 媒体库（106 影片 / 进度 / 手动改名 / 详情）**靠上面的流程完整保住了** —— 它在 Room 里，不受 Keystore 牵连。
+- **救不回来的只有走 Keystore 的那类**：WebDAV 地址/账号/密码、TMDB 密钥，必须重填。
+- **下次要迁移，先让用户在 App 里点「分享给朋友」把配置复制到剪贴板**
+  （那条路径输出的是**明文**地址/账号/密码），备份下来再卸载 —— 这样才免重填。
+
+**验证**：0.3.0 装机后 `run-as` 报 `package not debuggable`、签名 `CN=MediaDock`、
+库在设备上直接读出来是 106/2/2/96、站点 APK sha256 与本地一致。
+
+### 0.3.1 · 播放页控件加压暗层（2026-10-16）
+
+**坑 62：播放页的控件是白字，压在亮画面上会直接消失。**
+详情页当初撞到同一个问题时，解法是「压在亮处的那几行字各加一层投影」。播放页当时没处理，
+因为常看的片子画面偏暗，没暴露。这次实测放到《秒速五厘米》**白底字幕卡**那一帧时，
+**返回箭头和标题整条不见了**（同一个画面上锁形图标、进度条都还在，因为它们本来就在暗处）。
+
+→ 做法：在控件层的最底下、顶栏与底栏各自的带状区域加一条**竖直渐变**：
+顶 `Black .62 → 透明`（高 96dp）、底 `透明 → Black .70`（高 124dp）。
+**只压控件所在的那两条带**，画面中间一点没动。见 `ui/player/PlayerScreen.kt` 的 `PlayerControls`。
+
+> 顺带：这类「白字压亮画面」在播放器里几乎必然遇到（字幕卡、雪景、纯白转场）。
+> 加压暗层比给每个控件加投影省事，也不会让字看着发虚。
+
+**发版**：`versionCode 3 → 4`、`versionName 0.3.0 → 0.3.1`，站点 APK 与 `version.json` 已同步，
+发版页（`E:\code\portal\mediadock\`）上三处硬编码版本号与「版本历史」也已更新 ——
+**这就是那个「下次发版别忘」清单第一次实跑，照着走没漏。**
+
 ### ⚠️ 诊断教训：`dumpsys media_session` 里混着别的 App 的会话
 
 **这一条值得单独记，因为它让我误判了整件事**：
@@ -1194,12 +1318,13 @@ lock tapped / unlock tapped
    截图 / 顶部导航 / 左右滑动 / 日志面板 / 音频均衡器 / 在线字幕搜索 / OCR 等。
 3. **验证凭据持久化**：杀掉 App 重进，确认不用重填（Keystore 解密链路）。
 4. **可选**：按 `tmdbId` 把「拆成 Season 1/Season 2 两个目录」的剧合并成一块。
-5. **可选**：`git init` 纳入版本管理（**注意 `git init` 后先确认 TMDB key 没被写进任何文件**）。
-6. **可选**：让用户插 USB，以便 adb 装包 + 读 logcat。
+5. ~~**可选**：`git init` 纳入版本管理~~ ✅ **已完成**（2026-10-16，私有仓库 `Lebai280/MediaDock`，见代码地图那节）。
+6. ~~**可选**：让用户插 USB，以便 adb 装包 + 读 logcat~~ ✅ **设备已连上**（2026-10-16：
+   三星 S21 Ultra，序列号 `R5CR128MCLH`，`adb devices -l` 可见；已装的就是当前源码版本）。
 7. **可选**：播放页真正全屏（见 Stage 3 的遗留项）。
 8. **可选**：TMDB 匹配精度 —— 实测两字标题会被泛化匹配（`银河` → 《银河护卫队》）。
    要改善得加辅助判据（年份容差、片长、投票数阈值）。
-8. 功能清单与成本分级见**附录 B**；另一份「想法」文件的采纳/拒绝理由见**附录 A**。
+9. 功能清单与成本分级见**附录 B**；另一份「想法」文件的采纳/拒绝理由见**附录 A**。
 
 ---
 

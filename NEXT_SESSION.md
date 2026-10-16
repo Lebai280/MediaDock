@@ -67,14 +67,26 @@ cd /e/code/MediaDock && export JAVA_HOME="E:\code\tools\jdk21" && export GRADLE_
 
 ## 下一步（按优先级）
 
-1. **发版信息还没放**：站点上还没有 `/var/www/portal/mediadock/version.json`，所以「检查更新」现在
-   显示「还没发布过更新信息」。格式见 WORKLOG「首页改版」那节；放上去就能验「发现新版本」那条路。
-   （发新版 APK 时记得同步 bump `app/build.gradle.kts` 里的 `versionCode / versionName`。）
-2. **等用户配合的两项**：本地字幕挂载（手机上 ⋯→字幕→从本地文件加载…，测试字幕在
+1. **已发布 `0.3.1`（versionCode 4）**（2026-10-16）。站点
+   `/var/www/portal/mediadock/` 有 `version.json` + `MediaDock-0.3.1.apk` +
+   **发版落地页**（<https://lovelev.eu.cc/mediadock/>，沿用星屿设计系统，二维码指向该页）。
+   更新链路（发现新版本 → 下载 → 装 → 已是最新）在 0.2.0→0.3.0 那一轮已真机验通。
+   沿革：0.3.0 = 首个正式签名版；0.3.1 = 播放页控件加渐变压暗（见 WORKLOG 坑 62）。
+   **下次发版**：bump `versionCode`/`versionName` → `./gradlew :app:assembleRelease` →
+   传同目录 → 同步改 `version.json`（`versionCode` **只增不减**），
+   并把发版页上**三处硬编码的版本号**（hero 的「最新 x.y.z」、下载卡的版本号与文件名、
+   「版本历史」那一段）一起更新。落地页的做法与坑见 `E:\code\portal\WORKLOG.md`。
+   release 签名配置见 WORKLOG「换成正式签名」那节（keystore 在仓库外，**要备份，丢了就不能再更新**）。
+2. ~~手机上需要用户重填凭据~~ ✅ **已完成**（2026-10-16）：WebDAV 与 TMDB 凭据都已填回，
+   浏览器里实测过浏览目录、详情页（TMDB 刮削数据在）、播放（position 在走）、内嵌双语字幕渲染。
+   媒体库 106 条完整保住，没有重扫。凭据因由见 WORKLOG 坑 60。
+3. **等用户配合的两项**：本地字幕挂载（手机上 ⋯→字幕→从本地文件加载…，测试字幕在
    `Download/mediadock-test.srt`）、在线字幕真实请求（设置→字幕源 填 OpenSubtitles 的 API Key + 账号）。
-3. **依赖库数据的 4 项**（不是代码问题）：同级目录字幕、分季分集聚合、自动播放下一集、
+4. **依赖库数据的 4 项**（不是代码问题）：同级目录字幕、分季分集聚合、自动播放下一集、
    海报块那条 3dp 进度条。要验得先往库里放一部带字幕的剧。
-4. 候选功能：多资源切换（按 tmdbId 归并同一部片的多个文件）、片单/举报、海报墙筛选排序。
+5. **可选**：开 R8 minify（现在关着）。能再砍体积，但**必须**同时补 Room /
+   kotlinx-serialization 的 keep 规则并跑一轮真机验证（编译过 ≠ 反射没被裁）。属独立一步。
+6. 候选功能：多资源切换（按 tmdbId 归并同一部片的多个文件）、片单/举报、海报墙筛选排序。
    成本分级见 WORKLOG 附录 B。
 
 ## 文档规矩

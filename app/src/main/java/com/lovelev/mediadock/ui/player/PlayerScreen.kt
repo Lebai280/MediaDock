@@ -73,6 +73,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalContext
@@ -515,6 +516,32 @@ private fun PlayerControls(
     val subtitlesOn = tracks?.groups?.any { it.type == C.TRACK_TYPE_TEXT && it.isSelected } == true
 
     Box(modifier = Modifier.fillMaxSize()) {
+        // ---- 顶/底各一条渐变压暗 ----
+        // 控件文字是白色的，压在**亮画面**上会直接消失（实测放到「秒速五厘米」的白底标题卡时，
+        // 返回箭头和标题完全看不见）。这两条只压在顶栏和底栏范围内，画面中间不受影响。
+        Box(
+            modifier = Modifier
+                .align(Alignment.TopStart)
+                .fillMaxWidth()
+                .height(96.dp)
+                .background(
+                    Brush.verticalGradient(
+                        listOf(Color.Black.copy(alpha = 0.62f), Color.Transparent),
+                    ),
+                ),
+        )
+        Box(
+            modifier = Modifier
+                .align(Alignment.BottomCenter)
+                .fillMaxWidth()
+                .height(124.dp)
+                .background(
+                    Brush.verticalGradient(
+                        listOf(Color.Transparent, Color.Black.copy(alpha = 0.70f)),
+                    ),
+                ),
+        )
+
         // ---- 顶部：返回 / 标题 / ⋯ ----
         Row(
             modifier = Modifier

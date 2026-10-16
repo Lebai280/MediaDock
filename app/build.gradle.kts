@@ -1,4 +1,14 @@
 import org.jetbrains.kotlin.gradle.dsl.JvmTarget
+import java.util.Properties
+
+// release 签名配置来自 local.properties（**该文件已 gitignore，不进仓库**）。
+// keystore 本身放在仓库外：E:\code\keystore\mediadock-release.jks（同目录有备份说明）。
+// 换机器编译：把 keystore 和 local.properties 里那 4 行一起带过去。
+val signingProps = Properties().apply {
+    val f = rootProject.file("local.properties")
+    if (f.exists()) f.inputStream().use { load(it) }
+}
+val hasReleaseKey = signingProps.getProperty("mediadock.storeFile") != null
 
 plugins {
     alias(libs.plugins.android.application)
@@ -21,12 +31,28 @@ android {
         applicationId = "com.lovelev.mediadock"
         minSdk = 26
         targetSdk = 36
-        versionCode = 1
-        versionName = "0.1.0"
+        versionCode = 4
+        versionName = "0.3.1"
+    }
+
+    signingConfigs {
+        // 只有本机配了 keystore 才建这个签名配置；别人 clone 下来没 local.properties
+        // 也能正常跑 assembleDebug / 单测，只是 assembleRelease 出的是未签名包。
+        if (hasReleaseKey) {
+            create("release") {
+                storeFile = file(signingProps.getProperty("mediadock.storeFile"))
+                storePassword = signingProps.getProperty("mediadock.storePassword")
+                keyAlias = signingProps.getProperty("mediadock.keyAlias")
+                keyPassword = signingProps.getProperty("mediadock.keyPassword")
+            }
+        }
     }
 
     buildTypes {
         release {
+            if (hasReleaseKey) signingConfig = signingConfigs.getByName("release")
+            // minify 暂不开：R8 会裁掉 Room / kotlinx-serialization 依赖的反射。
+            // 要开的话必须同时补 keep 规则并跑一轮真机验证，属于独立的一步（见 WORKLOG）。
             isMinifyEnabled = false
             proguardFiles(
                 getDefaultProguardFile("proguard-android-optimize.txt"),
