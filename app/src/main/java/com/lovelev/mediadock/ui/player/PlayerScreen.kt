@@ -224,6 +224,11 @@ private fun PlayerSurface(
 
     DisposableEffect(controller) {
         val c = controller ?: return@DisposableEffect onDispose { }
+        // ⚠️ 先主动读一次当前轨道。`onTracksChanged` **只在轨道变化时**回调 ——
+        // 如果监听器挂上去时播放器早就 prepare 完了（续播、旋转屏、从迷你条进来都会这样），
+        // 那个回调永远不会补发，tracks 就一直是 null：音轨菜单和字幕菜单会整块消失。
+        tracks = c.currentTracks
+        Log.d(TAG, "tracks attached: ${c.currentTracks.groups.size} groups")
         val listener = object : Player.Listener {
             override fun onPlayerError(error: PlaybackException) {
                 message = describePlaybackError(error)
@@ -234,6 +239,7 @@ private fun PlayerSurface(
             }
 
             override fun onTracksChanged(tracks2: Tracks) {
+                Log.d(TAG, "tracks changed: ${tracks2.groups.size} groups")
                 tracks = tracks2
             }
         }
@@ -512,6 +518,7 @@ private fun PlayerControls(
 ) {
     var moreExpanded by remember { mutableStateOf(false) }
     var subtitleExpanded by remember { mutableStateOf(false) }
+    var audioExpanded by remember { mutableStateOf(false) }
     var speedExpanded by remember { mutableStateOf(false) }
     var speed by remember(controller) { mutableStateOf(controller.playbackParameters.speed) }
 
@@ -519,6 +526,11 @@ private fun PlayerControls(
         tracks?.groups?.filter { it.type == C.TRACK_TYPE_TEXT }.orEmpty()
     }
     val subtitlesOn = tracks?.groups?.any { it.type == C.TRACK_TYPE_TEXT && it.isSelected } == true
+
+    // 音轨。用户的片子里有「国粤日三音轨」这种，不给他入口就只能听播放器自己挑的那条。
+    val audioGroups = remember(tracks) {
+        tracks?.groups?.filter { it.type == C.TRACK_TYPE_AUDIO }.orEmpty()
+    }
 
     Box(modifier = Modifier.fillMaxSize()) {
         // ---- 顶/底各一条渐变压暗 ----
@@ -571,12 +583,19 @@ private fun PlayerControls(
                 IconButton(onClick = { moreExpanded = true }, modifier = Modifier.size(40.dp)) {
                     Icon(Icons.Filled.MoreHoriz, "更多", tint = Color.White)
                 }
-                // 更多：字幕 / 详细信息 / 截图（都在这里，顶部就不挤了）
+                // 更多：字幕 / 音轨 / 详细信息 / 截图（都在这里，顶部就不挤了）
                 DropdownMenu(expanded = moreExpanded, onDismissRequest = { moreExpanded = false }) {
                     DropdownMenuItem(
                         text = { Text(if (subtitlesOn) "字幕（开）" else "字幕") },
                         onClick = { moreExpanded = false; subtitleExpanded = true },
                     )
+                    // 只有一条音轨就不显示这项 —— 一个选项的菜单没有意义
+                    if (audioGroups.size > 1) {
+                        DropdownMenuItem(
+                            text = { Text("音轨") },
+                            onClick = { moreExpanded = false; audioExpanded = true },
+                        )
+                    }
                     DropdownMenuItem(
                         text = { Text("详细信息") },
                         onClick = { moreExpanded = false; onInfo() },
@@ -585,6 +604,24 @@ private fun PlayerControls(
                         text = { Text("截图") },
                         onClick = { moreExpanded = false; onScreenshot() },
                     )
+                }
+
+                // 音轨面板：列出现有音轨，点一条切过去
+                DropdownMenu(expanded = audioExpanded, onDismissRequest = { audioExpanded = false }) {
+                    audioGroups.forEachIndexed { index, group ->
+                        val label = audioTrackLabel(group.getTrackFormat(0), index)
+                        DropdownMenuItem(
+                            text = { Text(if (group.isSelected) "● $label" else label) },
+                            onClick = {
+                                Log.d(TAG, "audio -> $label")
+                                controller.trackSelectionParameters = controller.trackSelectionParameters
+                                    .buildUpon()
+                                    .setOverrideForType(TrackSelectionOverride(group.mediaTrackGroup, 0))
+                                    .build()
+                                audioExpanded = false
+                            },
+                        )
+                    }
                 }
 
                 // 字幕面板：关掉 / 选轨 / 本地文件 / 在线搜索
@@ -1152,6 +1189,35 @@ private fun subtitleMimeType(url: String): String =
         "vtt" -> MimeTypes.TEXT_VTT
         else -> MimeTypes.APPLICATION_SUBRIP
     }
+
+/**
+ * 音轨在菜单里显示成什么。
+ *
+ * media3 报的 `language` 是容器里的原样标记，MKV 里通常是 **ISO 639-2/T 的三字母码**
+ * （`jpn` / `chi` / `yue`…），而 `Locale.forLanguageTag` 只认 BCP-47 的两字母形式，
+ * 直接喂进去会原样返回 "jpn"。所以常用语言这里自己映射一张小表。
+ * 顺带带上声道数 —— 「国粤日三音轨」那种片子，光看语言名不一定分得清哪条是 5.1。
+ */
+private fun audioTrackLabel(format: Format, index: Int): String {
+    val name = format.label?.takeIf { it.isNotBlank() }
+        ?: LANGUAGE_NAMES[format.language?.lowercase()]
+        ?: "音轨 ${index + 1}"
+    val channels = when (format.channelCount) {
+        1 -> "单声道"
+        2 -> "立体声"
+        6 -> "5.1"
+        8 -> "7.1"
+        else -> null
+    }
+    return if (channels != null) "$name · $channels" else name
+}
+
+private val LANGUAGE_NAMES = mapOf(
+    "chi" to "中文", "zho" to "中文", "chs" to "中文（简）", "cht" to "中文（繁）",
+    "cmn" to "国语", "yue" to "粤语", "eng" to "英语",
+    "jpn" to "日语", "kor" to "韩语", "fra" to "法语", "deu" to "德语", "spa" to "西班牙语",
+    "rus" to "俄语", "ita" to "意大利语", "por" to "葡萄牙语", "tha" to "泰语",
+)
 
 /** 控制器上挂的是不是就是这一批（mediaId 用的就是路径，所以能直接比）。 */
 private fun MediaController.holdsQueue(signature: String): Boolean {

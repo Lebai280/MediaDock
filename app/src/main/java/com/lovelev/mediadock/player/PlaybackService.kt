@@ -6,6 +6,7 @@ import androidx.media3.common.AudioAttributes
 import androidx.media3.common.C
 import androidx.media3.common.Player
 import androidx.media3.datasource.DefaultDataSource
+import androidx.media3.exoplayer.DefaultLoadControl
 import androidx.media3.exoplayer.ExoPlayer
 import androidx.media3.exoplayer.source.DefaultMediaSourceFactory
 import androidx.media3.exoplayer.trackselection.DefaultTrackSelector
@@ -65,6 +66,21 @@ class PlaybackService : MediaSessionService() {
                         .setSelectUndeterminedTextLanguage(true)
                         .build()
                 },
+            )
+            // 缓冲：**只动「卡顿后重新起播」这一档**（默认 5s → 8s）。
+            // 源是夸克经 VPS 中转（约 3MB/s），带宽一抖就会 stall/resume 来回切，
+            // 多等一点再恢复，体感比反复卡一下顺。
+            // ⚠️ 其余三档保持默认：调大 maxBufferMs 是白吃内存
+            // （60s @ 3MB/s ≈ 180MB），没有实测依据不要动。
+            .setLoadControl(
+                DefaultLoadControl.Builder()
+                    .setBufferDurationsMs(
+                        DefaultLoadControl.DEFAULT_MIN_BUFFER_MS,
+                        DefaultLoadControl.DEFAULT_MAX_BUFFER_MS,
+                        DefaultLoadControl.DEFAULT_BUFFER_FOR_PLAYBACK_MS,
+                        8_000,
+                    )
+                    .build(),
             )
             .setAudioAttributes(
                 AudioAttributes.Builder()
