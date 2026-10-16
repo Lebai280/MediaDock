@@ -2,6 +2,7 @@ package com.lovelev.mediadock.data.subtitle
 
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
+import kotlinx.coroutines.CancellationException
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.json.Json
 import okhttp3.HttpUrl.Companion.toHttpUrl
@@ -75,6 +76,8 @@ class OpenSubtitlesProvider(
         val body = execute(request)
         val parsed = try {
             JSON.decodeFromString<SearchResponse>(body)
+        } catch (e: CancellationException) {
+            throw e   // 取消要原样抛出，别当成业务失败吞掉
         } catch (e: Exception) {
             throw SubtitleException("OpenSubtitles 的响应看不懂：${e.message}", e)
         }
@@ -121,6 +124,8 @@ class OpenSubtitlesProvider(
         val body = post("login", payload, cred.apiKey, bearer = null)
         val parsed = try {
             JSON.decodeFromString<LoginResponse>(body)
+        } catch (e: CancellationException) {
+            throw e   // 取消要原样抛出，别当成业务失败吞掉
         } catch (e: Exception) {
             throw SubtitleException("OpenSubtitles 登录响应看不懂：${e.message}", e)
         }
@@ -131,6 +136,8 @@ class OpenSubtitlesProvider(
         val body = post("download", """{"file_id":$fileId,"sub_format":"srt"}""", apiKey, bearer)
         return try {
             JSON.decodeFromString<DownloadResponse>(body)
+        } catch (e: CancellationException) {
+            throw e   // 取消要原样抛出，别当成业务失败吞掉
         } catch (e: Exception) {
             throw SubtitleException("OpenSubtitles 的下载响应看不懂：${e.message}", e)
         }
@@ -155,6 +162,8 @@ class OpenSubtitlesProvider(
                     input.copyTo(out)
                     out.toByteArray()
                 }
+            } catch (e: CancellationException) {
+                throw e   // 取消要原样抛出，别当成业务失败吞掉
             } catch (e: Exception) {
                 throw SubtitleException("字幕解压失败：${e.message}", e)
             }

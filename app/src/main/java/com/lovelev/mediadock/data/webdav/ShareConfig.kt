@@ -45,14 +45,41 @@ internal object ShareConfig {
         RegexOption.IGNORE_CASE,
     )
 
-    /** 生成给朋友发的文本。 */
-    fun build(url: String, username: String, password: String, rootPath: String): String = buildString {
+    /** TMDB 凭据：`TMDB 密钥：xxx` / `tmdb api key: xxx`。值是 JWT 或 32 位 Key，`\S+` 都吃得下。 */
+    private val LABELED_TMDB = Regex(
+        """tmdb(?:\s*(?:密钥|api\s*key|key|token))?\s*[：:=]\s*(\S+)""",
+        RegexOption.IGNORE_CASE,
+    )
+
+    /**
+     * 生成给朋友发的文本。
+     *
+     * [tmdbSecret] 是**可选**的：TMDB 属于全局设置（不随数据源走），但一起发过去朋友装上就能刮削，
+     * 不用再问你一遍。没有就不写那一行。
+     */
+    fun build(
+        url: String,
+        username: String,
+        password: String,
+        rootPath: String,
+        tmdbSecret: String? = null,
+    ): String = buildString {
         appendLine("MediaDock 数据源")
         appendLine("地址：$url")
         appendLine("账号：$username")
         appendLine("密码：$password")
         if (rootPath.isNotBlank()) appendLine("根路径：$rootPath")
+        if (!tmdbSecret.isNullOrBlank()) appendLine("TMDB 密钥：$tmdbSecret")
     }
+
+    /**
+     * 从分享文本里取 TMDB 密钥（可选，取不到返回 null）。
+     *
+     * ⚠️ **只在 [parse] 认得这段文本时才该用它的结果** —— 否则剪贴板里随便一段带「tmdb」字样的
+     * 文本就会把密钥写进设置。
+     */
+    fun parseTmdb(text: String): String? =
+        LABELED_TMDB.find(text)?.groupValues?.get(1)?.trim()?.takeIf { it.isNotBlank() }
 
     /**
      * 认出一段分享文本。**地址和密码都得有**才算 —— 剪贴板里随便一个链接不该被当成配置。

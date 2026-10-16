@@ -3,6 +3,7 @@ package com.lovelev.mediadock.data.tmdb
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.withContext
+import kotlinx.coroutines.CancellationException
 import kotlinx.serialization.Serializable
 import com.lovelev.mediadock.data.Countries
 import kotlinx.serialization.json.Json
@@ -92,6 +93,8 @@ class TmdbClient(private val client: OkHttpClient) {
             )
             val dto = try {
                 JSON.decodeFromString<DetailResponse>(body)
+            } catch (e: CancellationException) {
+                throw e   // 取消要原样抛出，别当成业务失败吞掉
             } catch (e: Exception) {
                 throw TmdbException("TMDB 详情无法解析：${e.message}", e)
             }
@@ -128,6 +131,8 @@ class TmdbClient(private val client: OkHttpClient) {
         val body = readBody(requestFor(path, params, secret))
         try {
             JSON.decodeFromString<SearchResponse>(body).results
+        } catch (e: CancellationException) {
+            throw e   // 取消要原样抛出，别当成业务失败吞掉
         } catch (e: Exception) {
             throw TmdbException("TMDB 响应无法解析：${e.message}", e)
         }

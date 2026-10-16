@@ -21,6 +21,7 @@ import com.lovelev.mediadock.data.webdav.WebDavUrl
 import com.lovelev.mediadock.di.AppContainer
 import com.lovelev.mediadock.player.PlaybackService
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.CancellationException
 import okhttp3.HttpUrl
 
 /** 队列里的一条：媒体 id 必须是 [path]，进度就是按它落的库。 */
@@ -174,6 +175,8 @@ class PlayerViewModel(private val container: AppContainer) : ViewModel() {
                     subtitles.filter { MediaTypes.matchesSubtitle(videoName, it.name) }.map { it.path }
                 }
             }
+        } catch (e: CancellationException) {
+            throw e   // 取消要原样抛出，别当成业务失败吞掉
         } catch (e: Exception) {
             emptyMap()
         }

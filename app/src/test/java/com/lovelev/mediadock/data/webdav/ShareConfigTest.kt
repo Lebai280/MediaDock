@@ -93,4 +93,53 @@ class ShareConfigTest {
             ShareConfig.parse("地址：https://a.com/dav，账号：u\n密码：p")?.url,
         )
     }
+
+    // ---- TMDB 一起带（2026-10-16 加）----
+
+    @Test
+    fun `分享了 TMDB 密钥时 生成与解析都要带上`() {
+        val text = ShareConfig.build(
+            url = "https://files.example.com/dav",
+            username = "demo",
+            password = "pw-DEMO-1234",
+            rootPath = "",
+            tmdbSecret = "abdf0b0880f6d953e31f61f58a300ac5",
+        )
+        assertEquals("abdf0b0880f6d953e31f61f58a300ac5", ShareConfig.parseTmdb(text))
+    }
+
+    @Test
+    fun `没配 TMDB 时 生成不出那一行 也取不到`() {
+        val text = ShareConfig.build("https://a.com/dav", "u", "p", "")
+        assertNull(ShareConfig.parseTmdb(text))
+    }
+
+    /** 关键回归：多出来的 TMDB 行不能干扰数据源本身的解析。 */
+    @Test
+    fun `带 TMDB 行的文本 数据源照样解得对`() {
+        val text = ShareConfig.build(
+            url = "https://files.example.com/dav",
+            username = "demo",
+            password = "pw-DEMO-1234",
+            rootPath = "/movies",
+            tmdbSecret = "abdf0b0880f6d953e31f61f58a300ac5",
+        )
+        val parsed = ShareConfig.parse(text)
+        assertEquals("https://files.example.com/dav", parsed?.url)
+        assertEquals("demo", parsed?.username)
+        assertEquals("pw-DEMO-1234", parsed?.password)
+        assertEquals("/movies", parsed?.rootPath)
+    }
+
+    @Test
+    fun `两种凭据形态都认（JWT 与 32 位 Key）`() {
+        assertEquals(
+            "eyJhbGciOiJIUzI1NiJ9.eyJhdWQiOiJ4In0.sig",
+            ShareConfig.parseTmdb("TMDB 密钥：eyJhbGciOiJIUzI1NiJ9.eyJhdWQiOiJ4In0.sig"),
+        )
+        assertEquals(
+            "abdf0b0880f6d953e31f61f58a300ac5",
+            ShareConfig.parseTmdb("tmdb api key: abdf0b0880f6d953e31f61f58a300ac5"),
+        )
+    }
 }

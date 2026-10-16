@@ -108,6 +108,8 @@ class SettingsViewModel(private val container: AppContainer) : ViewModel() {
             username = it.username,
             password = it.password,
             rootPath = it.rootPath,
+            // TMDB 是全局设置、不随数据源走，但一起发过去朋友装上就能刮削，省得再问一遍
+            tmdbSecret = container.credentials.loadTmdbSecret(),
         )
     }
 

@@ -101,6 +101,7 @@ import com.lovelev.mediadock.data.tmdb.TitleParser
 import com.lovelev.mediadock.ui.formatClock
 import com.lovelev.mediadock.ui.formatSize
 import com.lovelev.mediadock.ui.nav.findActivity
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
@@ -206,6 +207,8 @@ private fun PlayerSurface(
             try {
                 mountSubtitle(controller, vm.saveSubtitle(name, bytes))
                 hint = "已挂载字幕"
+            } catch (e: CancellationException) {
+                throw e
             } catch (e: Exception) {
                 hint = e.message ?: "挂载字幕失败"
             }
@@ -463,6 +466,8 @@ private fun PlayerSurface(
                     try {
                         mountSubtitle(controller, local)
                         hint = "已挂载字幕"
+                    } catch (e: CancellationException) {
+                        throw e
                     } catch (e: Exception) {
                         hint = e.message ?: "挂载字幕失败"
                     }
@@ -1044,6 +1049,8 @@ private fun SubtitleSearchDialog(
                                         )
                                         if (results.isEmpty()) notice = "没找到，换个片名试试"
                                         Log.d(TAG, "subtitle search '$keyword' -> ${results.size}")
+                                    } catch (e: CancellationException) {
+                                        throw e
                                     } catch (e: Exception) {
                                         notice = e.message ?: "搜索失败"
                                     } finally {
@@ -1074,6 +1081,8 @@ private fun SubtitleSearchDialog(
                                                 notice = null
                                                 try {
                                                     onDownloaded(vm.downloadSubtitle(hit))
+                                                } catch (e: CancellationException) {
+                                                    throw e
                                                 } catch (e: Exception) {
                                                     notice = e.message ?: "下载失败"
                                                 } finally {

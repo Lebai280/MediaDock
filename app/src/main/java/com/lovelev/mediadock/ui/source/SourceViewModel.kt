@@ -64,7 +64,12 @@ class SourceViewModel(private val container: AppContainer) : ViewModel() {
         // 填进来等于用户改了输入：解除 401 封锁、清掉旧的成败结论
         retryBlocked = false
         state = TestState.Idle
-        sharedHint = "已填入分享配置 · ${source.url}"
+        // TMDB 是全局设置，分享文本里带了就一并存上。
+        // ⚠️ 只在上面 parse 认得这段文本时才取 —— 否则剪贴板里随便一段带「tmdb」字样的文本
+        // 就会把用户的密钥覆盖掉。
+        val tmdb = ShareConfig.parseTmdb(text.orEmpty())
+        if (tmdb != null) viewModelScope.launch { container.credentials.saveTmdbSecret(tmdb) }
+        sharedHint = "已填入分享配置 · ${source.url}" + if (tmdb != null) "（含 TMDB 密钥）" else ""
         return true
     }
 

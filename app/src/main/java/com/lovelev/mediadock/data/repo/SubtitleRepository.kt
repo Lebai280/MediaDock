@@ -7,6 +7,7 @@ import com.lovelev.mediadock.data.subtitle.SubtitleFile
 import com.lovelev.mediadock.data.subtitle.SubtitleHit
 import com.lovelev.mediadock.data.subtitle.SubtitleProvider
 import java.io.File
+import kotlinx.coroutines.CancellationException
 
 /** 落到本地的字幕文件（挂载时要用它和它的 MIME）。 */
 data class LocalSubtitle(val file: File, val mimeType: String)
@@ -42,6 +43,8 @@ class SubtitleRepository(
     suspend fun download(hit: SubtitleHit): LocalSubtitle {
         val file = try {
             active.download(hit)
+        } catch (e: CancellationException) {
+            throw e   // 取消要原样抛出，别当成业务失败吞掉
         } catch (e: Exception) {
             throw e
         }
@@ -63,6 +66,8 @@ class SubtitleRepository(
         val target = File(directory, "$stem.$ext")
         try {
             target.writeBytes(bytes)
+        } catch (e: CancellationException) {
+            throw e   // 取消要原样抛出，别当成业务失败吞掉
         } catch (e: Exception) {
             throw SubtitleException("字幕存不下来：${e.message}", e)
         }

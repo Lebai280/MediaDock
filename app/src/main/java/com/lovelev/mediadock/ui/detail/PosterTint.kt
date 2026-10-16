@@ -4,6 +4,7 @@ import android.graphics.BitmapFactory
 import androidx.compose.ui.graphics.Color
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
+import kotlinx.coroutines.CancellationException
 import okhttp3.OkHttpClient
 import okhttp3.Request
 
@@ -28,12 +29,16 @@ internal object PosterTint {
                     if (!resp.isSuccessful) return@withContext null
                     resp.body.bytes()
                 }
+            } catch (e: CancellationException) {
+                throw e   // 取消要原样抛出，别当成业务失败吞掉
             } catch (e: Exception) {
                 return@withContext null
             }
 
             val bitmap = try {
                 BitmapFactory.decodeByteArray(bytes, 0, bytes.size) ?: return@withContext null
+            } catch (e: CancellationException) {
+                throw e   // 取消要原样抛出，别当成业务失败吞掉
             } catch (e: Exception) {
                 return@withContext null
             }

@@ -2,6 +2,7 @@ package com.lovelev.mediadock.data.webdav
 
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
+import kotlinx.coroutines.CancellationException
 import okhttp3.HttpUrl
 import okhttp3.MediaType.Companion.toMediaType
 import okhttp3.OkHttpClient
@@ -62,6 +63,8 @@ class WebDavClient(private val client: OkHttpClient) {
                         }
                     } catch (e: WebDavException) {
                         throw e
+                    } catch (e: CancellationException) {
+                        throw e   // 取消要原样抛出，别当成业务失败吞掉
                     } catch (e: Exception) {
                         throw WebDavException.Malformed(e.message ?: e::class.java.simpleName)
                     }
