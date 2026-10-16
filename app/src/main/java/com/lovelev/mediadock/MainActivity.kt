@@ -4,6 +4,7 @@ import android.os.Bundle
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
+import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.RowScope
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.padding
@@ -46,6 +47,8 @@ import com.lovelev.mediadock.ui.library.LibraryViewModel
 import com.lovelev.mediadock.ui.nav.PlayerImmersive
 import com.lovelev.mediadock.ui.nav.PlayerOrientation
 import com.lovelev.mediadock.ui.nav.Routes
+import com.lovelev.mediadock.ui.player.MiniPlayerBar
+import com.lovelev.mediadock.ui.player.NowPlayingViewModel
 import com.lovelev.mediadock.ui.player.PlayerScreen
 import com.lovelev.mediadock.ui.player.PlayerViewModel
 import com.lovelev.mediadock.ui.settings.SettingsScreen
@@ -103,6 +106,14 @@ private fun HomeScaffold(
     val currentRoute = entry?.destination?.route
     val onTab = TABS.any { it.first == currentRoute }
 
+    // 迷你播放条挂在外壳上（活动级），不会因为进出播放页被清掉。
+    // 播放页自己不显示它 —— 那里整屏都在播，再挂一条是多余的。
+    val nowPlaying: NowPlayingViewModel =
+        viewModel(factory = NowPlayingViewModel.factory(container))
+    val showMini = currentRoute != null &&
+        currentRoute != Routes.PLAYER &&
+        currentRoute != Routes.ADD_SOURCE
+
     // 播放页自动横屏、离开时还回系统（见 PlayerOrientation 里的注释，别挪回播放页里）
     PlayerOrientation(currentRoute)
     PlayerImmersive(currentRoute)
@@ -110,12 +121,25 @@ private fun HomeScaffold(
     Scaffold(
         modifier = Modifier.fillMaxSize(),
         bottomBar = {
-            if (onTab) {
-                // 覆盖 M3 默认：它默认的 secondaryContainer 是淡紫的，跟柠檬绿不搭；
-                // 选中态改成淡柠檬绿胶囊 + 深色字（浅色主题下才读得清）。
-                NavigationBar(containerColor = MaterialTheme.colorScheme.surface) {
-                    TABS.forEach { (route, label, icon) ->
-                        TabItem(route, label, icon, currentRoute, navController)
+            Column {
+                if (showMini) {
+                    MiniPlayerBar(
+                        vm = nowPlaying,
+                        onOpen = {
+                            // 进程被杀过的话 playbackSelection 是空的（它只在内存里）——
+                            // 先从控制器把队列读回来，否则播放页会显示「没有选中要播放的文件」
+                            nowPlaying.syncSelection()
+                            navController.navigate(Routes.PLAYER)
+                        },
+                    )
+                }
+                if (onTab) {
+                    // 覆盖 M3 默认：它默认的 secondaryContainer 是淡紫的，跟柠檬绿不搭；
+                    // 选中态改成淡柠檬绿胶囊 + 深色字（浅色主题下才读得清）。
+                    NavigationBar(containerColor = MaterialTheme.colorScheme.surface) {
+                        TABS.forEach { (route, label, icon) ->
+                            TabItem(route, label, icon, currentRoute, navController)
+                        }
                     }
                 }
             }

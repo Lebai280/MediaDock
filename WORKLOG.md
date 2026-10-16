@@ -1268,6 +1268,55 @@ lock tapped / unlock tapped
 发版页（`E:\code\portal\mediadock\`）上三处硬编码版本号与「版本历史」也已更新 ——
 **这就是那个「下次发版别忘」清单第一次实跑，照着走没漏。**
 
+### 0.3.2 · 取消不再误报 + 分享带上 TMDB（2026-10-16）
+
+**坑 63：`catch (e: Exception)` 会把 `CancellationException` 一起吃下去。**
+只要它在协程里，`cancelScan` / `cancelScrape` / 取消字幕搜索就**不会干净地取消**，
+而是被转成一条「网络错误 / 搜索失败」的业务失败。全项目扫出 18 处，其中 **16 处在协程路径上**，
+都补了 `catch (e: CancellationException) { throw e }` 再落到原来的 `catch (e: Exception)`。
+另 2 处（`PixelCopy` 截图、存相册）不在协程里，保持原样。
+> 判据：**这个 try 里有没有挂起调用**。有才需要这层，无谓地加只会让代码变吵。
+
+**分享配置带上 TMDB**：生成时多一行 `TMDB 密钥：xxx`，朋友那边在「添加数据源」自动识别时一并存进设置。
+⚠️ **只在 `parse()` 认得这是分享配置时才取 TMDB** —— 否则剪贴板里随便一段带「tmdb」字样的文本
+就会把用户的密钥覆盖掉。单测锁了这条，另加一条「多出来的行不能干扰地址/账号/密码的解析」的回归。
+（69 → 73 条）
+
+**顺手修的**：`gradle.properties` 里写死的 `org.gradle.java.home` 去掉了 —— 那是机器相关路径，
+留着 Linux CI 直接构建不了。本机的指向挪到用户级 `$GRADLE_USER_HOME/gradle.properties`。
+
+### 0.3.3 · 迷你播放条（2026-10-16）
+
+**坑 64：外壳加常驻控件，不能复用播放页那个 MediaController。**
+播放页的 `PlayerViewModel.onCleared()` 就是「离开播放页就暂停」的触发点（用户明确要的行为，见坑 37）。
+把那个控制器挪到外壳复用会让它失去触发点。→ 新建 `NowPlayingViewModel`（**外壳级，活动作用域**）
+自己连一个 MediaController；两个控制器连的是同一个 MediaSession，谁按暂停都真的暂停。
+`onCleared()` 里**只放开控制器、不暂停** —— 那是界面没了（退到后台继续放才是要的功能）。
+
+**顺手修掉一个老限制**：`PlaybackSelection` 只活在内存里，进程被杀后再进播放页会看到
+「没有选中要播放的文件」（原注释写着「可接受」）。现在点迷你条会先
+`syncSelection()` 从控制器把队列读回来，这条路通了。
+
+**验证**（`uiautomator dump`，非截图）：浏览页播一个文件 → 返回 → 底部出现
+`标题 + 已暂停 + 播放/停止` 三个节点；**「已暂停」同时证明坑 37 那条行为没被破坏**。
+另：首次返回没生效（当时正在旋回竖屏），再按一次才退出来 —— 属操作时序，不是缺陷。
+
+### CI（2026-10-16 接入）
+
+`.github/workflows/build.yml`：**推 master 就跑**（装 android-37.2 平台 → 从 secrets 还原 keystore →
+单测 → `assembleRelease` → 上传产物），**打 `v*` tag 额外 `gh release create`**。
+
+- 签名密钥以 **base64 存在仓库 secret**：`ANDROID_KEYSTORE_BASE64` / `ANDROID_STORE_PASSWORD` /
+  `ANDROID_KEY_PASSWORD` / `ANDROID_KEY_ALIAS`。除了省掉手工发版，**顺带是本机那份 keystore 的异地冗余**
+  （本机丢了就永久不能再更新这个 App —— 见「换成正式签名」那节）。
+- CI 复用现有的读取方式：把 4 个键写进 `local.properties`，**build.gradle.kts 一个字没改**。
+- **坑 65：`compileSdk = 37` + `compileSdkMinor = 2` 的平台目录叫 `android-37.2`，runner 上没预装**，
+  得 `sdkmanager --install "platforms;android-37.2"`（build-tools 同理）。
+- **坑 66：`gradlew` 从 Windows 提交会丢可执行位**，CI 上直接 `Permission denied`（17 秒就红）。
+  修法是 `git update-index --chmod=+x gradlew` —— **别在 CI 里打 `chmod` 补丁**，那样对克隆的人也还是坏的。
+- **验证**：CI 跑通 8m38s，下载它产出的 APK，`apksigner` 报 `CN=MediaDock, O=lovelev, C=CN`
+  且证书指纹与本地构建一致 —— 确认 CI 出的是**真签名包**，不是没签名的半成品。
+
 ### ⚠️ 诊断教训：`dumpsys media_session` 里混着别的 App 的会话
 
 **这一条值得单独记，因为它让我误判了整件事**：

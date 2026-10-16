@@ -67,15 +67,15 @@ cd /e/code/MediaDock && export JAVA_HOME="E:\code\tools\jdk21" && export GRADLE_
 
 ## 下一步（按优先级）
 
-1. **已发布 `0.3.1`（versionCode 4）**（2026-10-16）。站点
-   `/var/www/portal/mediadock/` 有 `version.json` + `MediaDock-0.3.1.apk` +
-   **发版落地页**（<https://lovelev.eu.cc/mediadock/>，沿用星屿设计系统，二维码指向该页）。
-   更新链路（发现新版本 → 下载 → 装 → 已是最新）在 0.2.0→0.3.0 那一轮已真机验通。
-   沿革：0.3.0 = 首个正式签名版；0.3.1 = 播放页控件加渐变压暗（见 WORKLOG 坑 62）。
-   **下次发版**：bump `versionCode`/`versionName` → `./gradlew :app:assembleRelease` →
-   传同目录 → 同步改 `version.json`（`versionCode` **只增不减**），
-   并把发版页上**三处硬编码的版本号**（hero 的「最新 x.y.z」、下载卡的版本号与文件名、
-   「版本历史」那一段）一起更新。落地页的做法与坑见 `E:\code\portal\WORKLOG.md`。
+1. **当前 `0.3.3`（versionCode 6）**，已装真机；**站点上发的是 `0.3.2`**。
+   沿革：0.3.0 = 首个正式签名版；0.3.1 = 播放页控件加渐变压暗（坑 62）；
+   0.3.2 = 取消不再误报 + 分享带上 TMDB（坑 63）；0.3.3 = 迷你播放条（坑 64）。
+   **已经接入 CI**（`.github/workflows/build.yml`，见 WORKLOG「CI」那节）：推 master 自动跑单测 + 出签名包，
+   打 `v*` tag 自动发 Release —— **手工发版只剩「传站点 + 改发版页」**。
+   **发版流程**：bump `versionCode`/`versionName` → push（CI 会构建并验证）→
+   把 `app/build/outputs/apk/release/app-release.apk` 传到 `/var/www/portal/mediadock/` →
+   改 `version.json` → 改发版页上**三处硬编码版本号**与「版本历史」。
+   `versionCode` **只增不减**。落地页做法见 `E:\code\portal\WORKLOG.md`；
    release 签名配置见 WORKLOG「换成正式签名」那节（keystore 在仓库外，**要备份，丢了就不能再更新**）。
 2. ~~手机上需要用户重填凭据~~ ✅ **已完成**（2026-10-16）：WebDAV 与 TMDB 凭据都已填回，
    浏览器里实测过浏览目录、详情页（TMDB 刮削数据在）、播放（position 在走）、内嵌双语字幕渲染。
