@@ -31,15 +31,18 @@ interface MediaDao {
     suspend fun deleteAll()
 
     /**
-     * 只删某一半。库里现在同时装 WebDAV 和本地两个来源（见 [LocalMedia]），
-     * 扫描是「整批替换」，所以**不能再用 [deleteAll]** —— 那会把另一半也扫掉。
-     * 前缀只可能是 `local/`，不含 LIKE 的通配符，所以直接拼。
+     * 只删本地那一半（SAF 条目 + 系统媒体库条目）。
+     *
+     * 库里同时装三种来源（见 [LocalMedia]），扫描是「整批替换」，所以**不能再用 [deleteAll]** ——
+     * 那会把别的来源也扫掉。两个 LIKE 模式由 [LocalMedia.SAF_LIKE] / [LocalMedia.CONTENT_LIKE] 给，
+     * 都不含 SQL 通配符，直接拼安全。
      */
-    @Query("DELETE FROM media_items WHERE path LIKE :prefix || '%'")
-    suspend fun deleteWherePathStartsWith(prefix: String)
+    @Query("DELETE FROM media_items WHERE path LIKE :safLike OR path LIKE :contentLike")
+    suspend fun deleteLocalItems(safLike: String, contentLike: String)
 
-    @Query("DELETE FROM media_items WHERE path NOT LIKE :prefix || '%'")
-    suspend fun deleteWherePathNotStartsWith(prefix: String)
+    /** WebDAV 那一半：既不是 SAF 也不是媒体库的。 */
+    @Query("DELETE FROM media_items WHERE path NOT LIKE :safLike AND path NOT LIKE :contentLike")
+    suspend fun deleteWebDavItems(safLike: String, contentLike: String)
 
     @Query(
         """

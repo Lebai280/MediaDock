@@ -53,7 +53,34 @@ class LocalMediaTest {
     @Test
     fun `前缀本身是本地条目的合法路径`() {
         // decode 出来是空串 —— 树根，不该当成「不是本地条目」
-        assertTrue(LocalMedia.isLocal(LocalMedia.PREFIX))
-        assertEquals("", LocalMedia.decode(LocalMedia.PREFIX))
+        assertTrue(LocalMedia.isLocal(LocalMedia.SAF_PREFIX))
+        assertEquals("", LocalMedia.decode(LocalMedia.SAF_PREFIX))
+    }
+
+    // ---- 系统媒体库那条路（2026-10-16 加）----
+
+    @Test
+    fun `媒体库的 URI 也算本地条目 但不该被当成 SAF 路径`() {
+        val uri = "content://media/external/video/media/12345"
+        assertTrue(LocalMedia.isLocal(uri))
+        assertTrue(LocalMedia.isContentUri(uri))
+        // decode 只对 SAF 那条有意义；媒体库的 URI 本身就是地址，没有「相对路径」可言
+        assertNull(LocalMedia.decode(uri))
+    }
+
+    @Test
+    fun `toStoredPath —— SAF 加前缀 媒体库原样存`() {
+        assertEquals("local/a/b.mp4", LocalMedia.toStoredPath("a/b.mp4"))
+        val uri = "content://media/external/video/media/12345"
+        assertEquals(uri, LocalMedia.toStoredPath(uri))
+    }
+
+    @Test
+    fun `WebDAV 路径两个 LIKE 模式都不匹配`() {
+        // 这条最要紧：按前缀删的时候，WebDAV 条目不能被误删
+        val webdav = "【新海诚】/秒速五厘米.mp4"
+        assertFalse(webdav.startsWith(LocalMedia.SAF_PREFIX))
+        assertFalse(webdav.startsWith(LocalMedia.CONTENT_SCHEME))
+        assertFalse(LocalMedia.isLocal(webdav))
     }
 }

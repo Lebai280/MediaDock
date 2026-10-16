@@ -2,6 +2,13 @@
 <manifest xmlns:android="http://schemas.android.com/apk/res/android">
 
     <uses-permission android:name="android.permission.INTERNET" />
+
+    <!-- 扫系统媒体库（本地媒体）。Android 13+ 用 READ_MEDIA_VIDEO；
+         12 及以下只有 READ_EXTERNAL_STORAGE，用 maxSdkVersion 收窄。 -->
+    <uses-permission android:name="android.permission.READ_MEDIA_VIDEO" />
+    <uses-permission
+        android:name="android.permission.READ_EXTERNAL_STORAGE"
+        android:maxSdkVersion="32" />
     <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
     <!-- 后台播放：服务要以 mediaPlayback 类型转前台，API 34+ 还要类型专属权限；
          API 33+ 的通知权限是运行时申请（见 PlayerScreen） -->

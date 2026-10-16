@@ -1,5 +1,9 @@
 package com.lovelev.mediadock.ui.settings
 
+import androidx.core.content.ContextCompat
+import android.os.Build
+import android.content.pm.PackageManager
+import android.Manifest
 import android.content.Intent
 import android.net.Uri
 import android.provider.DocumentsContract
@@ -11,6 +15,7 @@ import androidx.lifecycle.ViewModelProvider
 import androidx.lifecycle.viewModelScope
 import androidx.lifecycle.viewmodel.initializer
 import androidx.lifecycle.viewmodel.viewModelFactory
+import com.lovelev.mediadock.data.repo.ScanState
 import com.lovelev.mediadock.BuildConfig
 import com.lovelev.mediadock.data.subtitle.OpenSubtitlesCredentials
 import com.lovelev.mediadock.data.update.UpdateManifest
@@ -81,6 +86,24 @@ class SettingsViewModel(private val container: AppContainer) : ViewModel() {
             sourceHost = savedSource?.let { WebDavUrl.parse(it.url)?.host }.orEmpty()
             localFolderLabel = container.credentials.loadLocalTree().orEmpty().let(::friendlyFolderName)
         }
+        // 提示跟着**扫描状态**走，别写死一句「正在…」就不管了 ——
+        // 之前就是这么写的，扫完了那句还在，看着像卡住了。
+        viewModelScope.launch {
+            container.library.scan.collect { state ->
+                localHint = when (state) {
+                    is ScanState.Running ->
+                        if (state.files > 0) "正在扫描…已找到 ${state.files} 个" else "正在扫描…"
+
+                    is ScanState.Done ->
+                        "已扫到 ${state.files} 个视频" +
+                            if (state.truncated) "（达到上限，可能不完整）" else ""
+
+                    is ScanState.Failed -> state.message
+                    // Idle：不动提示，别把刚扫完的结果擦掉
+                    ScanState.Idle -> localHint
+                }
+            }
+        }
     }
 
     /**
@@ -88,6 +111,39 @@ class SettingsViewModel(private val container: AppContainer) : ViewModel() {
      *
      * 不 take 的话只在本次进程有效，重启后那棵树就打不开了 —— 表现是「扫过一次，下次全没了」。
      */
+    /**
+     * 扫系统媒体库。**这是本地媒体的推荐入口** —— 一次权限弹窗就够，不用用户去找文件夹，
+     * 而且整库一次查询就回来了（SAF 逐目录遍历慢得多）。
+     *
+     * 权限由界面那边先申请好再调这里（申请要 Activity 结果，只能在 composable 里发起）。
+     */
+    fun scanMediaStore() {
+        viewModelScope.launch {
+            localHint = "正在读系统媒体库…"
+            container.library.startMediaStore()
+        }
+    }
+
+    /** 扫媒体库要的权限：13+ 是 `READ_MEDIA_VIDEO`，再往下只有 `READ_EXTERNAL_STORAGE`。 */
+    fun mediaPermission(): String =
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+            Manifest.permission.READ_MEDIA_VIDEO
+        } else {
+            Manifest.permission.READ_EXTERNAL_STORAGE
+        }
+
+    fun hasMediaPermission(): Boolean =
+        ContextCompat.checkSelfPermission(container.appContext, mediaPermission()) ==
+            PackageManager.PERMISSION_GRANTED
+
+    fun noteMediaPermissionDenied() {
+        localHint = "没有视频权限就读不了系统媒体库 —— 也可以改用「指定文件夹」"
+    }
+
+    fun clearLocalHint() {
+        localHint = null
+    }
+
     fun onLocalFolderPicked(uri: Uri) {
         viewModelScope.launch {
             val taken = runCatching {

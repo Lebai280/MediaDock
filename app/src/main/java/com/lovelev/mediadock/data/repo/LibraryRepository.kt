@@ -1,7 +1,9 @@
 package com.lovelev.mediadock.data.repo
 
 import android.net.Uri
+import android.os.SystemClock
 import androidx.room.withTransaction
+import com.lovelev.mediadock.data.local.MediaStoreScanner
 import com.lovelev.mediadock.data.log.AppLog
 import com.lovelev.mediadock.data.local.LocalScanner
 import com.lovelev.mediadock.data.local.LocalMedia
@@ -81,6 +83,7 @@ class LibraryRepository(
     private val tmdb: TmdbClient,
     private val credentials: SecureCredentialStore,
     private val localScanner: LocalScanner,
+    private val mediaStoreScanner: MediaStoreScanner,
 ) {
 
     /** 应用作用域：扫描不跟着页面走，退出媒体库页/旋屏都不会把它打断。 */
@@ -232,8 +235,8 @@ class LibraryRepository(
 
                 db.withTransaction {
                     val dao = db.mediaDao()
-                    // **不是 deleteAll**：库里还有本地媒体那一半，一起删会把它们扫掉
-                    dao.deleteWherePathNotStartsWith(LocalMedia.PREFIX)
+                    // **不是 deleteAll**：库里还有本地媒体那两半，一起删会把它们扫掉
+                    dao.deleteWebDavItems(LocalMedia.SAF_LIKE, LocalMedia.CONTENT_LIKE)
                     dao.insertAll(found)
                 }
                 _scan.value = ScanState.Done(files = found.size, truncated = truncated)
@@ -281,9 +284,14 @@ class LibraryRepository(
 
         scanJob = scope.launch {
             _scan.value = ScanState.Running(directories = 0, files = 0)
+            val started = SystemClock.elapsedRealtime()
             val outcome = localScanner.scan(treeUri) { dirs, files ->
                 _scan.value = ScanState.Running(directories = dirs, files = files)
             }
+            AppLog.d(
+                "scan",
+                "文件夹扫描: ${outcome.files.size} 个，用时 ${SystemClock.elapsedRealtime() - started}ms",
+            )
 
             // 取消：不写库，保留上一次的完整结果
             if (!isActive) return@launch
@@ -296,7 +304,7 @@ class LibraryRepository(
             val entities = outcome.files.map { it.toEntity() }
             db.withTransaction {
                 val dao = db.mediaDao()
-                dao.deleteWherePathStartsWith(LocalMedia.PREFIX)
+                dao.deleteLocalItems(LocalMedia.SAF_LIKE, LocalMedia.CONTENT_LIKE)
                 dao.insertAll(entities)
             }
             _scan.value = ScanState.Done(files = entities.size, truncated = outcome.truncated)
@@ -304,19 +312,53 @@ class LibraryRepository(
     }
 
     /**
-     * 只清本地媒体那一半。`clearLibrary()` 是「清空媒体库」（两半都清），
+     * 扫**系统媒体库**（MediaStore）。**不用用户去找文件夹**，一次权限弹窗就够 ——
+     * 这是本地媒体的推荐入口，理由见 [MediaStoreScanner] 的注释（快、不用选、URI 稳定）。
+     *
+     * 与 SAF 那条**互斥**：跑之前先清掉本地那一半，免得同一个文件被两种方式各扫进来一份。
+     */
+    fun startMediaStore() {
+        if (scanJob?.isActive == true) return
+        if (scrapeJob?.isActive == true) return
+
+        scanJob = scope.launch {
+            _scan.value = ScanState.Running(directories = 0, files = 0)
+            val started = SystemClock.elapsedRealtime()
+            val outcome = mediaStoreScanner.scan { files ->
+                _scan.value = ScanState.Running(directories = 0, files = files)
+            }
+            AppLog.d("scan", "媒体库扫描: ${outcome.files.size} 个，用时 ${SystemClock.elapsedRealtime() - started}ms")
+
+            if (!isActive) return@launch
+
+            if (!outcome.readable) {
+                _scan.value = ScanState.Failed("读不了系统媒体库，检查一下视频权限", blocked = false)
+                return@launch
+            }
+
+            val entities = outcome.files.map { it.toEntity() }
+            db.withTransaction {
+                val dao = db.mediaDao()
+                dao.deleteLocalItems(LocalMedia.SAF_LIKE, LocalMedia.CONTENT_LIKE)
+                dao.insertAll(entities)
+            }
+            _scan.value = ScanState.Done(files = entities.size, truncated = outcome.truncated)
+        }
+    }
+
+    /**
+     * 只清本地媒体那一半。`clearLibrary()` 是「清空媒体库」（三半都清），
      * 这个只用在「移除本地文件夹」上 —— WebDAV 那边一根汗毛都不动。
      */
     suspend fun clearLocalItems() {
-        db.mediaDao().deleteWherePathStartsWith(LocalMedia.PREFIX)
+        db.mediaDao().deleteLocalItems(LocalMedia.SAF_LIKE, LocalMedia.CONTENT_LIKE)
     }
 
     /** 和 WebDAV 条目走同一个解析器 —— 所以本地文件扫进来也有像样的片名和海报墙。 */
     private fun LocalFile.toEntity(): MediaItemEntity {
-        val folderName = relativePath.substringBeforeLast('/', "").substringAfterLast('/')
         val parsed = TitleParser.parse(fileName = name, folderName = folderName)
         return MediaItemEntity(
-            path = LocalMedia.encode(relativePath),
+            path = LocalMedia.toStoredPath(key),
             name = name,
             sizeBytes = sizeBytes,
             // 实体里这列是 String?（WebDAV 那边存的是 RFC1123 字符串）。

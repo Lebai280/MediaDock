@@ -78,6 +78,11 @@ fun SettingsScreen(
         ActivityResultContracts.OpenDocumentTree(),
     ) { uri -> uri?.let(vm::onLocalFolderPicked) }
 
+    // 扫系统媒体库要的运行时权限（13+ / 12- 是两个不同的权限名，见 vm.mediaPermission）
+    val askMediaPermission = rememberLauncherForActivityResult(
+        ActivityResultContracts.RequestPermission(),
+    ) { granted -> if (granted) vm.scanMediaStore() else vm.noteMediaPermissionDenied() }
+
     Column(
         modifier = modifier
             .fillMaxSize()
@@ -103,9 +108,30 @@ fun SettingsScreen(
                 )
             }
             HorizontalDivider()
-            // 本地媒体：选一个文件夹扫进库。和 WebDAV 是两个独立来源，各扫各的、互不覆盖。
+            // 本地媒体。**推荐走系统媒体库** —— 一次权限弹窗就够，不用用户去一层层找文件夹，
+            // 而且整库一次查询就回来了（SAF 逐目录遍历慢得多）。「指定文件夹」留给媒体库看不到的场景。
             Text(
-                text = if (vm.localFolderLabel.isBlank()) "添加本地文件夹…" else "本地媒体 · ${vm.localFolderLabel}",
+                text = "扫描系统媒体库",
+                style = MaterialTheme.typography.bodyLarge,
+                color = MaterialTheme.colorScheme.onSurface,
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .clickable {
+                        if (vm.hasMediaPermission()) {
+                            vm.scanMediaStore()
+                        } else {
+                            askMediaPermission.launch(vm.mediaPermission())
+                        }
+                    }
+                    .padding(horizontal = 16.dp, vertical = 14.dp),
+            )
+            HorizontalDivider()
+            Text(
+                text = if (vm.localFolderLabel.isBlank()) {
+                    "指定文件夹…"
+                } else {
+                    "文件夹 · ${vm.localFolderLabel}"
+                },
                 style = MaterialTheme.typography.bodyLarge,
                 color = MaterialTheme.colorScheme.onSurface,
                 modifier = Modifier

@@ -174,6 +174,8 @@ class PlayerViewModel(private val container: AppContainer) : ViewModel() {
      * SAF 的 document URI 依赖那次授权拿到的树，存下来重启就会失效（见 [LocalMedia]）。
      */
     private suspend fun resolveUrl(path: String, root: HttpUrl?): String? {
+        // 系统媒体库的条目存的就是它自己的 content:// URI —— 跨重启稳定，直接当地址用
+        if (LocalMedia.isContentUri(path)) return path
         val relative = LocalMedia.decode(path)
         if (relative != null) {
             val tree = container.credentials.loadLocalTree() ?: return null

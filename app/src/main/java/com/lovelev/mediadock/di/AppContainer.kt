@@ -2,6 +2,7 @@ package com.lovelev.mediadock.di
 
 import android.content.Context
 import androidx.room.Room
+import com.lovelev.mediadock.data.local.MediaStoreScanner
 import com.lovelev.mediadock.data.local.LocalScanner
 import com.lovelev.mediadock.data.local.MediaDatabase
 import com.lovelev.mediadock.data.prefs.SecureCredentialStore
@@ -89,7 +90,10 @@ class AppContainer(context: Context) {
     }
 
     val library: LibraryRepository by lazy {
-        LibraryRepository(database, webDavClient, tmdbClient, credentials, LocalScanner(appContext))
+        LibraryRepository(
+            database, webDavClient, tmdbClient, credentials,
+            LocalScanner(appContext), MediaStoreScanner(appContext),
+        )
     }
 
     val progress: ProgressRepository by lazy { ProgressRepository(database) }
