@@ -6,7 +6,9 @@ import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.RowScope
+import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Favorite
@@ -29,6 +31,7 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.unit.dp
 import androidx.lifecycle.viewmodel.compose.viewModel
 import androidx.navigation.NavHostController
 import androidx.navigation.compose.NavHost
@@ -121,6 +124,9 @@ private fun HomeScaffold(
     Scaffold(
         modifier = Modifier.fillMaxSize(),
         bottomBar = {
+            // 尺寸对齐 NagoMusic：底栏 56dp + 迷你条 52dp + 缝 6dp + 离底 6dp。
+            // M3 的 NavigationBar 默认 80dp（内部是 defaultMinSize，所以外面给 .height 能压下来），
+            // 80 在手机上明显偏高。
             Column {
                 if (showMini) {
                     MiniPlayerBar(
@@ -132,15 +138,20 @@ private fun HomeScaffold(
                             navController.navigate(Routes.PLAYER)
                         },
                     )
+                    Spacer(Modifier.height(6.dp))
                 }
                 if (onTab) {
                     // 覆盖 M3 默认：它默认的 secondaryContainer 是淡紫的，跟柠檬绿不搭；
                     // 选中态改成淡柠檬绿胶囊 + 深色字（浅色主题下才读得清）。
-                    NavigationBar(containerColor = MaterialTheme.colorScheme.surface) {
+                    NavigationBar(
+                        containerColor = MaterialTheme.colorScheme.surface,
+                        modifier = Modifier.height(56.dp),
+                    ) {
                         TABS.forEach { (route, label, icon) ->
                             TabItem(route, label, icon, currentRoute, navController)
                         }
                     }
+                    Spacer(Modifier.height(6.dp))
                 }
             }
         },

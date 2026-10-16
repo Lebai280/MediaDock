@@ -71,7 +71,8 @@ fun MiniPlayerBar(
             Row(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .height(52.dp)
+                    // 50 + 上面那条 2dp 进度 = 52dp 整条，与 NagoMusic 的迷你条同高
+                    .height(50.dp)
                     // 点条身进播放页；按钮是子节点，先拿到事件，不会被这里抢走
                     .clickable(onClick = onOpen)
                     .padding(horizontal = 4.dp),

@@ -305,7 +305,9 @@ private fun StickyBar(
     Row(
         modifier = Modifier
             .fillMaxWidth()
-            .padding(start = 12.dp, end = 8.dp, top = 8.dp, bottom = 6.dp),
+            // 吸顶栏整体压到 38 + 6 + 4 = 48dp（原来 40 + 8 + 6 = 54）。
+            // 38dp 这个高度是对齐 NagoMusic 的搜索框。
+            .padding(start = 12.dp, end = 8.dp, top = 6.dp, bottom = 4.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
         Surface(
@@ -319,7 +321,7 @@ private fun StickyBar(
                     MaterialTheme.colorScheme.outlineVariant
                 },
             ),
-            modifier = Modifier.weight(1f).height(40.dp),
+            modifier = Modifier.weight(1f).height(38.dp),
         ) {
             Row(verticalAlignment = Alignment.CenterVertically) {
                 Icon(
