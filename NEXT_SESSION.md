@@ -67,17 +67,20 @@ cd /e/code/MediaDock && export JAVA_HOME="E:\code\tools\jdk21" && export GRADLE_
 
 ## 下一步（按优先级）
 
-1. **当前 `0.3.3`（versionCode 6）**，已装真机；**站点上发的是 `0.3.2`**。
-   沿革：0.3.0 = 首个正式签名版；0.3.1 = 播放页控件加渐变压暗（坑 62）；
-   0.3.2 = 取消不再误报 + 分享带上 TMDB（坑 63）；0.3.3 = 迷你播放条（坑 64）。
-   **已经接入 CI**（`.github/workflows/build.yml`，见 WORKLOG「CI」那节）：推 master 自动跑单测 + 出签名包，
-   打 `v*` tag 自动发 Release —— **手工发版只剩「传站点 + 改发版页」**。
-   **发版流程**：bump `versionCode`/`versionName` → push（CI 会构建并验证）→
-   把 `app/build/outputs/apk/release/app-release.apk` 传到 `/var/www/portal/mediadock/` →
-   改 `version.json` → 改发版页上**三处硬编码版本号**与「版本历史」。
-   `versionCode` **只增不减**。落地页做法见 `E:\code\portal\WORKLOG.md`；
-   release 签名配置见 WORKLOG「换成正式签名」那节（keystore 在仓库外，**要备份，丢了就不能再更新**）。
-2. ~~手机上需要用户重填凭据~~ ✅ **已完成**（2026-10-16）：WebDAV 与 TMDB 凭据都已填回，
+1. **当前 `0.3.7`（versionCode 10）**，已装真机；**站点上发的是 `0.3.2`**（落后 5 个版本）。
+   沿革：0.3.0 首个正式签名版 · 0.3.1 播放页压暗 · 0.3.2 取消不再误报 + 分享带 TMDB ·
+   0.3.3 迷你播放条 · 0.3.4 底栏/搜索栏压到 NagoMusic 尺寸 · 0.3.5 **音轨切换**（顺带修了
+   坑 67：`onTracksChanged` 不补发，连累字幕菜单）· 0.3.6 **本地媒体扫描** ·
+   0.3.7 **日志落盘 + 运行日志页**。详见 WORKLOG 各节。
+   **已接入 CI**：推 master 自动跑单测 + 出签名包，打 `v*` tag 自动发 Release ——
+   手工发版只剩「传站点 + 改发版页 + 改 version.json」。
+   **发版流程**：bump `versionCode`/`versionName` → push → 传 APK 到
+   `/var/www/portal/mediadock/` → 改 `version.json` → 改发版页三处硬编码版本号与「版本历史」。
+   `versionCode` **只增不减**。keystore 在仓库外（**要备份，丢了就不能再更新**），
+   CI 里也存了一份 base64（兼作异地冗余）。
+2. ⚠️ **本地媒体那一段没验完**：「选文件夹 → 扫描 → 播放」这条链**没法自动化**
+   （SAF 选择器吃不下 adb 注入点击，坑 56），要用户自己在手机上点一次。见 WORKLOG「0.3.6」。
+3. ~~手机上需要用户重填凭据~~ ✅ **已完成**（2026-10-16）：WebDAV 与 TMDB 凭据都已填回，
    浏览器里实测过浏览目录、详情页（TMDB 刮削数据在）、播放（position 在走）、内嵌双语字幕渲染。
    媒体库 106 条完整保住，没有重扫。凭据因由见 WORKLOG 坑 60。
 3. **等用户配合的两项**：本地字幕挂载（手机上 ⋯→字幕→从本地文件加载…，测试字幕在
