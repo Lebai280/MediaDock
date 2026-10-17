@@ -1,5 +1,6 @@
 package com.lovelev.mediadock.ui.history
 
+import androidx.compose.runtime.setValue
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
@@ -63,6 +64,33 @@ fun HistoryScreen(
     val items by container.library.items.collectAsState(initial = emptyList())
     val byPath: Map<String, MediaItemEntity> = items.associateBy { it.path }
 
+    // 媒体库查不到的条目（历史比库老、或库里已经重扫过）要有个像样的标题。
+    // `content://media/.../12345` 的最后一段是**数字 id**，直接拿来当标题就是一行乱码般的数字 ——
+    // 所以这里一次性把它们的显示名从 ContentResolver 查出来（不在每行 composition 里查）。
+    val context = androidx.compose.ui.platform.LocalContext.current
+    var resolvedNames by androidx.compose.runtime.remember { androidx.compose.runtime.mutableStateOf<Map<String, String>>(emptyMap()) }
+    androidx.compose.runtime.LaunchedEffect(recent) {
+        val missing = recent.map { it.path }
+            .filter { it.startsWith("content://") && it !in byPath }
+            .distinct()
+        if (missing.isEmpty()) {
+            resolvedNames = emptyMap()
+            return@LaunchedEffect
+        }
+        resolvedNames = kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
+            missing.mapNotNull { p ->
+                val name = runCatching {
+                    context.contentResolver.query(
+                        android.net.Uri.parse(p),
+                        arrayOf(android.provider.OpenableColumns.DISPLAY_NAME),
+                        null, null, null,
+                    )?.use { c -> if (c.moveToFirst()) c.getString(0) else null }
+                }.getOrNull()
+                name?.let { p to it }
+            }.toMap()
+        }
+    }
+
     Scaffold(
         modifier = modifier.fillMaxSize(),
         topBar = {
@@ -92,6 +120,7 @@ fun HistoryScreen(
                 HistoryRow(
                     entry = entry,
                     item = byPath[entry.path],
+                    fallbackName = resolvedNames[entry.path],
                     onClick = {
                         // 同目录的视频当队列 —— 和从浏览页点进来的行为一致（自动下一集）
                         val folder = entry.path.substringBeforeLast('/', "")
@@ -112,9 +141,11 @@ fun HistoryScreen(
 private fun HistoryRow(
     entry: PlaybackProgress,
     item: MediaItemEntity?,
+    fallbackName: String?,
     onClick: () -> Unit,
 ) {
     val title = item?.parsedTitle?.takeIf { it.isNotBlank() }
+        ?: fallbackName
         ?: entry.path.substringAfterLast('/')
     val fraction = if (entry.durationMs > 0) {
         (entry.positionMs.toFloat() / entry.durationMs).coerceIn(0f, 1f)

@@ -113,7 +113,8 @@ fun DetailScreen(
     }
 
     val sample = entries.first()
-    val queue = entries.map { it.path }
+    // 队列：剧集用这几集；单片用同目录的视频（见 DetailViewModel.playQueue 的注释）
+    val queue by vm.playQueue.collectAsState()
     val isSeries = entries.size >= 2
 
     // 「继续播放」的目标 = 最近看过的那一集；没看过就从第一集开始

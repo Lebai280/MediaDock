@@ -33,6 +33,27 @@ class DetailViewModel(private val container: AppContainer) : ViewModel() {
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
 
     /** 补充信息（类型/国家/时长/上映日期）。**打开详情页时才拉，拉过就缓存。** */
+    /**
+     * 播放队列。
+     *
+     * 剧集（≥2 集）就是这几集；**单片则取同目录的视频** —— 和从「浏览」页点进来时的行为一致。
+     *
+     * 为什么单片也要给队列：用户的库里全是独立的短片/电影，没有剧集，
+     * 只传 `paths`（1 条）的话播放页的「上一集 / 下一集」会**永远是灰的**，
+     * 那两个按钮就等于没做。
+     */
+    val playQueue: StateFlow<List<String>> = container.library.items
+        .map { items ->
+            if (paths.size >= 2) return@map paths
+            val primary = paths.firstOrNull().orEmpty()
+            val folder = primary.substringBeforeLast('/', "")
+            val siblings = items
+                .filter { it.path.substringBeforeLast('/', "") == folder }
+                .map { it.path }
+            if (siblings.size >= 2) siblings else paths
+        }
+        .stateIn(viewModelScope, SharingStarted.Eagerly, paths)
+
     val detail: StateFlow<TitleDetail?> = container.details.observe(primaryPath)
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), null)
 
