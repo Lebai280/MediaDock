@@ -1639,6 +1639,10 @@ APK sha256 `fbdbcc80…4bf8fe`；`version.json` 已指向 0.5.1；真机从 0.5.
 （`application/vnd.android.package-archive`，配置备份 `personal-site.bak.apkmime.20261017`），
 浏览器不再把 APK 报成「可能有害 / .bin」。
 
+**本地字幕挂载（真机验证，2026-10-17）**：播放页 ⋯ → 字幕 → 从本地文件加载…，
+在系统文件选择器里选中 `[花语字幕组][她和她的猫][01][GB][720][中日双语][招募]-1.srt`，
+日志记录 `subtitle mounted: … @377946ms`。**这项从「待验证」转为已通过。**
+
 ---
 
 ## 8. 待办
