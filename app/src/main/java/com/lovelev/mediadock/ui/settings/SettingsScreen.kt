@@ -1,5 +1,11 @@
 package com.lovelev.mediadock.ui.settings
 
+import androidx.compose.foundation.layout.size
+import androidx.compose.material3.Icon
+import com.lovelev.mediadock.R
+import com.lovelev.mediadock.ui.theme.ThemeMode
+import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.ui.res.painterResource
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.clickable
@@ -91,6 +97,11 @@ fun SettingsScreen(
         verticalArrangement = Arrangement.spacedBy(18.dp),
     ) {
         Spacer(Modifier.height(4.dp))
+
+        // ---- 外观 ----
+        Section("外观") {
+            ThemeModeRow(current = vm.themeMode, onPick = vm::pickThemeMode)
+        }
 
         // ---- 数据源 ----
         Section("数据源") {
@@ -386,6 +397,66 @@ fun SettingsScreen(
             },
         )
     }
+}
+
+/**
+ * 主题三态选择器 —— 三个并排的选项（手机 / 太阳 / 月亮），照 NagoMusic 的 设置→外观 那套。
+ *
+ * 图标是手画的三个矢量（`res/drawable/ic_theme_*.xml`）：Material 核心图标里没有太阳月亮，
+ * 而为了三个图标引 `material-icons-extended` 会把包撑大二十多 MB，不值。
+ */
+@Composable
+private fun ThemeModeRow(current: ThemeMode, onPick: (ThemeMode) -> Unit) {
+    Row(
+        modifier = Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 12.dp),
+        horizontalArrangement = Arrangement.spacedBy(8.dp),
+    ) {
+        ThemeMode.entries.forEach { mode ->
+            val selected = mode == current
+            Surface(
+                onClick = { onPick(mode) },
+                shape = RoundedCornerShape(12.dp),
+                color = if (selected) {
+                    MaterialTheme.colorScheme.primaryContainer
+                } else {
+                    MaterialTheme.colorScheme.surfaceVariant
+                },
+                modifier = Modifier.weight(1f),
+            ) {
+                Column(
+                    horizontalAlignment = Alignment.CenterHorizontally,
+                    modifier = Modifier.padding(vertical = 10.dp),
+                ) {
+                    Icon(
+                        painter = painterResource(mode.iconRes()),
+                        contentDescription = null,
+                        tint = if (selected) {
+                            MaterialTheme.colorScheme.onPrimaryContainer
+                        } else {
+                            MaterialTheme.colorScheme.onSurfaceVariant
+                        },
+                        modifier = Modifier.size(22.dp),
+                    )
+                    Spacer(Modifier.height(4.dp))
+                    Text(
+                        text = mode.label,
+                        style = MaterialTheme.typography.labelSmall,
+                        color = if (selected) {
+                            MaterialTheme.colorScheme.onPrimaryContainer
+                        } else {
+                            MaterialTheme.colorScheme.onSurfaceVariant
+                        },
+                    )
+                }
+            }
+        }
+    }
+}
+
+private fun ThemeMode.iconRes(): Int = when (this) {
+    ThemeMode.SYSTEM -> R.drawable.ic_theme_system
+    ThemeMode.LIGHT -> R.drawable.ic_theme_light
+    ThemeMode.DARK -> R.drawable.ic_theme_dark
 }
 
 @Composable

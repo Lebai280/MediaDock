@@ -1,0 +1,7 @@
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="24dp" android:height="24dp"
+    android:viewportWidth="24" android:viewportHeight="24">
+    <!-- 下一集：指向右的三角 + 右侧竖条 -->
+    <path android:fillColor="#FFFFFFFF" android:pathData="M16.6,5 h2.4 v14 h-2.4 z"/>
+    <path android:fillColor="#FFFFFFFF" android:pathData="M5,5 L5,19 L15.6,12 z"/>
+</vector>

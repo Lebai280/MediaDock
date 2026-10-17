@@ -23,12 +23,9 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Close
-import androidx.compose.material.icons.filled.Menu
 import androidx.compose.material.icons.filled.Search
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
-import androidx.compose.material3.DropdownMenu
-import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.LinearProgressIndicator
@@ -299,7 +296,6 @@ private fun StickyBar(
     onToggleScrape: () -> Unit,
     onToggleFill: () -> Unit,
 ) {
-    var menuOpen by remember { mutableStateOf(false) }
     var focused by remember { mutableStateOf(false) }
 
     Row(
@@ -377,55 +373,9 @@ private fun StickyBar(
             }
         }
 
-        // ⋯：扫描 / 刮削 / 补齐都收在这里（照站点 .btn-icon 的圆形按钮）
-        Box {
-            Box(
-                modifier = Modifier
-                    .padding(start = 8.dp)
-                    .size(40.dp)
-                    .clip(CircleShape)
-                    .background(MaterialTheme.colorScheme.surfaceVariant)
-                    .clickable { menuOpen = true },
-                contentAlignment = Alignment.Center,
-            ) {
-                Icon(
-                    imageVector = Icons.Filled.Menu,
-                    contentDescription = "更多操作",
-                    tint = MaterialTheme.colorScheme.onSurfaceVariant,
-                    modifier = Modifier.size(20.dp),
-                )
-            }
-            DropdownMenu(expanded = menuOpen, onDismissRequest = { menuOpen = false }) {
-                // 三个后台动作互斥：扫描会整表替换媒体条目，刮削和补齐都要打 TMDB。
-                val idle = scan !is ScanState.Running &&
-                    scrape !is ScrapeState.Running &&
-                    fill !is DetailFillState.Running
-                DropdownMenuItem(
-                    text = { Text(if (scan is ScanState.Running) "取消扫描" else "扫描") },
-                    enabled = scan is ScanState.Running || idle,
-                    onClick = { menuOpen = false; onToggleScan() },
-                )
-                DropdownMenuItem(
-                    text = { Text(if (scrape is ScrapeState.Running) "取消刮削" else "刮削") },
-                    enabled = scrape is ScrapeState.Running || idle,
-                    onClick = { menuOpen = false; onToggleScrape() },
-                )
-                HorizontalDivider()
-                DropdownMenuItem(
-                    text = {
-                        Text(
-                            if (fill is DetailFillState.Running) {
-                                "取消补齐（${fill.done}/${fill.total}）"
-                            } else {
-                                "补齐影片信息"
-                            },
-                        )
-                    },
-                    enabled = fill is DetailFillState.Running || idle,
-                    onClick = { menuOpen = false; onToggleFill() },
-                )
-            }
-        }
+        // 扫描 / 刮削 / 补齐 已经搬进「我的」页 —— 这里不再留 ⋯ 按钮，
+        // 搜索框占满整行（见 MineScreen 的「媒体库」分组）。
+
     }
 }
 

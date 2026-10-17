@@ -11,6 +11,12 @@ object Routes {
 
     const val DETAIL = "detail"
 
+    /** 「我的」：收拢了原来的 ⋯ 菜单、浏览、设置（照 NagoMusic 的 profile 页）。 */
+    const val MINE = "mine"
+
+    /** 播放历史。 */
+    const val HISTORY = "history"
+
     /**
      * 播放页**不带参数**：要播哪个文件由 `AppContainer.playbackSelection` 在内存里传递。
      * 路径里有中文与 `/`，放进 nav 参数得来回百分号编码，而且会进 saved instance state。

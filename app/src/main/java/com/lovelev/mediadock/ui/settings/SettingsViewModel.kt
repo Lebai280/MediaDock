@@ -15,6 +15,7 @@ import androidx.lifecycle.ViewModelProvider
 import androidx.lifecycle.viewModelScope
 import androidx.lifecycle.viewmodel.initializer
 import androidx.lifecycle.viewmodel.viewModelFactory
+import com.lovelev.mediadock.ui.theme.ThemeMode
 import com.lovelev.mediadock.data.repo.ScanState
 import com.lovelev.mediadock.BuildConfig
 import com.lovelev.mediadock.data.subtitle.OpenSubtitlesCredentials
@@ -50,6 +51,16 @@ class SettingsViewModel(private val container: AppContainer) : ViewModel() {
 
     var saved by mutableStateOf(false)
         private set
+
+    /** 主题三态（跟随系统 / 浅色 / 深色）。 */
+    var themeMode by mutableStateOf(ThemeMode.SYSTEM)
+        private set
+
+    // 不能叫 setThemeMode —— 会和 `var themeMode` 自动生成的 setter 撞名（WORKLOG 坑 6）
+    fun pickThemeMode(mode: ThemeMode) {
+        themeMode = mode
+        viewModelScope.launch { container.credentials.saveThemeMode(mode.stored) }
+    }
 
     /** 数据源那一行显示的主机名（只显示 host，不显示账号密码）。 */
     var sourceHost by mutableStateOf("")
@@ -88,6 +99,10 @@ class SettingsViewModel(private val container: AppContainer) : ViewModel() {
         }
         // 提示跟着**扫描状态**走，别写死一句「正在…」就不管了 ——
         // 之前就是这么写的，扫完了那句还在，看着像卡住了。
+        // 主题：跟着存储走（也可能是别处改的），别只在本地存一份
+        viewModelScope.launch {
+            container.credentials.themeMode.collect { themeMode = ThemeMode.fromStored(it) }
+        }
         viewModelScope.launch {
             container.library.scan.collect { state ->
                 localHint = when (state) {

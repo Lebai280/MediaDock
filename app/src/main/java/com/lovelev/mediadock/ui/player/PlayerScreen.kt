@@ -70,6 +70,7 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
+import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -94,6 +95,7 @@ import androidx.media3.common.Tracks
 import androidx.media3.datasource.HttpDataSource
 import androidx.media3.session.MediaController
 import androidx.media3.ui.PlayerView
+import com.lovelev.mediadock.R
 import com.lovelev.mediadock.data.log.AppLog
 import com.lovelev.mediadock.data.repo.LocalSubtitle
 import com.lovelev.mediadock.data.subtitle.SubtitleHit
@@ -672,20 +674,62 @@ private fun PlayerControls(
             }
         }
 
-        // ---- 中间：大播放/暂停键 ----
-        IconButton(
-            onClick = {
-                AppLog.d("player", "center play/pause tapped (isPlaying=${controller.isPlaying})")
-                if (controller.isPlaying) controller.pause() else controller.play()
-            },
-            modifier = Modifier.align(Alignment.Center).size(72.dp),
+        // ---- 中间：上一集 / 大播放暂停键 / 下一集 ----
+        // 队列就是「同目录的视频」（点文件时传下来的），所以这里的上/下一集天然覆盖
+        // S01E01、EP01 这类同名分集 —— 没有的按钮置灰，别让人点了没反应。
+        Row(
+            modifier = Modifier.align(Alignment.Center),
+            horizontalArrangement = Arrangement.spacedBy(32.dp),
+            verticalAlignment = Alignment.CenterVertically,
         ) {
-            Icon(
-                imageVector = if (playing) Icons.Filled.Pause else Icons.Filled.PlayArrow,
-                contentDescription = if (playing) "暂停" else "播放",
-                tint = Color.White,
-                modifier = Modifier.size(48.dp),
-            )
+            val hasPrev = controller.hasPreviousMediaItem()
+            IconButton(
+                onClick = {
+                    AppLog.d("player", "previous tapped")
+                    controller.seekToPreviousMediaItem()
+                },
+                enabled = hasPrev,
+                modifier = Modifier.size(56.dp),
+            ) {
+                Icon(
+                    painter = painterResource(R.drawable.ic_skip_previous),
+                    contentDescription = "上一集",
+                    tint = Color.White.copy(alpha = if (hasPrev) 1f else 0.3f),
+                    modifier = Modifier.size(34.dp),
+                )
+            }
+
+            IconButton(
+                onClick = {
+                    AppLog.d("player", "center play/pause tapped (isPlaying=${controller.isPlaying})")
+                    if (controller.isPlaying) controller.pause() else controller.play()
+                },
+                modifier = Modifier.size(72.dp),
+            ) {
+                Icon(
+                    imageVector = if (playing) Icons.Filled.Pause else Icons.Filled.PlayArrow,
+                    contentDescription = if (playing) "暂停" else "播放",
+                    tint = Color.White,
+                    modifier = Modifier.size(48.dp),
+                )
+            }
+
+            val hasNext = controller.hasNextMediaItem()
+            IconButton(
+                onClick = {
+                    AppLog.d("player", "next tapped")
+                    controller.seekToNextMediaItem()
+                },
+                enabled = hasNext,
+                modifier = Modifier.size(56.dp),
+            ) {
+                Icon(
+                    painter = painterResource(R.drawable.ic_skip_next),
+                    contentDescription = "下一集",
+                    tint = Color.White.copy(alpha = if (hasNext) 1f else 0.3f),
+                    modifier = Modifier.size(34.dp),
+                )
+            }
         }
 
         // ---- 底部：细进度条 + 左时间 / 右时长 / 最右下角倍速 ----

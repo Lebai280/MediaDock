@@ -15,6 +15,9 @@ class ProgressRepository(private val db: MediaDatabase) {
 
     fun observeAll(): Flow<List<PlaybackProgress>> = db.progressDao().observeAll()
 
+    /** 播放历史用：按最近更新倒序。 */
+    fun observeRecent(): Flow<List<PlaybackProgress>> = db.progressDao().observeRecent()
+
     suspend fun find(path: String): PlaybackProgress? = db.progressDao().find(path)
 
     suspend fun save(path: String, positionMs: Long, durationMs: Long) {

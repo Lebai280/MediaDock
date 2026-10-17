@@ -36,4 +36,8 @@ interface ProgressDao {
     /** 海报墙用：一次拿全，界面自己拼成 map。 */
     @Query("SELECT * FROM playback_progress")
     fun observeAll(): Flow<List<PlaybackProgress>>
+
+    /** 播放历史：最近看过的排前面。 */
+    @Query("SELECT * FROM playback_progress ORDER BY updatedAt DESC")
+    fun observeRecent(): Flow<List<PlaybackProgress>>
 }

@@ -1,5 +1,7 @@
 package com.lovelev.mediadock.data.prefs
 
+import kotlinx.coroutines.flow.map
+import kotlinx.coroutines.flow.Flow
 import android.content.Context
 import android.security.keystore.KeyGenParameterSpec
 import android.security.keystore.KeyProperties
@@ -53,6 +55,26 @@ class SecureCredentialStore(private val context: Context) {
      * 它是「本地」这个数据源的配置，和 WebDAV 那套平行。
      */
     private val keyLocalTree = stringPreferencesKey("local_tree_uri")
+
+    /**
+     * 主题三态（跟随系统 / 浅色 / 深色）。**不是机密**，放这里只为省一个 DataStore；
+     * 和本地目录一样，`clearSource()` 不会碰它 —— 退出登录不该把主题重置掉。
+     */
+    private val keyThemeMode = stringPreferencesKey("theme_mode")
+
+    /** 供界面立即拿到当前值（DataStore 是异步的，首帧不该闪一下）。 */
+    @Volatile
+    var cachedThemeMode: String = "system"
+        private set
+
+    val themeMode: Flow<String> = context.credentialDataStore.data.map { prefs ->
+        (prefs[keyThemeMode] ?: "system").also { cachedThemeMode = it }
+    }
+
+    suspend fun saveThemeMode(mode: String) {
+        cachedThemeMode = mode
+        context.credentialDataStore.edit { it[keyThemeMode] = mode }
+    }
 
     suspend fun loadLocalTree(): String? =
         context.credentialDataStore.data.first()[keyLocalTree]?.takeIf { it.isNotBlank() }

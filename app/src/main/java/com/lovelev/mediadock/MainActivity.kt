@@ -10,6 +10,7 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
+import androidx.compose.material.icons.filled.Person
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Favorite
 import androidx.compose.material.icons.filled.FavoriteBorder
@@ -38,6 +39,11 @@ import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
 import androidx.navigation.compose.currentBackStackEntryAsState
 import androidx.navigation.compose.rememberNavController
+import androidx.compose.runtime.collectAsState
+import com.lovelev.mediadock.ui.history.HistoryScreen
+import com.lovelev.mediadock.ui.mine.MineScreen
+import com.lovelev.mediadock.ui.theme.resolveDark
+import com.lovelev.mediadock.ui.theme.ThemeMode
 import com.lovelev.mediadock.di.AppContainer
 import com.lovelev.mediadock.ui.browse.BrowserScreen
 import com.lovelev.mediadock.ui.browse.BrowserViewModel
@@ -69,7 +75,12 @@ class MainActivity : ComponentActivity() {
         val container = (application as MediaDockApp).container
 
         setContent {
-            MediaDockTheme {
+            // 主题三态：跟随系统 / 浅色 / 深色（设置 → 外观 里切）
+            val storedMode by container.credentials.themeMode
+                .collectAsState(initial = container.credentials.cachedThemeMode)
+            val themeMode = ThemeMode.fromStored(storedMode)
+
+            MediaDockTheme(darkTheme = themeMode.resolveDark()) {
                 val navController = rememberNavController()
 
                 // 起始页看本地有没有已保存的数据源。只读 DataStore，不发任何网络请求。
@@ -92,8 +103,8 @@ class MainActivity : ComponentActivity() {
 private val TABS = listOf(
     Triple(Routes.LIBRARY, "媒体库", Icons.Filled.Home),
     Triple(Routes.FAVORITES, "收藏", Icons.Filled.FavoriteBorder),
-    Triple(Routes.BROWSE, "浏览", Icons.AutoMirrored.Filled.List),
-    Triple(Routes.SETTINGS, "设置", Icons.Filled.Settings),
+    // 浏览与设置已经收进「我的」（照 NagoMusic 的 profile 页）——底部只留三个
+    Triple(Routes.MINE, "我的", Icons.Filled.Person),
 )
 
 /**
@@ -173,6 +184,18 @@ private fun HomeScaffold(
  * 拿文字当图标：这个 App 还没有图标体系，硬留一个空图标位反而把标签挤歪，
  * 选中态交给 Material3 自带的指示器。
  */
+/**
+ * 切到某个 Tab。和 Tab 栏里那个点击逻辑必须一致 —— 两处都直接 navigate 的话，
+ * 回退栈会越堆越深（同一个 Tab 点十次就是十条记录）。
+ */
+private fun NavHostController.switchTab(route: String) {
+    navigate(route) {
+        popUpTo(graph.startDestinationId) { saveState = true }
+        launchSingleTop = true
+        restoreState = true
+    }
+}
+
 @Composable
 private fun RowScope.TabItem(
     route: String,
@@ -184,14 +207,8 @@ private fun RowScope.TabItem(
     NavigationBarItem(
         selected = currentRoute == route,
         onClick = {
-            if (currentRoute != route) {
-                navController.navigate(route) {
-                    // saveState/restoreState 让每个 Tab 各自记住自己的浏览位置，来回切不会越堆越深
-                    popUpTo(navController.graph.startDestinationId) { saveState = true }
-                    launchSingleTop = true
-                    restoreState = true
-                }
-            }
+            // saveState/restoreState 让每个 Tab 各自记住自己的浏览位置，来回切不会越堆越深
+            if (currentRoute != route) navController.switchTab(route)
         },
         // 只放图标不放文字（用户要求）；label 仍保留给无障碍朗读
         icon = {
@@ -286,6 +303,28 @@ private fun AppNavHost(
 
         composable(Routes.LOGS) {
             LogScreen(onBack = { navController.popBackStack() })
+        }
+
+        composable(Routes.MINE) {
+            MineScreen(
+                container = container,
+                onOpenFavorites = { navController.switchTab(Routes.FAVORITES) },
+                onOpenHistory = { navController.navigate(Routes.HISTORY) },
+                onOpenBrowse = { navController.navigate(Routes.BROWSE) },
+                onOpenSettings = { navController.navigate(Routes.SETTINGS) },
+                onOpenLogs = { navController.navigate(Routes.LOGS) },
+            )
+        }
+
+        composable(Routes.HISTORY) {
+            HistoryScreen(
+                container = container,
+                onBack = { navController.popBackStack() },
+                onPlay = { path, queue ->
+                    container.playbackSelection.set(path, queue)
+                    navController.navigate(Routes.PLAYER)
+                },
+            )
         }
 
         composable(Routes.DETAIL) {
