@@ -437,9 +437,13 @@ private fun HeroArt(
     content: (@Composable ColumnScope.() -> Unit)? = null,
 ) {
     val art = item.heroArt()
+    // 横版背景图铺满横幅没问题；只有竖版海报时用 Fit 完整显示 ——
+    // 半屏高的横幅比 2:3 海报更宽扁，Crop 会把海报上下裁掉（用户反馈「被局部放大」）。
+    val isBackdrop = !item.backdropPath.isNullOrBlank()
     Box(
         modifier = Modifier
             .fillMaxWidth()
+            .background(tone)
             .then(
                 if (height != null) {
                     Modifier.height(height)
@@ -454,8 +458,7 @@ private fun HeroArt(
             AsyncImage(
                 model = TmdbClient.posterUrl(art, width = 780),
                 contentDescription = null,
-                // 横幅：Crop 铺满宽度，和爆米花一样不要上下留白
-                contentScale = ContentScale.Crop,
+                contentScale = if (isBackdrop) ContentScale.Crop else ContentScale.Fit,
                 modifier = Modifier.matchParentSize(),
             )
             // 下半部压暗给白字兜底；**颜色是页面主色不是黑** —— 压完正好和底下的背景同色

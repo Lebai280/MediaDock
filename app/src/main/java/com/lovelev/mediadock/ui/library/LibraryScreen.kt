@@ -30,8 +30,6 @@ import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.DropdownMenu
-import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
@@ -172,8 +170,6 @@ fun LibraryScreen(
                 hintNotice = hintNotice,
                 sort = vm.sort,
                 unwatchedOnly = vm.unwatchedOnly,
-                onSort = vm::pickSort,
-                onToggleUnwatched = vm::toggleUnwatchedOnly,
                 onOpenDetail = onOpenDetail,
                 onShuffle = vm::reshuffle,
             )
@@ -196,8 +192,6 @@ private fun HomeFeed(
     hintNotice: String?,
     sort: WallSort,
     unwatchedOnly: Boolean,
-    onSort: (WallSort) -> Unit,
-    onToggleUnwatched: () -> Unit,
     onOpenDetail: (List<String>) -> Unit,
     onShuffle: () -> Unit,
 ) {
@@ -231,14 +225,6 @@ private fun HomeFeed(
 
         // 搜索时只留过滤后的网格 —— 分类行与随机推荐都收起来
         if (!searching) {
-            item(span = { GridItemSpan(maxLineSpan) }, key = "row-controls") {
-                WallControls(
-                    sort = sort,
-                    unwatchedOnly = unwatchedOnly,
-                    onSort = onSort,
-                    onToggleUnwatched = onToggleUnwatched,
-                )
-            }
             if (recommended.isNotEmpty()) {
                 item(span = { GridItemSpan(maxLineSpan) }, key = "row-random") {
                     FeaturedRow(
@@ -272,67 +258,6 @@ private fun HomeFeed(
                 modifier = Modifier.fillMaxWidth().aspectRatio(2f / 3f),
             )
         }
-    }
-}
-
-/** 海报墙的排序与「仅未看」筛选控件。 */
-@Composable
-private fun WallControls(
-    sort: WallSort,
-    unwatchedOnly: Boolean,
-    onSort: (WallSort) -> Unit,
-    onToggleUnwatched: () -> Unit,
-) {
-    var menuOpen by remember { mutableStateOf(false) }
-    Row(
-        modifier = Modifier.fillMaxWidth().padding(horizontal = 4.dp, vertical = 2.dp),
-        horizontalArrangement = Arrangement.spacedBy(8.dp),
-        verticalAlignment = Alignment.CenterVertically,
-    ) {
-        Box {
-            WallChip(text = "排序 · ${sort.label}", selected = false) { menuOpen = true }
-            DropdownMenu(expanded = menuOpen, onDismissRequest = { menuOpen = false }) {
-                WallSort.entries.forEach { option ->
-                    DropdownMenuItem(
-                        text = { Text(option.label) },
-                        onClick = {
-                            menuOpen = false
-                            onSort(option)
-                        },
-                    )
-                }
-            }
-        }
-        WallChip(
-            text = if (unwatchedOnly) "仅未看" else "全部",
-            selected = unwatchedOnly,
-            onClick = onToggleUnwatched,
-        )
-    }
-}
-
-@Composable
-private fun WallChip(text: String, selected: Boolean, onClick: () -> Unit) {
-    Surface(
-        onClick = onClick,
-        shape = CircleShape,
-        color = if (selected) {
-            MaterialTheme.colorScheme.primaryContainer
-        } else {
-            MaterialTheme.colorScheme.surfaceVariant
-        },
-        contentColor = if (selected) {
-            MaterialTheme.colorScheme.onPrimaryContainer
-        } else {
-            MaterialTheme.colorScheme.onSurfaceVariant
-        },
-        modifier = Modifier.height(32.dp),
-    ) {
-        Text(
-            text = text,
-            style = MaterialTheme.typography.labelLarge,
-            modifier = Modifier.padding(horizontal = 14.dp, vertical = 6.dp),
-        )
     }
 }
 

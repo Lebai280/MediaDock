@@ -142,5 +142,25 @@ class TitleParserTest {
         assertEquals(1, TitleParser.seasonOfPath(path))
         assertEquals(2, TitleParser.seasonOfPath("动漫/某剧/Season 2/某剧01.mp4"))
         assertEquals(3, TitleParser.seasonOfPath("动漫/某剧/第3季/某剧01.mp4"))
+        assertEquals(2, TitleParser.seasonOfPath("动漫/葬送的芙莉莲/S02/简日双语/29.简日双语.mp4"))
+    }
+
+    @Test
+    fun `季目录里的序号前缀按集数识别`() {
+        // 用户库真实命名：S02/简日双语/29.简日双语.mp4（29–38）
+        val p = TitleParser.parse(
+            fileName = "29.简日双语.mp4",
+            folderName = "简日双语",
+            inSeasonDir = true,
+        )
+        assertEquals(29, p.episode)
+        assertNull(p.season) // 季号由路径单独补
+    }
+
+    @Test
+    fun `不在季目录时 序号前缀仍只当目录序号`() {
+        // 和「12.片名.2018」同一类：不能把开头数字误判成集数
+        val p = TitleParser.parse("29.简日双语.mp4")
+        assertNull(p.episode)
     }
 }

@@ -330,7 +330,13 @@ class LibraryRepository(
      */
     private fun WebDavEntry.toEntity(): MediaItemEntity {
         val folderName = path.substringBeforeLast('/', "").substringAfterLast('/')
-        val parsed = TitleParser.parse(fileName = name, folderName = folderName)
+        // 季目录里的 29.xxx 这种「序号前缀」只有在知道自己位于 S01/S02 下时才能当集数
+        val seasonFromPath = TitleParser.seasonOfPath(path)
+        val parsed = TitleParser.parse(
+            fileName = name,
+            folderName = folderName,
+            inSeasonDir = seasonFromPath != null,
+        )
         return MediaItemEntity(
             path = path,
             name = name,
@@ -340,7 +346,7 @@ class LibraryRepository(
             year = parsed.year,
             // 文件名只给集数时，季号往往在上层目录（S01 / Season 1 / 第1季）——
             // 不补的话 S01/S02 的同集号会互相覆盖排序
-            season = parsed.season ?: TitleParser.seasonOfPath(path),
+            season = parsed.season ?: seasonFromPath,
             episode = parsed.episode,
         )
     }
@@ -464,8 +470,13 @@ class LibraryRepository(
 
     /** 和 WebDAV 条目走同一个解析器 —— 所以本地文件扫进来也有像样的片名和海报墙。 */
     private fun LocalFile.toEntity(): MediaItemEntity {
-        val parsed = TitleParser.parse(fileName = name, folderName = folderName)
         val storedPath = LocalMedia.toStoredPath(key)
+        val seasonFromPath = TitleParser.seasonOfPath(storedPath)
+        val parsed = TitleParser.parse(
+            fileName = name,
+            folderName = folderName,
+            inSeasonDir = seasonFromPath != null,
+        )
         return MediaItemEntity(
             path = storedPath,
             name = name,
@@ -477,7 +488,7 @@ class LibraryRepository(
             year = parsed.year,
             // 文件名只给集数时，季号往往在上层目录（S01 / Season 1 / 第1季）——
             // 不补的话 S01/S02 的同集号会互相覆盖排序
-            season = parsed.season ?: TitleParser.seasonOfPath(storedPath),
+            season = parsed.season ?: seasonFromPath,
             episode = parsed.episode,
         )
     }

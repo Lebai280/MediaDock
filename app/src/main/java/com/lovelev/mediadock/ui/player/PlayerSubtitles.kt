@@ -120,6 +120,7 @@ internal fun SubtitleSearchDialog(
         TitleParser.parse(
             fileName = path.substringAfterLast('/'),
             folderName = path.substringBeforeLast('/', "").substringAfterLast('/'),
+            inSeasonDir = TitleParser.seasonOfPath(path) != null,
         )
     }
     var query by remember { mutableStateOf(parsed.title) }

@@ -35,6 +35,9 @@ object TitleParser {
     private val NXNN = Regex("(?<![0-9])(\\d{1,2})x(\\d{1,3})(?![0-9])")
     // 中文动漫常见的「裸集数」：葬送的芙莉莲01.mp4、四月是你的谎言 22.mp4
     private val BARE_EPISODE = Regex("(?<![0-9])(\\d{1,3})\\s*$")
+    // 季目录里的「序号前缀」：S02/简日双语/29.简日双语.mp4。
+    // 只在**已知位于季目录**时才当集数 —— 否则会和「1.某电影」这种目录序号混淆。
+    private val LEADING_EPISODE = Regex("^\\s*(\\d{1,3})\\s*[.\\-_]\\s*")
     private val RESOLUTION_NUMBERS = setOf(0, 144, 240, 360, 480, 576, 720)
     private val LEADING_INDEX = Regex("^\\s*\\d{1,3}\\s*[.\\-_]\\s*")
     private val CHANNEL_TAG = Regex("(?i)(?<![A-Za-z0-9])MA[\\s._-]?\\d(?:\\.\\d)?(?![0-9])")
@@ -59,12 +62,23 @@ object TitleParser {
 
     /**
      * @param folderName 父目录名。很多中文命名把片名放在目录上，只有这一层能救回来。
+     * @param inSeasonDir 文件是否位于 `S01` / `Season 1` / `第1季` 这类季目录下。
+     *   是的话，「29.简日双语.mp4」开头的 29 按集数处理；否则开头数字仍只当目录序号。
      */
-    fun parse(fileName: String, folderName: String? = null): ParsedTitle {
-        val fileStem = stripExtension(stripLeadingIndex(fileName))
+    fun parse(
+        fileName: String,
+        folderName: String? = null,
+        inSeasonDir: Boolean = false,
+    ): ParsedTitle {
+        val rawFileStem = stripExtension(fileName)
+        val fileStem = stripLeadingIndex(rawFileStem)
         val folderStem = folderName?.let { stripExtension(stripLeadingIndex(it)) }
 
-        val (season, episode) = episodeOf(fileStem) ?: episodeOf(folderStem ?: "") ?: (null to null)
+        // 季目录里的文件用「未剥序号」的名字找集数，才能认出 29.xxx 这种写法
+        val episodeSource = if (inSeasonDir) rawFileStem else fileStem
+        val (season, episode) = episodeOf(episodeSource, allowLeading = inSeasonDir)
+            ?: episodeOf(folderStem ?: "")
+            ?: (null to null)
         val seasonFinal = season ?: seasonWordOf(folderStem ?: "")
         val year = YEAR.find(fileStem)?.value?.toIntOrNull()
             ?: folderStem?.let { YEAR.find(it)?.value?.toIntOrNull() }
@@ -147,7 +161,7 @@ object TitleParser {
         return head in TAGS || t.lowercase() in TAGS
     }
 
-    private fun episodeOf(source: String): Pair<Int?, Int?>? {
+    private fun episodeOf(source: String, allowLeading: Boolean = false): Pair<Int?, Int?>? {
         SXXEXX.find(source)?.let { m ->
             return m.groupValues[1].toIntOrNull() to m.groupValues[2].toIntOrNull()
         }
@@ -162,6 +176,13 @@ object TitleParser {
             val n = m.groupValues[1].toIntOrNull() ?: return@let
             if (n in RESOLUTION_NUMBERS) return@let
             return null to n
+        }
+        if (allowLeading) {
+            LEADING_EPISODE.find(source)?.let { m ->
+                val n = m.groupValues[1].toIntOrNull() ?: return@let
+                if (n in RESOLUTION_NUMBERS) return@let
+                return null to n
+            }
         }
         return null
     }

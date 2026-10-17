@@ -120,8 +120,9 @@ private fun FeaturedCard(
     modifier: Modifier = Modifier,
 ) {
     val sample = entry.sample
-    // 大卡片用横版背景图更合适；没有就退回海报（裁一下）
-    val art = sample.backdropPath ?: sample.posterPath
+    // 大卡片用横版背景图更合适；没有就退回海报 —— 竖版海报用 Fit，避免被 16:9 的卡片裁掉
+    val backdrop = sample.backdropPath
+    val art = backdrop ?: sample.posterPath
     val title = sample.parsedTitle.ifBlank { sample.name }
 
     Surface(
@@ -134,7 +135,7 @@ private fun FeaturedCard(
                 AsyncImage(
                     model = TmdbClient.posterUrl(art, width = 780),
                     contentDescription = title,
-                    contentScale = ContentScale.Crop,
+                    contentScale = if (backdrop != null) ContentScale.Crop else ContentScale.Fit,
                     modifier = Modifier.fillMaxSize(),
                 )
             } else {
