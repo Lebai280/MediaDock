@@ -131,18 +131,89 @@ class LibraryRepository(
         }
 
     /** 手工改片名/年份。空标题表示清除覆盖，回到自动解析的结果。 */
-    suspend fun saveOverride(path: String, title: String, year: Int?) {
+    suspend fun saveOverride(path: String, title: String, year: Int?) =
+        saveOverride(listOf(path), title, year)
+
+    /** 整部剧一起改：所有集的覆盖都写同一份，重新刮削时用同一检索词。 */
+    suspend fun saveOverride(paths: List<String>, title: String, year: Int?) {
+        if (paths.isEmpty()) return
         if (title.isBlank()) {
-            db.titleOverrideDao().remove(path)
+            paths.forEach { db.titleOverrideDao().remove(it) }
         } else {
-            db.titleOverrideDao().upsert(TitleOverride(path = path, title = title.trim(), year = year))
+            paths.forEach {
+                db.titleOverrideDao().upsert(TitleOverride(path = it, title = title.trim(), year = year))
+            }
+        }
+    }
+
+    /** 手动匹配的候选：剧集走 tv，电影走 movie。 */
+    suspend fun searchMatchCandidates(query: String, year: Int?, isTv: Boolean): List<TmdbMatch> {
+        val secret = credentials.loadTmdbSecret()?.let(::TmdbSecret)
+            ?: throw TmdbAuthException("还没填写 TMDB 凭据")
+        return if (isTv) {
+            tmdb.searchTvCandidates(query, year, secret)
+        } else {
+            tmdb.searchMovieCandidates(query, year, secret)
+        }
+    }
+
+    /**
+     * 把一个手选的匹配应用到**整部剧/整部片**（所有 episode paths），
+     * 并把选中的片名/年份写进覆盖表 —— 以后重新扫描也沿用。
+     */
+    suspend fun applyMatch(paths: List<String>, match: TmdbMatch) {
+        if (paths.isEmpty()) return
+        val now = System.currentTimeMillis()
+        db.withTransaction {
+            val dao = db.mediaDao()
+            val details = db.titleDetailDao()
+            val overrides = db.titleOverrideDao()
+            for (path in paths) {
+                dao.markScraped(
+                    path = path,
+                    state = ScrapeStatus.MATCHED,
+                    tmdbId = match.tmdbId,
+                    posterPath = match.posterPath,
+                    backdropPath = match.backdropPath,
+                    overview = match.overview,
+                    rating = match.rating,
+                    scrapedAt = now,
+                )
+                match.title?.takeIf { it.isNotBlank() }?.let {
+                    overrides.upsert(TitleOverride(path = path, title = it, year = match.year))
+                }
+            }
+            details.deleteAll(paths)
+        }
+    }
+
+    /** 用覆盖后的片名重刮整部剧；成功后把同一匹配应用到所有集。 */
+    suspend fun rescrapeSeries(paths: List<String>): String? {
+        if (paths.isEmpty()) return "找不到条目"
+        val dao = db.mediaDao()
+        val overrides = db.titleOverrideDao().observeAll().first().associateBy { it.path }
+        val items = dao.observeByPaths(paths).first()
+            .map { it.withOverride(overrides[it.path]) }
+        if (items.isEmpty()) return "找不到条目"
+        val secret = credentials.loadTmdbSecret()?.let(::TmdbSecret)
+            ?: return "还没填写 TMDB 凭据"
+        return try {
+            val match = scrapeItem(items.first(), secret) ?: return "没匹配到"
+            applyMatch(paths, match)
+            null
+        } catch (e: TmdbAuthException) {
+            e.message ?: "TMDB 凭据无效"
+        } catch (e: TmdbException) {
+            e.message ?: "刮削失败"
         }
     }
 
     /** 只重刮一条（详情页右上角菜单用）。返回 null 表示成功。 */
     suspend fun rescrapeOne(path: String): String? {
         val dao = db.mediaDao()
+        val override = db.titleOverrideDao().observeAll().first().firstOrNull { it.path == path }
         val item = dao.observeByPaths(listOf(path)).first().firstOrNull()
+            ?.withOverride(override)
             ?: return "找不到这一条"
         val secret = credentials.loadTmdbSecret()?.let(::TmdbSecret)
             ?: return "还没填写 TMDB 凭据"

@@ -95,11 +95,11 @@ fun MineScreen(
         }
 
         Section("资源库") {
-            MineRow(Icons.Filled.Favorite, "收藏", "看片时点过心的都在这里", onOpenFavorites)
+            MineRow(Icons.Filled.Favorite, "收藏", null, onOpenFavorites)
             HorizontalDivider()
-            MineRow(Icons.Filled.DateRange, "播放历史", "最近看过的，接着往下看", onOpenHistory)
+            MineRow(Icons.Filled.DateRange, "播放历史", null, onOpenHistory)
             HorizontalDivider()
-            MineRow(Icons.AutoMirrored.Filled.List, "浏览", "按目录翻你的文件源", onOpenBrowse)
+            MineRow(Icons.AutoMirrored.Filled.List, "浏览", null, onOpenBrowse)
         }
 
         Section("媒体库") {
@@ -110,7 +110,7 @@ fun MineScreen(
                     is ScanState.Running -> "已扫 ${s.directories} 个目录 · ${s.files} 个视频"
                     is ScanState.Done -> "共 ${s.files} 个视频" + if (s.truncated) "（达到上限）" else ""
                     is ScanState.Failed -> s.message
-                    ScanState.Idle -> "把数据源里的视频收进媒体库"
+                    ScanState.Idle -> null
                 },
                 onClick = vm::toggleScan,
             )
@@ -122,7 +122,7 @@ fun MineScreen(
                     is ScrapeState.Running -> "${s.done}/${s.total}"
                     is ScrapeState.Done -> "匹配 ${s.matched} 条 · ${s.failed} 条没匹配上"
                     is ScrapeState.Failed -> s.message
-                    ScrapeState.Idle -> "按文件名去 TMDB 配海报和简介"
+                    ScrapeState.Idle -> null
                 },
                 onClick = vm::toggleScrape,
             )
@@ -138,16 +138,16 @@ fun MineScreen(
                     is DetailFillState.Running -> "正在拉类型、国家、演职人员"
                     is DetailFillState.Done -> "本次补齐 ${s.filled} 条" + if (s.failed > 0) " · ${s.failed} 条失败" else ""
                     is DetailFillState.Failed -> s.message
-                    DetailFillState.Idle -> "补齐后按类型 / 国家 / 演员搜索才有东西"
+                    DetailFillState.Idle -> null
                 },
                 onClick = vm::toggleFillDetails,
             )
         }
 
         Section("应用") {
-            MineRow(Icons.Filled.Settings, "设置", "外观、数据源、刮削、字幕源", onOpenSettings)
+            MineRow(Icons.Filled.Settings, "设置", null, onOpenSettings)
             HorizontalDivider()
-            MineRow(Icons.Filled.Info, "版本与日志", "版本号、检查更新、运行日志", onOpenLogs)
+            MineRow(Icons.Filled.Info, "版本与日志", null, onOpenLogs)
         }
 
         Spacer(Modifier.height(8.dp))
@@ -178,7 +178,7 @@ private fun Section(title: String, content: @Composable () -> Unit) {
 private fun MineRow(
     icon: ImageVector,
     title: String,
-    subtitle: String,
+    subtitle: String? = null,
     onClick: () -> Unit,
 ) {
     Row(
@@ -206,12 +206,14 @@ private fun MineRow(
         }
         Column(modifier = Modifier.weight(1f).padding(start = 12.dp)) {
             Text(text = title, style = MaterialTheme.typography.bodyLarge)
-            Text(
-                text = subtitle,
-                style = MaterialTheme.typography.bodySmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                maxLines = 2,
-            )
+            if (!subtitle.isNullOrBlank()) {
+                Text(
+                    text = subtitle,
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    maxLines = 2,
+                )
+            }
         }
         Icon(
             imageVector = Icons.AutoMirrored.Filled.KeyboardArrowRight,

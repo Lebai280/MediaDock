@@ -46,4 +46,8 @@ interface TitleDetailDao {
 
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     suspend fun upsert(detail: TitleDetail)
+
+    /** 手动改匹配后，旧的类型/演职人员缓存要作废。 */
+    @Query("DELETE FROM title_details WHERE path IN (:paths)")
+    suspend fun deleteAll(paths: List<String>)
 }

@@ -61,7 +61,12 @@ class TmdbAuthException(message: String) : Exception(message)
 
 class TmdbClient(private val client: OkHttpClient) {
 
-    suspend fun searchMovie(query: String, year: Int?, secret: TmdbSecret): TmdbMatch? {
+    suspend fun searchMovie(query: String, year: Int?, secret: TmdbSecret): TmdbMatch? =
+        searchMovieCandidates(query, year, secret)
+            .let { results -> results.firstOrNull { it.posterPath != null } ?: results.firstOrNull() }
+
+    /** 手动匹配用：把所有候选都返回，让用户挑正确的那一条。 */
+    suspend fun searchMovieCandidates(query: String, year: Int?, secret: TmdbSecret): List<TmdbMatch> {
         val params = mutableMapOf("query" to query, "language" to LANGUAGE, "include_adult" to "false")
         year?.let { params["year"] = it.toString() }
         var results = search("/search/movie", params, secret)
@@ -70,10 +75,15 @@ class TmdbClient(private val client: OkHttpClient) {
             params.remove("year")
             results = search("/search/movie", params, secret)
         }
-        return results.firstOrNull { it.poster_path != null }?.toMatch() ?: results.firstOrNull()?.toMatch()
+        return results.map { it.toMatch() }
     }
 
-    suspend fun searchTv(query: String, year: Int?, secret: TmdbSecret): TmdbMatch? {
+    suspend fun searchTv(query: String, year: Int?, secret: TmdbSecret): TmdbMatch? =
+        searchTvCandidates(query, year, secret)
+            .let { results -> results.firstOrNull { it.posterPath != null } ?: results.firstOrNull() }
+
+    /** 手动匹配用：把所有候选都返回，让用户挑正确的那一条。 */
+    suspend fun searchTvCandidates(query: String, year: Int?, secret: TmdbSecret): List<TmdbMatch> {
         val params = mutableMapOf("query" to query, "language" to LANGUAGE)
         year?.let { params["first_air_date_year"] = it.toString() }
         var results = search("/search/tv", params, secret)
@@ -81,7 +91,7 @@ class TmdbClient(private val client: OkHttpClient) {
             params.remove("first_air_date_year")
             results = search("/search/tv", params, secret)
         }
-        return results.firstOrNull { it.poster_path != null }?.toMatch() ?: results.firstOrNull()?.toMatch()
+        return results.map { it.toMatch() }
     }
 
     /** 拉一条的详情 + 演职员。剧集走 `/tv`，电影走 `/movie`。 */

@@ -52,8 +52,8 @@ import kotlinx.coroutines.launch
 
 /** 需要二次确认的不可逆操作。 */
 private enum class Confirmable(val title: String, val detail: String) {
-    ClearLibrary("清空媒体库", "海报墙会变空，需要重新扫描。播放进度和收藏会保留。"),
-    Logout("退出登录", "会清除已保存的数据源地址、账号和密码。媒体库与播放进度会留在本机。"),
+    ClearLibrary("清空媒体库", "媒体库将清空，需要重新扫描。进度与收藏保留。"),
+    Logout("退出登录", "将清除数据源登录信息。"),
 }
 
 @Composable
@@ -187,7 +187,7 @@ fun SettingsScreen(
                                 "没有可分享的数据源"
                             } else {
                                 copyToClipboard(context, text)
-                                "已复制 · 朋友在「添加数据源」页会自动填入"
+                                "已复制"
                             }
                         }
                     }
@@ -262,13 +262,6 @@ fun SettingsScreen(
                 ) {
                     Text(if (vm.subtitleSaved) "已保存" else "保存")
                 }
-                Text(
-                    text = "在 opensubtitles.com 免费注册：应用页拿 API Key，注册账号用于下载字幕" +
-                        "（免费账号每天有下载额度）。只填了也能用「从本地文件加载字幕」。",
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    modifier = Modifier.padding(top = 10.dp),
-                )
             }
         }
 

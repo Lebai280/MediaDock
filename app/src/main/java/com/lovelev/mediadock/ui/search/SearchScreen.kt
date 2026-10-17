@@ -142,11 +142,9 @@ fun SearchScreen(
         }
         androidx.compose.material3.HorizontalDivider()
 
-        if (query.isBlank()) {
-            Hint("输入片名、类型、国家或演员")
-        } else if (results.isEmpty()) {
-            Hint("没有匹配的内容")
-        } else {
+        if (query.isNotBlank() && results.isEmpty()) {
+            Hint("无结果")
+        } else if (query.isNotBlank()) {
             Text(
                 text = "找到 ${results.size} 条",
                 style = MaterialTheme.typography.labelMedium,

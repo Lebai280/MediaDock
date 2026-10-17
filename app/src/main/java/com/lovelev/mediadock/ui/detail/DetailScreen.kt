@@ -21,6 +21,7 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.rememberScrollState
@@ -66,6 +67,7 @@ import com.lovelev.mediadock.data.MediaTypes
 import com.lovelev.mediadock.data.local.MediaItemEntity
 import com.lovelev.mediadock.data.local.PlaybackProgress
 import com.lovelev.mediadock.data.tmdb.CastMember
+import com.lovelev.mediadock.data.tmdb.TitleParser
 import com.lovelev.mediadock.data.tmdb.TmdbClient
 import com.lovelev.mediadock.ui.HeartButton
 import com.lovelev.mediadock.ui.formatClock
@@ -265,6 +267,8 @@ fun DetailScreen(
             vm = vm,
             targetPath = target.path,
             targetDurationMs = progress[target.path]?.durationMs,
+            paths = entries.map { it.path },
+            isTv = isSeries,
             onBack = onBack,
         )
     }
@@ -401,6 +405,8 @@ private fun BoxScope.TopBar(
     vm: DetailViewModel,
     targetPath: String,
     targetDurationMs: Long?,
+    paths: List<String>,
+    isTv: Boolean,
     onBack: () -> Unit,
 ) {
     var menuOpen by remember { mutableStateOf(false) }
@@ -438,8 +444,8 @@ private fun BoxScope.TopBar(
                     },
                 )
                 DropdownMenuItem(
-                    text = { Text("重新刮削") },
-                    onClick = { menuOpen = false; vm.rescrape(targetPath) },
+                    text = { Text("重新匹配") },
+                    onClick = { menuOpen = false; vm.rescrapeSeries(paths) },
                 )
             }
         }
@@ -466,22 +472,77 @@ private fun BoxScope.TopBar(
                     OutlinedTextField(
                         value = yearText,
                         onValueChange = { yearText = it.filter { c -> c.isDigit() }.take(4) },
-                        label = { Text("年份（可空）") },
+                        label = { Text("年份") },
                         singleLine = true,
                         modifier = Modifier.fillMaxWidth(),
                     )
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        TextButton(
+                            onClick = { vm.searchMatches(title, yearText.toIntOrNull(), isTv) },
+                            enabled = title.isNotBlank() && !vm.matchBusy,
+                        ) { Text(if (vm.matchBusy) "搜索中" else "搜索匹配") }
+                        Spacer(Modifier.weight(1f))
+                        if (isTv) {
+                            Text("按剧集检索", style = MaterialTheme.typography.bodySmall)
+                        }
+                    }
+                    if (vm.matchCandidates.isNotEmpty()) {
+                        LazyColumn(modifier = Modifier.fillMaxWidth().heightIn(max = 280.dp)) {
+                            items(vm.matchCandidates, key = { it.tmdbId }) { match ->
+                                Row(
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .clickable {
+                                            editing = false
+                                            vm.applyMatch(paths, match)
+                                        }
+                                        .padding(vertical = 8.dp),
+                                    verticalAlignment = Alignment.CenterVertically,
+                                ) {
+                                    match.posterPath?.let { poster ->
+                                        AsyncImage(
+                                            model = TmdbClient.posterUrl(poster, width = 92),
+                                            contentDescription = null,
+                                            contentScale = ContentScale.Crop,
+                                            modifier = Modifier
+                                                .width(44.dp)
+                                                .height(66.dp)
+                                                .clip(MaterialTheme.shapes.small),
+                                        )
+                                        Spacer(Modifier.width(12.dp))
+                                    }
+                                    Column(modifier = Modifier.weight(1f)) {
+                                        Text(
+                                            text = match.title.orEmpty(),
+                                            style = MaterialTheme.typography.bodyMedium,
+                                            maxLines = 1,
+                                            overflow = TextOverflow.Ellipsis,
+                                        )
+                                        Text(
+                                            text = listOfNotNull(
+                                                match.year?.toString(),
+                                                match.rating?.let { String.format(Locale.US, "★%.1f", it) },
+                                            ).joinToString(" · "),
+                                            style = MaterialTheme.typography.bodySmall,
+                                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                        )
+                                    }
+                                }
+                            }
+                        }
+                    }
                 }
             },
             confirmButton = {
                 TextButton(onClick = {
                     editing = false
-                    vm.saveOverride(item.path, title, yearText.toIntOrNull())
-                }) { Text("保存") }
+                    vm.saveOverrideAndScrape(paths, title, yearText.toIntOrNull())
+                }) { Text("保存并匹配") }
             },
             dismissButton = {
                 TextButton(onClick = {
                     editing = false
-                    vm.saveOverride(item.path, "", null)
+                    vm.clearOverride(paths)
                 }) { Text("清除") }
             },
         )
@@ -560,16 +621,32 @@ private fun EpisodeList(
     queue: List<String>,
     onPlay: (path: String, queue: List<String>) -> Unit,
 ) {
-    // 只有真的分了好几季才打季标题，否则纯属噪音
-    val seasons = entries.mapNotNull { it.season }.distinct().sorted()
-    val showSeasonHeader = seasons.size >= 2
+    // 只有真的分了好几季才给季切换，否则纯属噪音。
+    // 季号优先用库里的值；旧数据可能没落上，就从路径里的 S01 / 第1季 兜底推。
+    fun seasonOf(e: MediaItemEntity): Int? = e.season ?: TitleParser.seasonOfPath(e.path)
+    val seasons = entries.map { seasonOf(it) }.filterNotNull().distinct().sorted()
+    val showSeasons = seasons.size >= 2
+    var selectedSeason by remember(entries) { mutableStateOf<Int?>(null) }
 
     Column(modifier = Modifier.fillMaxWidth().padding(top = 6.dp)) {
+        if (showSeasons) {
+            Row(
+                modifier = Modifier.fillMaxWidth().padding(horizontal = 20.dp, vertical = 4.dp),
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
+            ) {
+                SeasonChip("全部", selectedSeason == null) { selectedSeason = null }
+                seasons.forEach { season ->
+                    SeasonChip("第 $season 季", selectedSeason == season) { selectedSeason = season }
+                }
+            }
+        }
+
         entries
-            .groupBy { it.season }
+            .groupBy { seasonOf(it) }
             .toSortedMap(compareBy { it ?: 0 })
             .forEach { (season, group) ->
-                if (showSeasonHeader && season != null) {
+                if (selectedSeason != null && season != selectedSeason) return@forEach
+                if (showSeasons && selectedSeason == null && season != null) {
                     Text(
                         text = "第 $season 季",
                         style = MaterialTheme.typography.titleSmall,
@@ -583,6 +660,26 @@ private fun EpisodeList(
                     }
                 }
             }
+    }
+}
+
+/** 季切换胶囊。 */
+@Composable
+private fun SeasonChip(text: String, selected: Boolean, onClick: () -> Unit) {
+    Box(
+        modifier = Modifier
+            .clip(CircleShape)
+            .background(
+                if (selected) MaterialTheme.colorScheme.primary else Color.White.copy(alpha = 0.14f),
+            )
+            .clickable(onClick = onClick)
+            .padding(horizontal = 14.dp, vertical = 6.dp),
+    ) {
+        Text(
+            text = text,
+            style = MaterialTheme.typography.labelLarge,
+            color = if (selected) MaterialTheme.colorScheme.onPrimary else OnBackdrop,
+        )
     }
 }
 

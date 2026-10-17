@@ -14,8 +14,10 @@ import com.lovelev.mediadock.data.local.PlaybackProgress
 import com.lovelev.mediadock.data.local.TitleDetail
 import com.lovelev.mediadock.data.tmdb.CastMember
 import com.lovelev.mediadock.data.tmdb.TmdbClient
+import com.lovelev.mediadock.data.tmdb.TmdbMatch
 import com.lovelev.mediadock.di.AppContainer
 import com.lovelev.mediadock.ui.library.orderedEpisodes
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.first
@@ -120,15 +122,71 @@ class DetailViewModel(private val container: AppContainer) : ViewModel() {
 
     fun rescrape(path: String) {
         viewModelScope.launch {
-            notice = "正在重新匹配…"
             notice = container.library.rescrapeOne(path)
         }
     }
 
-    fun saveOverride(path: String, title: String, year: Int?) {
+    /** 整部剧重新匹配（右上角菜单）。 */
+    fun rescrapeSeries(paths: List<String>) {
         viewModelScope.launch {
-            container.library.saveOverride(path, title, year)
+            notice = container.library.rescrapeSeries(paths)
+        }
+    }
+
+    /** 手动匹配的候选列表（空 = 还没搜或没结果）。 */
+    var matchCandidates by mutableStateOf<List<TmdbMatch>>(emptyList())
+        private set
+    var matchBusy by mutableStateOf(false)
+        private set
+
+    fun searchMatches(query: String, year: Int?, isTv: Boolean) {
+        viewModelScope.launch {
+            matchBusy = true
+            matchCandidates = emptyList()
             notice = null
+            try {
+                matchCandidates = container.library.searchMatchCandidates(query, year, isTv)
+                if (matchCandidates.isEmpty()) notice = "无匹配"
+            } catch (e: CancellationException) {
+                throw e
+            } catch (e: Exception) {
+                notice = e.message ?: "搜索失败"
+            } finally {
+                matchBusy = false
+            }
+        }
+    }
+
+    /** 选中一条候选：应用到整部剧/整部片，并清掉旧的详情缓存。 */
+    fun applyMatch(paths: List<String>, match: TmdbMatch) {
+        viewModelScope.launch {
+            matchBusy = true
+            notice = null
+            try {
+                container.library.applyMatch(paths, match)
+                matchCandidates = emptyList()
+            } catch (e: CancellationException) {
+                throw e
+            } catch (e: Exception) {
+                notice = e.message ?: "应用失败"
+            } finally {
+                matchBusy = false
+            }
+        }
+    }
+
+    /** 保存手改的片名/年份，并用它重刮整部剧。 */
+    fun saveOverrideAndScrape(paths: List<String>, title: String, year: Int?) {
+        viewModelScope.launch {
+            container.library.saveOverride(paths, title, year)
+            notice = container.library.rescrapeSeries(paths)
+        }
+    }
+
+    fun clearOverride(paths: List<String>) {
+        viewModelScope.launch {
+            container.library.saveOverride(paths, "", null)
+            notice = container.library.rescrapeSeries(paths)
         }
     }
 
