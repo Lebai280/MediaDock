@@ -1,11 +1,14 @@
 package com.lovelev.mediadock.ui.theme
 
 import androidx.compose.foundation.isSystemInDarkTheme
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.Shapes
 import androidx.compose.material3.darkColorScheme
 import androidx.compose.material3.lightColorScheme
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.unit.dp
 
 /**
  * 配色取用户自己站点（星屿）那颗柠檬绿。
@@ -54,6 +57,19 @@ private val LightColors = lightColorScheme(
     outline = Color(0xFFE1E1DB),
 )
 
+/**
+ * 整体圆角比 M3 默认再圆一档（用户要求「稍微圆润一些」）：
+ * 默认是 8 / 12 / 16 / 28，这里放大到 10 / 12 / 18 / 24 / 30。
+ * 卡片、对话框、菜单、按钮都吃这套，改一处全局生效。
+ */
+private val MediaDockShapes = Shapes(
+    extraSmall = RoundedCornerShape(10.dp),
+    small = RoundedCornerShape(12.dp),
+    medium = RoundedCornerShape(18.dp),
+    large = RoundedCornerShape(24.dp),
+    extraLarge = RoundedCornerShape(30.dp),
+)
+
 @Composable
 fun MediaDockTheme(
     darkTheme: Boolean = isSystemInDarkTheme(),
@@ -61,6 +77,7 @@ fun MediaDockTheme(
 ) {
     MaterialTheme(
         colorScheme = if (darkTheme) DarkColors else LightColors,
+        shapes = MediaDockShapes,
         content = content,
     )
 }

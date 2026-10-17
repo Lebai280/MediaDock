@@ -6,6 +6,10 @@ import android.os.SystemClock
 import androidx.activity.compose.LocalOnBackPressedDispatcherOwner
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.core.tween
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
 import androidx.compose.foundation.background
 import androidx.compose.foundation.gestures.awaitEachGesture
 import androidx.compose.foundation.gestures.awaitFirstDown
@@ -58,8 +62,8 @@ private const val CONTROLS_HIDE_MS = 4_000L
 /** 锁上后解锁按钮停留多久自动隐藏。 */
 private const val LOCK_HINT_MS = 3_000L
 
-/** 亮度 / 音量调节提示停留多久。 */
-private const val HINT_LINGER_MS = 900L
+/** 亮度 / 音量 / 挂载结果提示停留多久。太短来不及读（用户反馈）。 */
+private const val HINT_LINGER_MS = 2_200L
 
 /** 整屏高度对应多少调节行程：1 = 从屏幕顶部划到底 = 满量程。 */
 private const val SWIPE_FULL_RANGE_PER_SCREEN = 1.0f
@@ -356,7 +360,12 @@ private fun PlayerSurface(
             // 锁定后其余控件一律不画（手势也在上面按 locked 关掉了）
             if (locked) return@Box
 
-            if (controlsVisible) {
+            // 控件淡入淡出，别硬切（用户要求动画优雅一些）
+            AnimatedVisibility(
+                visible = controlsVisible,
+                enter = fadeIn(tween(180)),
+                exit = fadeOut(tween(140)),
+            ) {
                 PlayerControls(
                     controller = controller,
                     tracks = tracks,

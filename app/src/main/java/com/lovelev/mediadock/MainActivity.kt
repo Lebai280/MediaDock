@@ -1,5 +1,10 @@
 package com.lovelev.mediadock
 
+import androidx.compose.animation.core.tween
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.slideInHorizontally
+import androidx.compose.animation.slideOutHorizontally
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.Row
@@ -292,6 +297,15 @@ private fun AppNavHost(
         navController = navController,
         startDestination = startRoute,
         modifier = modifier,
+        // 页面切换：淡入 + 一点点横向位移。幅度很小（1/20 屏宽），只为不硬切。
+        enterTransition = {
+            fadeIn(tween(200)) + slideInHorizontally(tween(200)) { it / 20 }
+        },
+        exitTransition = { fadeOut(tween(140)) },
+        popEnterTransition = { fadeIn(tween(200)) },
+        popExitTransition = {
+            fadeOut(tween(140)) + slideOutHorizontally(tween(200)) { it / 20 }
+        },
     ) {
         composable(Routes.ADD_SOURCE) {
             val vm: SourceViewModel = viewModel(factory = SourceViewModel.factory(container))

@@ -10,6 +10,8 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.gestures.awaitEachGesture
 import androidx.compose.foundation.gestures.awaitFirstDown
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxScope
@@ -79,7 +81,11 @@ internal fun InfoDialog(
         onDismissRequest = onDismiss,
         title = { Text("详细信息") },
         text = {
-            Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+            // 横屏 / 小屏时内容会超出对话框高度 —— 必须能滚，否则下面的行直接看不见（用户反馈）
+            Column(
+                modifier = Modifier.verticalScroll(rememberScrollState()),
+                verticalArrangement = Arrangement.spacedBy(6.dp),
+            ) {
                 InfoRow("名称", title)
                 InfoRow("路径", path)
                 InfoRow("时长", "${formatClock(duration)}（${formatClock(position)} 已播）")
@@ -199,15 +205,16 @@ internal fun LockButton(locked: Boolean, onClick: () -> Unit, modifier: Modifier
 @Composable
 internal fun BoxScope.OverlayHint(text: String) {
     Surface(
-        color = Color.Black.copy(alpha = 0.6f),
-        shape = MaterialTheme.shapes.small,
+        color = Color.Black.copy(alpha = 0.78f),
+        shape = MaterialTheme.shapes.medium,
+        tonalElevation = 6.dp,
         modifier = Modifier.align(Alignment.Center),
     ) {
         Text(
             text = text,
-            style = MaterialTheme.typography.labelLarge,
+            style = MaterialTheme.typography.titleMedium,
             color = Color.White,
-            modifier = Modifier.padding(horizontal = 14.dp, vertical = 8.dp),
+            modifier = Modifier.padding(horizontal = 20.dp, vertical = 12.dp),
         )
     }
 }

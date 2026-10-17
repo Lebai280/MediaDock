@@ -31,8 +31,8 @@ android {
         applicationId = "com.lovelev.mediadock"
         minSdk = 26
         targetSdk = 36
-        versionCode = 14
-        versionName = "0.5.1"
+        versionCode = 15
+        versionName = "0.5.2"
     }
 
     signingConfigs {
@@ -51,9 +51,10 @@ android {
     buildTypes {
         release {
             if (hasReleaseKey) signingConfig = signingConfigs.getByName("release")
-            // minify 暂不开：R8 会裁掉 Room / kotlinx-serialization 依赖的反射。
-            // 要开的话必须同时补 keep 规则并跑一轮真机验证，属于独立的一步（见 WORKLOG）。
-            isMinifyEnabled = false
+            // R8：体积与启动都明显受益。Room / kotlinx-serialization / Media3 的 consumer
+            // 规则已经足够；开之前必须真机跑一遍播放、刮削、字幕与详情（见 WORKLOG 坑 74）。
+            isMinifyEnabled = true
+            isShrinkResources = true
             proguardFiles(
                 getDefaultProguardFile("proguard-android-optimize.txt"),
                 "proguard-rules.pro",

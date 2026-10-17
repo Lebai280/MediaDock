@@ -11,11 +11,17 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
+import androidx.compose.material.icons.filled.Audiotrack
+import androidx.compose.material.icons.filled.Info
 import androidx.compose.material.icons.filled.MoreHoriz
 import androidx.compose.material.icons.filled.Pause
+import androidx.compose.material.icons.filled.PhotoCamera
 import androidx.compose.material.icons.filled.PlayArrow
+import androidx.compose.material.icons.filled.Subtitles
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.HorizontalDivider
@@ -31,6 +37,7 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.res.painterResource
@@ -135,24 +142,41 @@ internal fun PlayerControls(
                     Icon(Icons.Filled.MoreHoriz, "更多", tint = Color.White)
                 }
                 // 更多：字幕 / 音轨 / 详细信息 / 截图（都在这里，顶部就不挤了）
-                DropdownMenu(expanded = moreExpanded, onDismissRequest = { moreExpanded = false }) {
+                // 带图标 + 强调色的条目：纯文字在小屏/亮画面上太难认（用户反馈「提示不明显」）
+                DropdownMenu(
+                    expanded = moreExpanded,
+                    onDismissRequest = { moreExpanded = false },
+                    containerColor = MaterialTheme.colorScheme.surfaceContainerHigh,
+                ) {
                     DropdownMenuItem(
                         text = { Text(if (subtitlesOn) "字幕（开）" else "字幕") },
+                        leadingIcon = {
+                            Icon(Icons.Filled.Subtitles, null, tint = MaterialTheme.colorScheme.primary)
+                        },
                         onClick = { moreExpanded = false; subtitleExpanded = true },
                     )
                     // 只有一条音轨就不显示这项 —— 一个选项的菜单没有意义
                     if (audioGroups.size > 1) {
                         DropdownMenuItem(
                             text = { Text("音轨") },
+                            leadingIcon = {
+                                Icon(Icons.Filled.Audiotrack, null, tint = MaterialTheme.colorScheme.primary)
+                            },
                             onClick = { moreExpanded = false; audioExpanded = true },
                         )
                     }
                     DropdownMenuItem(
                         text = { Text("详细信息") },
+                        leadingIcon = {
+                            Icon(Icons.Filled.Info, null, tint = MaterialTheme.colorScheme.primary)
+                        },
                         onClick = { moreExpanded = false; onInfo() },
                     )
                     DropdownMenuItem(
                         text = { Text("截图") },
+                        leadingIcon = {
+                            Icon(Icons.Filled.PhotoCamera, null, tint = MaterialTheme.colorScheme.primary)
+                        },
                         onClick = { moreExpanded = false; onScreenshot() },
                     )
                 }
@@ -220,70 +244,14 @@ internal fun PlayerControls(
             }
         }
 
-        // ---- 中间：上一集 / 大播放暂停键 / 下一集 ----
-        // 队列就是「同目录的视频」（点文件时传下来的），所以这里的上/下一集天然覆盖
-        // S01E01、EP01 这类同名分集 —— 没有的按钮置灰，别让人点了没反应。
-        Row(
-            modifier = Modifier.align(Alignment.Center),
-            horizontalArrangement = Arrangement.spacedBy(32.dp),
-            verticalAlignment = Alignment.CenterVertically,
-        ) {
-            val hasPrev = controller.hasPreviousMediaItem()
-            IconButton(
-                onClick = {
-                    AppLog.d("player", "previous tapped")
-                    controller.seekToPreviousMediaItem()
-                },
-                enabled = hasPrev,
-                modifier = Modifier.size(56.dp),
-            ) {
-                Icon(
-                    painter = painterResource(R.drawable.ic_skip_previous),
-                    contentDescription = "上一集",
-                    tint = Color.White.copy(alpha = if (hasPrev) 1f else 0.3f),
-                    modifier = Modifier.size(34.dp),
-                )
-            }
-
-            IconButton(
-                onClick = {
-                    AppLog.d("player", "center play/pause tapped (isPlaying=${controller.isPlaying})")
-                    if (controller.isPlaying) controller.pause() else controller.play()
-                },
-                modifier = Modifier.size(72.dp),
-            ) {
-                Icon(
-                    imageVector = if (playing) Icons.Filled.Pause else Icons.Filled.PlayArrow,
-                    contentDescription = if (playing) "暂停" else "播放",
-                    tint = Color.White,
-                    modifier = Modifier.size(48.dp),
-                )
-            }
-
-            val hasNext = controller.hasNextMediaItem()
-            IconButton(
-                onClick = {
-                    AppLog.d("player", "next tapped")
-                    controller.seekToNextMediaItem()
-                },
-                enabled = hasNext,
-                modifier = Modifier.size(56.dp),
-            ) {
-                Icon(
-                    painter = painterResource(R.drawable.ic_skip_next),
-                    contentDescription = "下一集",
-                    tint = Color.White.copy(alpha = if (hasNext) 1f else 0.3f),
-                    modifier = Modifier.size(34.dp),
-                )
-            }
-        }
-
-        // ---- 底部：细进度条 + 左时间 / 右时长 / 最右下角倍速 ----
+        // ---- 底部：进度条 + YouTube 式控件排 ----
+        // 播放/暂停、上一集、下一集成一组放在左下角，时间紧跟其后（用户指定仿 YouTube）；
+        // 画面中央不再放大播放键 —— 点画面本身就能显隐控件。
         Column(
             modifier = Modifier
                 .align(Alignment.BottomCenter)
                 .fillMaxWidth()
-                .padding(start = 20.dp, end = 20.dp, bottom = 6.dp),
+                .padding(start = 16.dp, end = 16.dp, bottom = 8.dp),
         ) {
             ThinSeekBar(
                 position = position,
@@ -291,18 +259,69 @@ internal fun PlayerControls(
                 onSeek = onSeek,
                 modifier = Modifier.fillMaxWidth(),
             )
+            Spacer(Modifier.height(6.dp))
             Row(
-                modifier = Modifier.fillMaxWidth().padding(top = 2.dp),
+                modifier = Modifier.fillMaxWidth(),
                 verticalAlignment = Alignment.CenterVertically,
             ) {
-                Text(formatClock(position), color = Color.White, style = MaterialTheme.typography.labelMedium)
-                Spacer(Modifier.weight(1f))
+                BarIconButton(
+                    onClick = {
+                        AppLog.d("player", "play/pause tapped (isPlaying=${controller.isPlaying})")
+                        if (controller.isPlaying) controller.pause() else controller.play()
+                    },
+                ) {
+                    Icon(
+                        imageVector = if (playing) Icons.Filled.Pause else Icons.Filled.PlayArrow,
+                        contentDescription = if (playing) "暂停" else "播放",
+                        tint = Color.White,
+                        modifier = Modifier.size(22.dp),
+                    )
+                }
+                Spacer(Modifier.width(8.dp))
+
+                val hasPrev = controller.hasPreviousMediaItem()
+                BarIconButton(
+                    onClick = {
+                        AppLog.d("player", "previous tapped")
+                        controller.seekToPreviousMediaItem()
+                    },
+                    enabled = hasPrev,
+                ) {
+                    Icon(
+                        painter = painterResource(R.drawable.ic_skip_previous),
+                        contentDescription = "上一集",
+                        tint = Color.White.copy(alpha = if (hasPrev) 1f else 0.3f),
+                        modifier = Modifier.size(22.dp),
+                    )
+                }
+                Spacer(Modifier.width(8.dp))
+
+                val hasNext = controller.hasNextMediaItem()
+                BarIconButton(
+                    onClick = {
+                        AppLog.d("player", "next tapped")
+                        controller.seekToNextMediaItem()
+                    },
+                    enabled = hasNext,
+                ) {
+                    Icon(
+                        painter = painterResource(R.drawable.ic_skip_next),
+                        contentDescription = "下一集",
+                        tint = Color.White.copy(alpha = if (hasNext) 1f else 0.3f),
+                        modifier = Modifier.size(22.dp),
+                    )
+                }
+                Spacer(Modifier.width(14.dp))
+
                 // 时长还没读出来（刚起播那一两秒）显示 --:-- ，别显示 00:00 让人以为片子是空的
                 Text(
-                    text = if (duration > 0L) formatClock(duration) else "--:--",
+                    text = "${formatClock(position)} / " +
+                        if (duration > 0L) formatClock(duration) else "--:--",
                     color = Color.White,
-                    style = MaterialTheme.typography.labelMedium,
+                    style = MaterialTheme.typography.labelLarge,
                 )
+                Spacer(Modifier.weight(1f))
+
                 Box {
                     TextButton(onClick = {
                         AppLog.d("player", "speed tapped")
@@ -326,5 +345,24 @@ internal fun PlayerControls(
                 }
             }
         }
+    }
+}
+
+/** YouTube 风格的半透明圆形底按钮。 */
+@Composable
+private fun BarIconButton(
+    onClick: () -> Unit,
+    enabled: Boolean = true,
+    content: @Composable () -> Unit,
+) {
+    IconButton(
+        onClick = onClick,
+        enabled = enabled,
+        modifier = Modifier
+            .size(44.dp)
+            .clip(CircleShape)
+            .background(Color.Black.copy(alpha = 0.35f)),
+    ) {
+        content()
     }
 }

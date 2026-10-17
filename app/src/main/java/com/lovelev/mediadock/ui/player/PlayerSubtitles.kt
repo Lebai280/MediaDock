@@ -51,6 +51,8 @@ import kotlinx.coroutines.launch
  */
 internal fun mountSubtitle(controller: MediaController?, local: LocalSubtitle) {
     val c = controller ?: return
+    val index = c.currentMediaItemIndex
+    if (index == C.INDEX_UNSET || c.mediaItemCount == 0) return
     val current = c.currentMediaItem ?: return
     val configuration = MediaItem.SubtitleConfiguration.Builder(Uri.fromFile(local.file))
         .setMimeType(local.mimeType)
@@ -58,14 +60,18 @@ internal fun mountSubtitle(controller: MediaController?, local: LocalSubtitle) {
         .build()
     val existing = current.localConfiguration?.subtitleConfigurations.orEmpty()
         .filterNot { it.uri == configuration.uri }
+    val updated = current.buildUpon().setSubtitleConfigurations(existing + configuration).build()
+
+    // ⚠️ 不能用 `setMediaItem(单个)`：Media3 的语义是**把整个播放列表换成这一条**，
+    // 队列会被缩成 1 条，自动下一集直接失效（坑 72）。要保留队列，只替换当前这一条。
+    val items = (0 until c.mediaItemCount).map { i ->
+        if (i == index) updated else c.getMediaItemAt(i)
+    }
     val position = c.currentPosition
-    c.setMediaItem(
-        current.buildUpon().setSubtitleConfigurations(existing + configuration).build(),
-        position,
-    )
+    c.setMediaItems(items, index, position)
     c.prepare()
     c.play()
-    AppLog.d("player", "subtitle mounted: ${local.file.name} @${position}ms")
+    AppLog.d("player", "subtitle mounted: ${local.file.name} @${position}ms (queue=${items.size})")
 }
 
 /** 从 SAF 的 content:// 里问出显示名（带扩展名，好判断字幕类型）。 */

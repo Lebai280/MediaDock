@@ -57,8 +57,14 @@ class SubtitleRepository(
     /** 把一段字幕字节落盘（本地选的文件也走这里）。 */
     fun save(name: String, bytes: ByteArray): LocalSubtitle {
         val directory = File(context.filesDir, "subtitles").apply { mkdirs() }
+        // 未知扩展名**不能默默当 srt**：选中 .torrent / .mp4 时会被 SubripParser
+        // 当文本硬解，日志里全是二进制乱码、界面上什么也不显示（坑 73）。
         val ext = name.substringAfterLast('.', "").lowercase()
-            .takeIf { it in SUBTITLE_EXTENSIONS } ?: "srt"
+        if (ext !in SUBTITLE_EXTENSIONS) {
+            throw SubtitleException(
+                "这不是字幕文件（.${ext.ifBlank { "无扩展名" }}）。请选 .srt / .ass / .ssa / .vtt。",
+            )
+        }
         val stem = name.substringBeforeLast('.', name)
             .replace(Regex("[\\\\/:*?\"<>|\\s]+"), "_")
             .take(60)
