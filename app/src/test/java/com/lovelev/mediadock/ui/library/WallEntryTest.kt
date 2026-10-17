@@ -101,7 +101,6 @@ class WallEntryTest {
 
     @Test
     fun `跨 S01 S02 目录的同一部剧并成一块`() {
-        // 用户的真实结构：动漫/葬送的芙莉莲/S01/简日双语.喵萌奶茶屋/葬送的芙莉莲01.mp4
         val wall = groupWall(
             listOf(
                 item("动漫/葬送的芙莉莲/S01/简日双语.喵萌奶茶屋/葬送的芙莉莲01.mp4", episode = 1, season = 1),
@@ -115,5 +114,14 @@ class WallEntryTest {
             listOf(1 to 1, 1 to 2, 2 to 1),
             series.episodes.map { it.season to it.episode },
         )
+    }
+
+    @Test
+    fun `同一部电影多版本按 tmdbId 合并`() {
+        val a = item("电影/片名.1080p.mp4").copy(tmdbId = 42, sizeBytes = 100)
+        val b = item("电影/片名.4K.mp4").copy(tmdbId = 42, sizeBytes = 200)
+        val movie = groupWall(listOf(a, b)).single() as WallEntry.Movie
+        assertEquals(2, movie.versions.size)
+        assertEquals("电影/片名.4K.mp4", movie.sample.path)
     }
 }

@@ -9,6 +9,7 @@ import com.lovelev.mediadock.data.prefs.SecureCredentialStore
 import com.lovelev.mediadock.data.repo.FavoriteRepository
 import com.lovelev.mediadock.data.repo.DetailsRepository
 import com.lovelev.mediadock.data.repo.LibraryRepository
+import com.lovelev.mediadock.data.repo.PlaylistRepository
 import com.lovelev.mediadock.data.repo.ProgressRepository
 import com.lovelev.mediadock.data.repo.SubtitleRepository
 import com.lovelev.mediadock.data.subtitle.OpenSubtitlesProvider
@@ -99,6 +100,9 @@ class AppContainer(context: Context) {
     val progress: ProgressRepository by lazy { ProgressRepository(database) }
 
     val favorites: FavoriteRepository by lazy { FavoriteRepository(database) }
+
+    /** 用户片单。 */
+    val playlists: PlaylistRepository by lazy { PlaylistRepository(database) }
 
     /** 详情页的补充信息（类型/国家/时长/演职人员），打开详情页时才拉。 */
     val details: DetailsRepository by lazy { DetailsRepository(database, tmdbClient, credentials) }

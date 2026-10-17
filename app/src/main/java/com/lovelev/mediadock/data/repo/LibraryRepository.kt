@@ -314,6 +314,7 @@ class LibraryRepository(
                     dao.insertAll(merged)
                 }
                 _scan.value = ScanState.Done(files = found.size, truncated = truncated)
+                triggerAutoScrape()
             } catch (e: WebDavException) {
                 // 单次尝试即返回，绝不重试
                 val blocked = e is WebDavException.Unauthorized || e is WebDavException.Locked
@@ -412,6 +413,7 @@ class LibraryRepository(
                 dao.insertAll(merged)
             }
             _scan.value = ScanState.Done(files = entities.size, truncated = outcome.truncated)
+            triggerAutoScrape()
         }
     }
 
@@ -448,6 +450,7 @@ class LibraryRepository(
                 dao.insertAll(merged)
             }
             _scan.value = ScanState.Done(files = entities.size, truncated = outcome.truncated)
+            triggerAutoScrape()
         }
     }
 
@@ -480,6 +483,20 @@ class LibraryRepository(
     }
 
     // ---------------------------------------------------------------- 刮削
+
+    /** 扫描完成后自动为新条目刮削（仅 UNSCRAPED，不自动重试历史失败项）。 */
+    private fun triggerAutoScrape() {
+        scope.launch {
+            // 等 scanJob 退出：scrapeStart 在扫描进行中会拒绝启动
+            kotlinx.coroutines.delay(800)
+            if (scanJob?.isActive == true) return@launch
+            if (scrapeJob?.isActive == true) return@launch
+            if ((_scrape.value as? ScrapeState.Failed)?.needsSecret == true) return@launch
+            if (credentials.loadTmdbSecret() == null) return@launch
+            if (db.mediaDao().unscrapedCount() == 0) return@launch
+            scrapeStart()
+        }
+    }
 
     fun scrapeStart() {
         if (scrapeJob?.isActive == true) return

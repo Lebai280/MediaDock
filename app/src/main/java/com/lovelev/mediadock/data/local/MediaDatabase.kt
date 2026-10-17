@@ -28,6 +28,8 @@ import androidx.sqlite.db.SupportSQLiteDatabase
         TitleOverride::class,
         TitleDetail::class,
         EpisodeMeta::class,
+        Playlist::class,
+        PlaylistItem::class,
     ],
     version = MediaDatabase.VERSION,
     exportSchema = false,
@@ -39,10 +41,11 @@ abstract class MediaDatabase : RoomDatabase() {
     abstract fun titleOverrideDao(): TitleOverrideDao
     abstract fun titleDetailDao(): TitleDetailDao
     abstract fun episodeMetaDao(): EpisodeMetaDao
+    abstract fun playlistDao(): PlaylistDao
 
     companion object {
         /** 当前库表版本。**单一来源**：`@Database` 与迁移覆盖单测都读它。 */
-        const val VERSION = 7
+        const val VERSION = 8
 
         /** v3 → v4：加收藏表。纯新增，不动既有数据。 */
         val MIGRATION_3_4 = object : Migration(3, 4) {
@@ -99,11 +102,32 @@ abstract class MediaDatabase : RoomDatabase() {
         }
 
         /**
+         * v7 → v8：新增用户片单与片单条目表。纯新增。
+         */
+        val MIGRATION_7_8 = object : Migration(7, 8) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL(
+                    "CREATE TABLE IF NOT EXISTS `playlists` (" +
+                        "`id` INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL, " +
+                        "`name` TEXT NOT NULL, `createdAt` INTEGER NOT NULL)",
+                )
+                db.execSQL(
+                    "CREATE TABLE IF NOT EXISTS `playlist_items` (" +
+                        "`playlistId` INTEGER NOT NULL, `path` TEXT NOT NULL, " +
+                        "`addedAt` INTEGER NOT NULL, " +
+                        "PRIMARY KEY(`playlistId`, `path`))",
+                )
+            }
+        }
+
+        /**
          * **所有迁移都放这个数组里，容器整批注册** ——
          * 之前把迁移分开写、容器只注册了其中一个，结果升级走了 destructive 兜底，
          * 把库和进度一起清了。加新迁移时只改这里，容器会自动带上。
          * 注意数组要放在各迁移定义**之后**（companion 是顺序初始化的）。
          */
-        val MIGRATIONS = arrayOf(MIGRATION_3_4, MIGRATION_4_5, MIGRATION_5_6, MIGRATION_6_7)
+        val MIGRATIONS = arrayOf(
+            MIGRATION_3_4, MIGRATION_4_5, MIGRATION_5_6, MIGRATION_6_7, MIGRATION_7_8,
+        )
     }
 }

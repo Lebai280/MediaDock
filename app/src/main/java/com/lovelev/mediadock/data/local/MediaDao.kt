@@ -21,6 +21,10 @@ interface MediaDao {
     @Query("SELECT * FROM media_items WHERE scrapeState != 'MATCHED' ORDER BY path")
     suspend fun pendingScrape(): List<MediaItemEntity>
 
+    /** 扫描后自动刮削只处理新条目，不自动重试历史失败项。 */
+    @Query("SELECT COUNT(*) FROM media_items WHERE scrapeState = 'UNSCRAPED'")
+    suspend fun unscrapedCount(): Int
+
     /** 详情页：只取这一个合集/这部剧的条目。空列表要由调用方挡掉 —— SQLite 的 `IN ()` 是语法错。 */
     @Query("SELECT * FROM media_items WHERE path IN (:paths)")
     fun observeByPaths(paths: List<String>): Flow<List<MediaItemEntity>>

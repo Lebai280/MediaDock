@@ -76,6 +76,8 @@ import com.lovelev.mediadock.ui.nav.PlayerImmersive
 import com.lovelev.mediadock.ui.nav.PlayerOrientation
 import com.lovelev.mediadock.ui.nav.Routes
 import com.lovelev.mediadock.ui.nav.SystemBarAppearance
+import com.lovelev.mediadock.ui.playlist.PlaylistDetailScreen
+import com.lovelev.mediadock.ui.playlist.PlaylistsScreen
 import com.lovelev.mediadock.ui.player.MiniPlayerBar
 import com.lovelev.mediadock.ui.player.NowPlayingViewModel
 import com.lovelev.mediadock.ui.player.PlayerScreen
@@ -375,6 +377,7 @@ private fun AppNavHost(
                 container = container,
                 onOpenFavorites = { navController.switchTab(Routes.FAVORITES) },
                 onOpenHistory = { navController.navigate(Routes.HISTORY) },
+                onOpenPlaylists = { navController.navigate(Routes.PLAYLISTS) },
                 onOpenBrowse = { navController.navigate(Routes.BROWSE) },
                 onOpenSettings = { navController.navigate(Routes.SETTINGS) },
                 onOpenLogs = { navController.navigate(Routes.LOGS) },
@@ -398,6 +401,29 @@ private fun AppNavHost(
                     navController.navigate(Routes.PLAYER)
                 },
             )
+        }
+
+        composable(Routes.PLAYLISTS) {
+            PlaylistsScreen(
+                container = container,
+                onBack = { navController.popBackStack() },
+                onOpen = { id -> navController.navigate("playlist/$id") },
+            )
+        }
+
+        composable(Routes.PLAYLIST) { entry ->
+            val id = entry.arguments?.getString("id")?.toLongOrNull()
+            if (id != null) {
+                PlaylistDetailScreen(
+                    container = container,
+                    id = id,
+                    onBack = { navController.popBackStack() },
+                    onPlay = { path, queue ->
+                        container.playbackSelection.set(path, queue)
+                        navController.navigate(Routes.PLAYER)
+                    },
+                )
+            }
         }
 
         composable(Routes.DETAIL) {

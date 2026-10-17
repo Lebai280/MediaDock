@@ -12,8 +12,12 @@ sealed interface WallEntry {
     /** 拿它取海报/标题/评分 —— 同一部剧各集的刮削结果是一样的。 */
     val sample: MediaItemEntity
 
-    data class Movie(override val sample: MediaItemEntity) : WallEntry {
-        override val key: String = sample.path
+    /** 单片。同一部电影有多个文件时，[versions] 保存全部版本（按 TMDB ID 合并）。 */
+    data class Movie(
+        override val sample: MediaItemEntity,
+        val versions: List<MediaItemEntity> = listOf(sample),
+    ) : WallEntry {
+        override val key: String = sample.tmdbId?.let { "tmdb:$it" } ?: sample.path
     }
 
     data class Series(val episodes: List<MediaItemEntity>) : WallEntry {
@@ -34,6 +38,33 @@ internal fun seriesRootOf(path: String): String {
     val segments = dir.split('/')
     val seasonIndex = segments.indexOfLast { SEASON_DIR.matches(it.trim()) }
     return if (seasonIndex > 0) segments.take(seasonIndex).joinToString("/") else dir
+}
+
+/** 海报墙排序方式。 */
+enum class WallSort(val label: String) {
+    DEFAULT("默认"),
+    RATING("评分"),
+    YEAR("年份"),
+    TITLE("名称"),
+    RECENT("最近添加"),
+}
+
+fun sortWall(entries: List<WallEntry>, sort: WallSort): List<WallEntry> = when (sort) {
+    WallSort.DEFAULT -> entries
+    WallSort.RATING -> entries.sortedByDescending { it.sample.rating ?: Double.NEGATIVE_INFINITY }
+    WallSort.YEAR -> entries.sortedByDescending { it.sample.year ?: Int.MIN_VALUE }
+    WallSort.TITLE -> entries.sortedBy { it.sample.parsedTitle }
+    WallSort.RECENT -> entries.sortedByDescending { lastModifiedMillis(it.sample.lastModified) }
+}
+
+/** WebDAV 的 lastModified 是 RFC1123；本地媒体存的是毫秒字符串。两种都认。 */
+private fun lastModifiedMillis(value: String?): Long {
+    if (value.isNullOrBlank()) return 0L
+    value.toLongOrNull()?.let { return it }
+    return runCatching {
+        java.time.ZonedDateTime.parse(value, java.time.format.DateTimeFormatter.RFC_1123_DATE_TIME)
+            .toInstant().toEpochMilli()
+    }.getOrDefault(0L)
 }
 
 /** 集数排序：先季、再集、最后名字兜底。 */
@@ -61,8 +92,17 @@ fun groupWall(items: List<MediaItemEntity>): List<WallEntry> {
         .map { (_, episodes) -> WallEntry.Series(episodes.orderedEpisodes()) }
 
     val groupedPaths = series.flatMapTo(HashSet()) { entry -> entry.episodes.map { it.path } }
-    val movies = standalone.map { WallEntry.Movie(it) } +
-        numbered.filter { it.path !in groupedPaths }.map { WallEntry.Movie(it) }
+    val movieItems = standalone + numbered.filter { it.path !in groupedPaths }
+
+    // 同一部电影有多个文件时按 tmdbId 合并成一块，取体积最大的作为主版本
+    val movies = movieItems.groupBy { it.tmdbId }.flatMap { (tmdbId, group) ->
+        if (tmdbId != null && group.size > 1) {
+            val primary = group.maxByOrNull { it.sizeBytes ?: 0L } ?: group.first()
+            listOf(WallEntry.Movie(primary, group))
+        } else {
+            group.map { WallEntry.Movie(it) }
+        }
+    }
 
     return (movies + series).sortedBy { it.key }
 }

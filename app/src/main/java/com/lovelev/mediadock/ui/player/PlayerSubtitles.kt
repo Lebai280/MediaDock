@@ -176,7 +176,7 @@ internal fun SubtitleSearchDialog(
                 Spacer(Modifier.height(12.dp))
 
                 if (!configured) {
-                    Text("还没填字幕源凭据。去「设置 → 字幕源」把 API Key 和账号填上，回来就能搜。")
+                    Text("未配置字幕源")
                     Spacer(Modifier.weight(1f))
                 } else {
                     OutlinedTextField(

@@ -40,6 +40,10 @@ class LibraryViewModel(private val container: AppContainer) : ViewModel() {
     private val allDetails: StateFlow<List<TitleDetail>> = container.library.details
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
 
+    /** 搜索页做分类/地区/年份筛选要用的原始数据。 */
+    val allLibraryItems: StateFlow<List<MediaItemEntity>> get() = allItems
+    val allLibraryDetails: StateFlow<List<TitleDetail>> get() = allDetails
+
     /** 搜索词：Compose 状态给输入框显示，Flow 参与 combine。 */
     var query by mutableStateOf("")
         private set
@@ -116,6 +120,20 @@ class LibraryViewModel(private val container: AppContainer) : ViewModel() {
 
     fun reshuffle() {
         recommended = pickRandom(groupWall(allItems.value))
+    }
+
+    /** 海报墙排序与「仅看未看」筛选（界面状态，放在 VM 里以便切换 Tab 后保持）。 */
+    var sort by mutableStateOf(WallSort.DEFAULT)
+        private set
+    var unwatchedOnly by mutableStateOf(false)
+        private set
+
+    fun pickSort(value: WallSort) {
+        sort = value
+    }
+
+    fun toggleUnwatchedOnly() {
+        unwatchedOnly = !unwatchedOnly
     }
 
     fun toggleScan() {

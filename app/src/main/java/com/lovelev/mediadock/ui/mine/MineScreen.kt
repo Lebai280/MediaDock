@@ -19,6 +19,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.KeyboardArrowRight
 import androidx.compose.material.icons.automirrored.filled.List
 import androidx.compose.material.icons.filled.Build
+import androidx.compose.material.icons.filled.Bookmark
 import androidx.compose.material.icons.filled.Favorite
 import androidx.compose.material.icons.filled.DateRange
 import androidx.compose.material.icons.filled.Info
@@ -61,6 +62,7 @@ fun MineScreen(
     container: com.lovelev.mediadock.di.AppContainer,
     onOpenFavorites: () -> Unit,
     onOpenHistory: () -> Unit,
+    onOpenPlaylists: () -> Unit,
     onOpenBrowse: () -> Unit,
     onOpenSettings: () -> Unit,
     onOpenLogs: () -> Unit,
@@ -98,6 +100,8 @@ fun MineScreen(
             MineRow(Icons.Filled.Favorite, "收藏", null, onOpenFavorites)
             HorizontalDivider()
             MineRow(Icons.Filled.DateRange, "播放历史", null, onOpenHistory)
+            HorizontalDivider()
+            MineRow(Icons.Filled.Bookmark, "片单", null, onOpenPlaylists)
             HorizontalDivider()
             MineRow(Icons.AutoMirrored.Filled.List, "浏览", null, onOpenBrowse)
         }

@@ -67,6 +67,7 @@ import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.window.Dialog
@@ -115,6 +116,7 @@ fun DetailScreen(
     val favorites by vm.favorites.collectAsState()
     val detail by vm.detail.collectAsState()
     val cast by vm.cast.collectAsState()
+    val versions by vm.versions.collectAsState()
 
     if (entries.isEmpty()) {
         Box(
@@ -137,6 +139,11 @@ fun DetailScreen(
         .maxByOrNull { progress.getValue(it.path).updatedAt }
     val target = resumable ?: sample
 
+    var chosenVersion by remember(entries) { mutableStateOf<MediaItemEntity?>(null) }
+    val playItem = chosenVersion ?: target
+    val playPosition = progress[playItem.path]?.positionMs ?: 0L
+    val playQueue = if (chosenVersion != null) listOf(playItem.path) else queue
+
     fun seasonOf(e: MediaItemEntity): Int? = e.season ?: TitleParser.seasonOfPath(e.path)
     val seasons = entries.map { seasonOf(it) }.filterNotNull().distinct().sorted()
     val multiSeason = seasons.size >= 2
@@ -157,7 +164,8 @@ fun DetailScreen(
 
     val titleLine = buildString {
         append(sample.parsedTitle.ifBlank { sample.name })
-        if (multiSeason) append(" 第 $currentSeason 季")
+        // 与爆米花一致：剧集标题始终带季号（单季也显示「第 1 季」）
+        if (isSeries) append(" 第 $currentSeason 季")
     }
 
     // 海报底部的主色（取不到就用中性深色），大图与它以下的背景都围绕它做
@@ -165,14 +173,9 @@ fun DetailScreen(
 
     BoxWithConstraints(modifier.fillMaxSize().background(tone)) {
         val art = sample.heroArt()
-        // 海报底边在页面上的高度占比（海报高 = 宽 ÷ (2/3) = 宽 × 1.5）——
-        // 背景的色带要从这里开始接，才不会有分界
-        val viewportH = maxHeight.value
-        val heroBottom = if (art != null && viewportH.isFinite() && viewportH > 0f) {
-            ((maxWidth.value * (1f / HERO_ASPECT)) / viewportH).coerceIn(0f, 1f)
-        } else {
-            0f
-        }
+        // 用户要求：详情页横幅约占半屏
+        val heroHeight = if (art != null) maxHeight * 0.5f else HERO_NO_ART_HEIGHT
+        val heroBottom = if (art != null) 0.5f else 0f
 
         // 海报以下：同一个色往下铺，略微渐暗（内容区够暗，白字才读得清）
         PageBackground(tone, heroBottom)
@@ -183,7 +186,7 @@ fun DetailScreen(
                 .navigationBarsPadding()
                 .verticalScroll(rememberScrollState()),
         ) {
-            HeroArt(item = sample, tone = tone)
+            HeroArt(item = sample, tone = tone, height = heroHeight)
 
             Column(modifier = Modifier.fillMaxWidth().padding(horizontal = 20.dp, vertical = 16.dp)) {
                 // ---- 标题 + 元数据（爆米花式：图下、左对齐）----
@@ -237,7 +240,7 @@ fun DetailScreen(
 
                 // ---- 白色播放按钮（爆米花样式）----
                 Surface(
-                    onClick = { onPlay(target.path, queue) },
+                    onClick = { onPlay(playItem.path, playQueue) },
                     shape = RoundedCornerShape(10.dp),
                     color = Color.White,
                     modifier = Modifier.fillMaxWidth().height(56.dp),
@@ -255,11 +258,35 @@ fun DetailScreen(
                         )
                         Spacer(Modifier.width(8.dp))
                         Text(
-                            text = if (resumable != null) "继续播放" else "播放",
+                            text = if (playPosition > 0L) "继续播放" else "播放",
                             style = MaterialTheme.typography.titleMedium,
                             fontWeight = FontWeight.SemiBold,
                             color = Color(0xFF141414),
                         )
+                    }
+                }
+
+                if (versions.isNotEmpty()) {
+                    Spacer(Modifier.height(12.dp))
+                    Row(
+                        horizontalArrangement = Arrangement.spacedBy(8.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
+                        Text(
+                            text = "版本",
+                            style = MaterialTheme.typography.labelLarge,
+                            color = OnBackdropFaint,
+                        )
+                        VersionChip(
+                            text = versionLabel(sample),
+                            selected = chosenVersion == null,
+                        ) { chosenVersion = null }
+                        versions.forEach { version ->
+                            VersionChip(
+                                text = versionLabel(version),
+                                selected = chosenVersion?.path == version.path,
+                            ) { chosenVersion = version }
+                        }
                     }
                 }
 
@@ -320,8 +347,8 @@ fun DetailScreen(
         TopBar(
             item = sample,
             vm = vm,
-            targetPath = target.path,
-            targetDurationMs = progress[target.path]?.durationMs,
+            targetPath = playItem.path,
+            targetDurationMs = progress[playItem.path]?.durationMs ?: progress[target.path]?.durationMs,
             paths = entries.map { it.path },
             isTv = isSeries,
             onBack = onBack,
@@ -406,6 +433,7 @@ private fun BoxScope.PageBackground(tone: Color, heroBottom: Float) {
 private fun HeroArt(
     item: MediaItemEntity,
     tone: Color,
+    height: Dp? = null,
     content: (@Composable ColumnScope.() -> Unit)? = null,
 ) {
     val art = item.heroArt()
@@ -413,7 +441,9 @@ private fun HeroArt(
         modifier = Modifier
             .fillMaxWidth()
             .then(
-                if (art != null) {
+                if (height != null) {
+                    Modifier.height(height)
+                } else if (art != null) {
                     Modifier.aspectRatio(HERO_ASPECT)
                 } else {
                     Modifier.height(HERO_NO_ART_HEIGHT)
@@ -468,6 +498,8 @@ private fun BoxScope.TopBar(
     var menuOpen by remember { mutableStateOf(false) }
     var editing by remember { mutableStateOf(false) }
     var matching by remember { mutableStateOf(false) }
+    var addingToList by remember { mutableStateOf(false) }
+    val playlists by vm.playlists.collectAsState()
 
     Row(
         modifier = Modifier
@@ -499,6 +531,10 @@ private fun BoxScope.TopBar(
                         menuOpen = false
                         vm.setWatched(targetPath, 0L, watched = false)
                     },
+                )
+                DropdownMenuItem(
+                    text = { Text("加入片单") },
+                    onClick = { menuOpen = false; addingToList = true },
                 )
                 DropdownMenuItem(
                     text = { Text("在线匹配") },
@@ -557,6 +593,53 @@ private fun BoxScope.TopBar(
             paths = paths,
             isTv = isTv,
             onDismiss = { matching = false },
+        )
+    }
+
+    if (addingToList) {
+        var newName by remember { mutableStateOf("") }
+        AlertDialog(
+            onDismissRequest = { addingToList = false },
+            title = { Text("加入片单") },
+            text = {
+                Column {
+                    OutlinedTextField(
+                        value = newName,
+                        onValueChange = { newName = it },
+                        label = { Text("新建片单") },
+                        singleLine = true,
+                        modifier = Modifier.fillMaxWidth(),
+                    )
+                    TextButton(
+                        onClick = {
+                            vm.createPlaylistAndAdd(newName, targetPath)
+                            addingToList = false
+                        },
+                        enabled = newName.isNotBlank(),
+                    ) { Text("新建并加入") }
+                    if (playlists.isNotEmpty()) {
+                        HorizontalDivider(Modifier.padding(vertical = 6.dp))
+                        playlists.forEach { playlist ->
+                            TextButton(
+                                onClick = {
+                                    vm.addToPlaylist(playlist.id, targetPath)
+                                    addingToList = false
+                                },
+                                modifier = Modifier.fillMaxWidth(),
+                            ) {
+                                Text(
+                                    text = playlist.name,
+                                    modifier = Modifier.fillMaxWidth(),
+                                    textAlign = TextAlign.Start,
+                                )
+                            }
+                        }
+                    }
+                }
+            },
+            confirmButton = {
+                TextButton(onClick = { addingToList = false }) { Text("关闭") }
+            },
         )
     }
 }
@@ -762,6 +845,31 @@ private fun OverviewSection(overview: String) {
                 )
             }
         }
+    }
+}
+
+/** 版本标签（分辨率 / 体积）。 */
+private fun versionLabel(item: MediaItemEntity): String {
+    val resolution = MediaTypes.resolutionLabel(item.name)
+    val size = formatSize(item.sizeBytes).takeIf { it.isNotBlank() }
+    return listOfNotNull(resolution, size).joinToString(" · ").ifBlank { item.name }
+}
+
+@Composable
+private fun VersionChip(text: String, selected: Boolean, onClick: () -> Unit) {
+    Surface(
+        onClick = onClick,
+        shape = CircleShape,
+        color = if (selected) Color.White else Color.White.copy(alpha = 0.14f),
+        contentColor = if (selected) Color(0xFF141414) else OnBackdrop,
+        modifier = Modifier.height(28.dp),
+    ) {
+        Text(
+            text = text,
+            style = MaterialTheme.typography.labelMedium,
+            maxLines = 1,
+            modifier = Modifier.padding(horizontal = 12.dp, vertical = 5.dp),
+        )
     }
 }
 

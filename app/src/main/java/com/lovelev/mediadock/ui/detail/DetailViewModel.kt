@@ -11,6 +11,7 @@ import androidx.lifecycle.viewmodel.initializer
 import androidx.lifecycle.viewmodel.viewModelFactory
 import com.lovelev.mediadock.data.local.EpisodeMeta
 import com.lovelev.mediadock.data.local.MediaItemEntity
+import com.lovelev.mediadock.data.local.Playlist
 import com.lovelev.mediadock.data.local.PlaybackProgress
 import com.lovelev.mediadock.data.local.TitleDetail
 import com.lovelev.mediadock.data.tmdb.CastMember
@@ -21,6 +22,7 @@ import com.lovelev.mediadock.ui.library.orderedEpisodes
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.stateIn
@@ -71,6 +73,18 @@ class DetailViewModel(private val container: AppContainer) : ViewModel() {
 
     val favorites: StateFlow<Set<String>> = container.favorites.observePaths()
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptySet())
+
+    /**
+     * 同一部电影的其它版本（按 tmdbId 关联，排除剧集文件）。
+     * 海报墙已把多版本合并成一块，这里提供详情页的版本切换。
+     */
+    val versions: StateFlow<List<MediaItemEntity>> =
+        combine(container.library.items, entries) { items, eps ->
+            val first = eps.firstOrNull() ?: return@combine emptyList()
+            if (eps.size >= 2) return@combine emptyList()
+            val tmdbId = first.tmdbId ?: return@combine emptyList()
+            items.filter { it.tmdbId == tmdbId && it.path != first.path && it.episode == null }
+        }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
 
     /** 右上角菜单里那条操作的结果（成功为空）。 */
     var notice by mutableStateOf<String?>(null)
@@ -196,6 +210,22 @@ class DetailViewModel(private val container: AppContainer) : ViewModel() {
         private set
     private val seasonCache = mutableMapOf<Int, Map<Int, EpisodeMeta>>()
     private var seasonToken = 0
+
+    /** 用户片单（详情页「加入片单」用）。 */
+    val playlists: StateFlow<List<Playlist>> = container.playlists.playlists()
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
+
+    fun addToPlaylist(playlistId: Long, path: String) {
+        viewModelScope.launch { container.playlists.add(playlistId, path) }
+    }
+
+    fun createPlaylistAndAdd(name: String, path: String) {
+        if (name.isBlank()) return
+        viewModelScope.launch {
+            val id = container.playlists.create(name)
+            container.playlists.add(id, path)
+        }
+    }
 
     fun loadSeason(tmdbId: Int, season: Int) {
         seasonCache[season]?.let {
