@@ -1,5 +1,16 @@
 package com.lovelev.mediadock
 
+import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.Row
+import com.lovelev.mediadock.ui.search.SearchScreen
+import androidx.compose.ui.Alignment
+import androidx.compose.material3.FilledIconButton
+import androidx.compose.material.icons.filled.Search
+import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.foundation.layout.WindowInsets
+import androidx.compose.foundation.layout.navigationBarsPadding
+import androidx.compose.foundation.layout.width
 import android.os.Bundle
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
@@ -153,17 +164,36 @@ private fun HomeScaffold(
                     Spacer(Modifier.height(6.dp))
                 }
                 if (onTab) {
-                    // 覆盖 M3 默认：它默认的 secondaryContainer 是淡紫的，跟柠檬绿不搭；
-                    // 选中态改成淡柠檬绿胶囊 + 深色字（浅色主题下才读得清）。
-                    NavigationBar(
-                        containerColor = MaterialTheme.colorScheme.surface,
-                        modifier = Modifier.height(56.dp),
+                    // 底部：左边是三个 Tab，右边一颗圆形搜索按钮 —— 照 NagoMusic 的底栏。
+                    // 搜索不再是首页顶上的输入框，而是点这里进独立搜索页。
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .navigationBarsPadding()
+                            .padding(horizontal = 10.dp, vertical = 6.dp),
+                        verticalAlignment = Alignment.CenterVertically,
                     ) {
-                        TABS.forEach { (route, label, icon) ->
-                            TabItem(route, label, icon, currentRoute, navController)
+                        // 覆盖 M3 默认：它默认的 secondaryContainer 是淡紫的，跟柠檬绿不搭；
+                        // 选中态改成淡柠檬绿胶囊 + 深色字（浅色主题下才读得清）。
+                        NavigationBar(
+                            containerColor = MaterialTheme.colorScheme.surface,
+                            // 底部内边距由外面这个 Row 统一给，否则按钮和导航栏会一高一低
+                            windowInsets = WindowInsets(0),
+                            modifier = Modifier.weight(1f).height(56.dp),
+                        ) {
+                            TABS.forEach { (route, label, icon) ->
+                                TabItem(route, label, icon, currentRoute, navController)
+                            }
+                        }
+                        Spacer(Modifier.width(8.dp))
+                        FilledIconButton(
+                            onClick = { navController.navigate(Routes.SEARCH) },
+                            shape = CircleShape,
+                            modifier = Modifier.size(56.dp),
+                        ) {
+                            Icon(Icons.Filled.Search, contentDescription = "搜索")
                         }
                     }
-                    Spacer(Modifier.height(6.dp))
                 }
             }
         },
@@ -313,6 +343,14 @@ private fun AppNavHost(
                 onOpenBrowse = { navController.navigate(Routes.BROWSE) },
                 onOpenSettings = { navController.navigate(Routes.SETTINGS) },
                 onOpenLogs = { navController.navigate(Routes.LOGS) },
+            )
+        }
+
+        composable(Routes.SEARCH) {
+            SearchScreen(
+                container = container,
+                onBack = { navController.popBackStack() },
+                onOpenDetail = openDetail,
             )
         }
 

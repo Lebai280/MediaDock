@@ -118,17 +118,13 @@ fun LibraryScreen(
     }
 
     Column(modifier.fillMaxSize()) {
-        StickyBar(
-            query = vm.query,
-            onQuery = vm::editQuery,
-            scan = scanState,
-            scrape = scrapeState,
-            fill = fillState,
-            onToggleScan = vm::toggleScan,
-            onToggleScrape = vm::toggleScrape,
-            onToggleFill = vm::toggleFillDetails,
-        )
-        runningLabel?.let { RunningStrip(it) }
+        // 搜索已经搬到独立的搜索页（底部圆形按钮点进来），这里不再有吸顶搜索框。
+        // 扫描/刮削/补齐那几个动作也搬去「我的」页了，所以这里只剩任务状态条。
+        if (runningLabel != null) {
+            Spacer(Modifier.height(8.dp))
+            RunningStrip(runningLabel)
+            Spacer(Modifier.height(4.dp))
+        }
         HorizontalDivider()
 
         when {

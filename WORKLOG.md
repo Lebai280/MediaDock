@@ -1301,6 +1301,25 @@ lock tapped / unlock tapped
 `标题 + 已暂停 + 播放/停止` 三个节点；**「已暂停」同时证明坑 37 那条行为没被破坏**。
 另：首次返回没生效（当时正在旋回竖屏），再按一次才退出来 —— 属操作时序，不是缺陷。
 
+### 0.5.0 续 · 搜索搬到下面（2026-10-17）
+
+用户：「将搜索也放在下面，还是参考 nagomusic」。照它的底栏：**左边三个 Tab，右边一颗圆形搜索按钮**，
+搜索不再挂在首页顶上，而是点按钮进**独立的搜索页**。
+
+- 媒体库页的**吸顶搜索框整个删掉**（连带那个 `StickyBar` 调用），只在任务运行时留一条状态条。
+- 新增 `Routes.SEARCH` + `ui/search/SearchScreen.kt`：顶部输入框 + 下面直接是海报墙。
+  **过滤规则一个字没重写** —— 复用 `LibraryViewModel.visible`（背后是 `LibrarySearch` 那个有单测的纯函数）。
+- 搜索页用的是**新的 ViewModel 实例**，`query` 是它自己的 —— 离开再回来是空的，不会和媒体库页串。
+- 底栏用 `Row { NavigationBar(weight 1f, windowInsets = WindowInsets(0)); FilledIconButton }`：
+  **`windowInsets` 必须清零**，否则导航栏自己吃一次底部安全区、按钮没有，两者会一高一低。
+- 进搜索页自动弹键盘（`FocusRequester`），不然还要再点一下输入框。
+
+⚠️ 写脚本补 import 时踩了个小坑：`'import ...layout.Row' in s` 被 **`RowScope`** 命中了（子串匹配），
+`Row` 的 import 没加上。**判 import 要按整行比，别用子串。**
+
+> ⚠️ 2026-10-17 这一批**没能装到真机**：`adb devices` 是空的（手机没连）。
+> 编译 + 82 条单测全过，但**界面没在设备上看过** —— 等手机接上要补验。
+
 ### 0.5.0 · 主题三态 + 「我的」页 + 上一集下一集 + 播放历史（2026-10-17）
 
 用户给了 NagoMusic 的三张截图，要求「全部参考 nagomusic」，四条一起做：

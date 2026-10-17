@@ -17,6 +17,9 @@ object Routes {
     /** 播放历史。 */
     const val HISTORY = "history"
 
+    /** 搜索页 —— 底部那颗圆形按钮点进来（照 NagoMusic，搜索不在首页顶上）。 */
+    const val SEARCH = "search"
+
     /**
      * 播放页**不带参数**：要播哪个文件由 `AppContainer.playbackSelection` 在内存里传递。
      * 路径里有中文与 `/`，放进 nav 参数得来回百分号编码，而且会进 saved instance state。
