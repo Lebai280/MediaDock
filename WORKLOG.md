@@ -1743,6 +1743,48 @@ APK sha256 `fbdbcc80…4bf8fe`；`version.json` 已指向 0.5.1；真机从 0.5.
   原因为手机端 TMDB 不可达。恢复代理后手动点「刮削」可重试这 90 条。
 - 待验证：第二季（38 集 / 第 2 季标签）、加入片单完整链路。
 
+### 2026-10-18 · 接手加固：媒体流 401/429 与凭据恢复
+
+**背景**
+
+接手评估时发现两处边界与项目第一硬约束（401/429 绝不自动重试）冲突：
+
+1. `PlaybackService` 使用 Media3 默认的 `DefaultLoadErrorHandlingPolicy`。该策略把 HTTP
+   响应错误视为可重试错误，点播默认重试 3 次 —— 一次播放会发出 4 个 401 请求。
+   浏览 / 扫描的防线覆盖不到媒体流。
+2. 凭据恢复失败时（Auto Backup 恢复到新机、Keystore 密钥被销毁、重装），
+   `CryptoBox.decrypt` 返回空串，`SecureCredentialStore.load()` 仍返回
+   `StoredSource(password = "")`，界面按“已登录”处理；扫描或播放会带着空密码发 Basic 请求。
+
+**变更**
+
+1. 新增 `player/WebDavLoadErrorPolicy.kt`：继承默认策略的其余行为，只在异常链中出现
+   `InvalidResponseCodeException` 且响应码为 401 / 429 时返回 `C.TIME_UNSET`（不再重试）。
+   `PlaybackService` 通过 `DefaultMediaSourceFactory.setLoadErrorHandlingPolicy(...)` 挂载。
+2. `SecureCredentialStore.load()`：密码密文缺失或解密失败时返回 `null`（视为凭据损坏），
+   使起始页回到“添加数据源”；`cached` 同步置空，媒体数据源取不到凭据会直接抛错，不发出请求。
+3. `CryptoBox` 新增 `decryptOrNull()`；`decrypt()` 保留原语义（解不开返回空串）供
+   TMDB / 字幕等非数据源凭据沿用。
+4. 新增 `WebDavLoadErrorPolicyTest` 6 条：401 / 429 / 500 / 外层包装 / 普通网络错误 / null。
+   单测总数 90 → **96**。
+
+**验证**
+
+- `:app:testDebugUnitTest`：96 / 96 通过。
+- `:app:assembleRelease` 成功（R8，APK 3.4 MB）；`adb install -r` 同签名覆盖安装成功，
+  媒体库、进度与凭据均保留。
+- 启动后直接进入媒体库（未跳“添加数据源”），确认 Keystore 解密链路未受影响。
+- 打开详情页播放：日志 `tracks changed: 2 groups`，媒体会话 position 前进至 10.9 s、
+  buffered 92.5 s，无播放错误日志。
+- 全程未制造任何 401 / 429 请求，未对线上 WebDAV 发起额外探测。
+
+**备注**
+
+- 未升版本、未发布站点；本次属于加固批次，按既定节奏攒批后再发版。
+- 回滚方式：移除 `WebDavLoadErrorPolicy` 的挂载即可恢复默认重试行为；不涉及数据库与用户数据。
+- 评估中其余 P1（分享功能明文输出凭据、全局放行明文流量、Android 14 部分媒体访问、
+  迁移 schema 校验）本轮未动。
+
 ---
 
 ## 8. 待办

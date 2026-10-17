@@ -34,6 +34,10 @@ data class StoredSource(
  *
  * 地址/用户名/根路径是明文无所谓，**密码用 Android Keystore 里的 AES-GCM 密钥加密后
  * 再落盘**，密钥本身不出安全硬件、不落盘。
+ *
+ * **解密失败 = 凭据损坏，当作没有数据源。** 典型场景是恢复备份 / 换机器 / 重装：
+ * DataStore 里的密文还在，但 Keystore 密钥不在了。此时如果退化成“空密码 + 已登录”，
+ * 扫描和播放会拿空密码去发 Basic 认证 —— 那正是会把所有人锁在门外的行为。
  */
 class SecureCredentialStore(private val context: Context) {
 
@@ -104,10 +108,18 @@ class SecureCredentialStore(private val context: Context) {
             cached = null
             return null
         }
+        // 密文不存在或解不开 → 凭据已损坏（Keystore 密钥被销毁/换了设备）。
+        // 这里必须返回 null，让调用方回到「添加数据源」；绝不允许带着空密码继续请求。
+        val encrypted = p[keyPassEnc]
+        val password = if (encrypted == null) null else CryptoBox.decryptOrNull(encrypted)
+        if (password == null) {
+            cached = null
+            return null
+        }
         val source = StoredSource(
             url = url,
             username = user,
-            password = p[keyPassEnc]?.let(CryptoBox::decrypt).orEmpty(),
+            password = password,
             rootPath = p[keyRoot].orEmpty(),
         )
         cached = source
@@ -207,10 +219,10 @@ internal object CryptoBox {
         return Base64.encodeToString(packed, Base64.NO_WRAP)
     }
 
-    /** 解密失败（例如换了设备/清了密钥）返回空串，不抛出。 */
-    fun decrypt(encoded: String): String = runCatching {
+    /** 解密失败（例如换了设备/清了密钥）返回 null —— 调用方据此区分「解不开」和「本来就是空串」。 */
+    fun decryptOrNull(encoded: String): String? = runCatching {
         val packed = Base64.decode(encoded, Base64.NO_WRAP)
-        if (packed.size <= IV_BYTES) return@runCatching ""
+        if (packed.size <= IV_BYTES) return@runCatching null
         val cipher = Cipher.getInstance(TRANSFORMATION)
         cipher.init(
             Cipher.DECRYPT_MODE,
@@ -218,5 +230,8 @@ internal object CryptoBox {
             GCMParameterSpec(TAG_BITS, packed, 0, IV_BYTES),
         )
         String(cipher.doFinal(packed, IV_BYTES, packed.size - IV_BYTES), Charsets.UTF_8)
-    }.getOrDefault("")
+    }.getOrNull()
+
+    /** 兼容旧调用：解不开时返回空串。**凭据类调用请用 [decryptOrNull]**。 */
+    fun decrypt(encoded: String): String = decryptOrNull(encoded).orEmpty()
 }

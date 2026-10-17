@@ -55,7 +55,11 @@ class PlaybackService : MediaSessionService() {
                             container.credentials.cached
                         },
                     ),
-                ),
+                )
+                    // 默认策略会把 401/429 当作可重试错误（点播默认重试 3 次）——
+                    // 那会绕过「401/429 绝不自动重试」的硬约束，一次播放变 4 个失败请求。
+                    // 见 WebDavLoadErrorPolicy。
+                    .setLoadErrorHandlingPolicy(WebDavLoadErrorPolicy()),
             )
             // 同级目录的字幕是「没有语言标记」的字幕轨，media3 默认**不会**自动选中它，
             // 表现就是「明明有字幕却不显示」。打开这个开关让这类轨自动上。
