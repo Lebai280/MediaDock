@@ -120,4 +120,12 @@ class TitleParserTest {
         assertEquals(1, p.season)
         assertEquals(3, p.episode)
     }
+
+    @Test
+    fun `方括号里是分类标签时 别当成片名`() {
+        // 用户库里大量这种命名：【电影】/【动画】只是分类，真正的片名在后面
+        val p = TitleParser.parse("【电影】秒速五厘米.简日双语特效.2007.1080P.mp4")
+        assertEquals("秒速五厘米", p.title)
+        assertEquals(2007, p.year)
+    }
 }

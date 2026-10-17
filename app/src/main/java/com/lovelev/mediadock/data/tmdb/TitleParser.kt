@@ -98,12 +98,18 @@ object TitleParser {
         return fileStem.split(SEPARATOR).firstOrNull { it.isNotBlank() }.orEmpty()
     }
 
-    /** `[...]` / `【...】` 里的中文段。 */
+    /** 方括号里是**分类**而不是片名的情况（用户库大量用 `【电影】片名….mp4`）。 */
+    private val CATEGORY_TAGS = setOf(
+        "电影", "动画", "动漫", "电视剧", "剧集", "纪录片", "综艺", "短片",
+        "音乐", "演唱会", "合集", "系列", "剧场版",
+    )
+
+    /** `[...]` / `【...】` 里的中文段。分类标签不算片名。 */
     private fun bracketedCjk(source: String): String? =
         BRACKETED.findAll(source)
             .map { it.groupValues[1] }
             .map { cjkRun(it).orEmpty() }
-            .firstOrNull { it.isNotBlank() }
+            .firstOrNull { it.isNotBlank() && it !in CATEGORY_TAGS }
 
     private fun cjkRun(source: String): String? =
         CJK_RUN.find(source)?.value?.trim()

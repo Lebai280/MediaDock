@@ -26,7 +26,7 @@
 
 - 项目路径：`E:\code\MediaDock`
 - 包名 / applicationId：`com.lovelev.mediadock`
-- 当前版本：`0.5.2`（versionCode 15）—— 站点已发 0.5.2
+- 当前版本：`0.5.3`（versionCode 16）—— 站点已发 0.5.3
 
 ---
 
@@ -1672,6 +1672,18 @@ APK sha256 `fbdbcc80…4bf8fe`；`version.json` 已指向 0.5.1；真机从 0.5.
   APK **18.7 MB → 3.39 MB**。Room / kotlinx-serialization / Media3 的 consumer 规则够用，
   无需手写 keep；但开 R8 必须真机跑这四条：**库/海报（Room+Coil）、播放、字幕、检查更新
   （序列化）**。这一轮四条都过了。以后加反射型库时记得重新回归。
+
+**0.5.3（versionCode 16，2026-10-17）**
+- **在线字幕验证通过**：设置里填 API Key + 账号 + 密码 → 播放页 ⋯ → 字幕 → 在线搜索…，
+  查询返回 50 条结果。**共用 2 次搜索、0 次下载**（用户提醒 key 有额度，别刷）。
+- **搜索结果看不全**：原来用 `AlertDialog`，横屏时 text 槽被压得很矮，列表只露出半行。
+  → 改成自定义 `Dialog`（`usePlatformDefaultWidth = false`）：固定标题/输入，结果列表
+  `weight(1f)` 占满剩余高度并滚动；关闭改成标题栏右侧的**小药丸**，不再单占一行。
+- ⋯ 菜单把「详细信息」缩成「详细」，菜单宽度收窄（`widthIn(max = 180.dp)` + 更紧凑的
+  contentPadding）。
+- **坑 75：`【电影】` 被当成片名**。`TitleParser` 的「方括号中文优先」规则把分类标签也算了进去，
+  `【电影】秒速五厘米….mp4` 解析成「电影」。→ 加 `CATEGORY_TAGS` 过滤（电影/动画/纪录片…），
+  单测锁住；在线字幕和刮削的预填都会受益。
 
 ---
 

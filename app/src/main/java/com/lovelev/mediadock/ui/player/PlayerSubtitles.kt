@@ -4,19 +4,25 @@ import android.content.Context
 import android.net.Uri
 import android.provider.OpenableColumns
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.fillMaxHeight
+import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
-import androidx.compose.material3.AlertDialog
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
+import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
@@ -30,6 +36,8 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.window.Dialog
+import androidx.compose.ui.window.DialogProperties
 import androidx.media3.common.C
 import androidx.media3.common.MediaItem
 import androidx.media3.common.MimeTypes
@@ -123,13 +131,53 @@ internal fun SubtitleSearchDialog(
 
     LaunchedEffect(Unit) { configured = vm.subtitlesConfigured() }
 
-    AlertDialog(
+    // 用自定义 Dialog 而不是 AlertDialog：后者的 text 槽在横屏会被压得很矮，
+    // 搜到的字幕列表只能露出半行（用户反馈「详细看搜到哪些字幕的时候有问题」）。
+    // 这里让结果列表占满剩余高度并可滚动，标题/输入/关闭固定。
+    Dialog(
         onDismissRequest = onDismiss,
-        title = { Text("在线搜索 · ${vm.subtitleProviderName}") },
-        text = {
-            Column {
+        properties = DialogProperties(usePlatformDefaultWidth = false),
+    ) {
+        Surface(
+            shape = MaterialTheme.shapes.large,
+            color = MaterialTheme.colorScheme.surface,
+            tonalElevation = 6.dp,
+            modifier = Modifier
+                .widthIn(max = 520.dp)
+                .heightIn(max = 640.dp)
+                .fillMaxWidth(0.92f)
+                .fillMaxHeight(0.92f),
+        ) {
+            Column(modifier = Modifier.fillMaxSize().padding(20.dp)) {
+                // 标题 + 小药丸「关闭」：不再单占一整行（用户反馈关闭板块太大）
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    Text(
+                        text = "在线搜索 · ${vm.subtitleProviderName}",
+                        style = MaterialTheme.typography.titleMedium,
+                        modifier = Modifier.weight(1f),
+                    )
+                    Surface(
+                        onClick = onDismiss,
+                        shape = CircleShape,
+                        color = MaterialTheme.colorScheme.surfaceVariant,
+                        modifier = Modifier.height(32.dp),
+                    ) {
+                        Text(
+                            text = "关闭",
+                            style = MaterialTheme.typography.labelMedium,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            modifier = Modifier.padding(horizontal = 14.dp, vertical = 6.dp),
+                        )
+                    }
+                }
+                Spacer(Modifier.height(12.dp))
+
                 if (!configured) {
                     Text("还没填字幕源凭据。去「设置 → 字幕源」把 API Key 和账号填上，回来就能搜。")
+                    Spacer(Modifier.weight(1f))
                 } else {
                     OutlinedTextField(
                         value = query,
@@ -190,8 +238,8 @@ internal fun SubtitleSearchDialog(
                         )
                     }
                     if (results.isNotEmpty()) {
-                        HorizontalDivider()
-                        LazyColumn(modifier = Modifier.fillMaxWidth().height(240.dp)) {
+                        HorizontalDivider(Modifier.padding(vertical = 8.dp))
+                        LazyColumn(modifier = Modifier.fillMaxWidth().weight(1f)) {
                             items(results, key = { it.id }) { hit ->
                                 Column(
                                     modifier = Modifier
@@ -211,12 +259,12 @@ internal fun SubtitleSearchDialog(
                                                 }
                                             }
                                         }
-                                        .padding(vertical = 10.dp),
+                                        .padding(vertical = 12.dp),
                                 ) {
                                     Text(
                                         text = hit.label,
                                         style = MaterialTheme.typography.bodyMedium,
-                                        maxLines = 1,
+                                        maxLines = 2,
                                         overflow = TextOverflow.Ellipsis,
                                     )
                                     Text(
@@ -233,12 +281,13 @@ internal fun SubtitleSearchDialog(
                                 }
                             }
                         }
+                    } else {
+                        Spacer(Modifier.weight(1f))
                     }
                 }
             }
-        },
-        confirmButton = { TextButton(onClick = onDismiss) { Text("关闭") } },
-    )
+        }
+    }
 }
 
 /** 搜字幕时的语言选项（显示名 to OpenSubtitles 用的语言标记）。 */

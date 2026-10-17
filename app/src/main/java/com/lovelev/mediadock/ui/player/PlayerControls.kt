@@ -4,6 +4,7 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
@@ -12,6 +13,7 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
@@ -147,12 +149,14 @@ internal fun PlayerControls(
                     expanded = moreExpanded,
                     onDismissRequest = { moreExpanded = false },
                     containerColor = MaterialTheme.colorScheme.surfaceContainerHigh,
+                    modifier = Modifier.widthIn(max = 180.dp),
                 ) {
                     DropdownMenuItem(
                         text = { Text(if (subtitlesOn) "字幕（开）" else "字幕") },
                         leadingIcon = {
                             Icon(Icons.Filled.Subtitles, null, tint = MaterialTheme.colorScheme.primary)
                         },
+                        contentPadding = PaddingValues(horizontal = 12.dp, vertical = 6.dp),
                         onClick = { moreExpanded = false; subtitleExpanded = true },
                     )
                     // 只有一条音轨就不显示这项 —— 一个选项的菜单没有意义
@@ -162,14 +166,16 @@ internal fun PlayerControls(
                             leadingIcon = {
                                 Icon(Icons.Filled.Audiotrack, null, tint = MaterialTheme.colorScheme.primary)
                             },
+                            contentPadding = PaddingValues(horizontal = 12.dp, vertical = 6.dp),
                             onClick = { moreExpanded = false; audioExpanded = true },
                         )
                     }
                     DropdownMenuItem(
-                        text = { Text("详细信息") },
+                        text = { Text("详细") },
                         leadingIcon = {
                             Icon(Icons.Filled.Info, null, tint = MaterialTheme.colorScheme.primary)
                         },
+                        contentPadding = PaddingValues(horizontal = 12.dp, vertical = 6.dp),
                         onClick = { moreExpanded = false; onInfo() },
                     )
                     DropdownMenuItem(
@@ -177,6 +183,7 @@ internal fun PlayerControls(
                         leadingIcon = {
                             Icon(Icons.Filled.PhotoCamera, null, tint = MaterialTheme.colorScheme.primary)
                         },
+                        contentPadding = PaddingValues(horizontal = 12.dp, vertical = 6.dp),
                         onClick = { moreExpanded = false; onScreenshot() },
                     )
                 }
