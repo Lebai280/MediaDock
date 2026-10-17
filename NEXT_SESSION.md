@@ -1,7 +1,7 @@
 接手 E:\code\MediaDock 项目（Android 影音播放器，Kotlin + Jetpack Compose）。
 
 **第一步：读 `E:\code\MediaDock\WORKLOG.md`**。那是完整交接文档：现状 / 硬约束 / 代码地图 /
-路线图 / 坑清单（**编号到 69**）/ 命令速查 / 附录。读完直接开始，不要重新推导已有结论。
+路线图 / 坑清单（**编号到 75**）/ 命令速查 / 附录。读完直接开始，不要重新推导已有结论。
 
 > ⚠️ **新窗口请开在 `E:\code`，不要开在 `E:\code\MediaDock`** —— 长期记忆按项目目录分桶，
 > 本项目的桶是 `E--code`；开在子目录会新建 `E--code-MediaDock` 桶、**已有记忆一条都加载不到**。
@@ -22,6 +22,9 @@
    ⚠️ **但不用截图** —— 用文字说清「该看什么」+ 贴日志证据，手机画面用户自己看。
    （2026-10-16 用户明确要求；例外：内容本身需要图时还是要截，比如给发版页做素材。）
 5. SDK / Gradle 缓存 / 工具一律装 E 盘。
+6. **改版节奏**：先完成修改、攒够一批再升版本发站点，不要每改一处就发版。
+   发版流程见 WORKLOG（APK → version.json → 发版页，versionCode 只增不减）。
+7. **文档用语**：WORKLOG 新条目按「背景 / 变更 / 验证 / 备注」书写，使用正式书面语。
 
 ## 构建 / 装机 / 驱动
 
@@ -29,7 +32,7 @@
 cd /e/code/MediaDock
 export JAVA_HOME="E:\code\tools\jdk21" && export GRADLE_USER_HOME="E:\code\.gradle"
 ./gradlew :app:assembleRelease          # 出签名包（签名配置读 local.properties）
-./gradlew :app:testDebugUnitTest        # 85 个单测，本机可跑，不需要真机
+./gradlew :app:testDebugUnitTest        # 90 个单测，本机可跑，不需要真机
 ```
 
 **CI 已接入**（`.github/workflows/build.yml`）：推 master 自动跑单测 + 出签名包，
