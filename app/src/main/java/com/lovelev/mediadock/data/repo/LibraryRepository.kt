@@ -10,6 +10,7 @@ import com.lovelev.mediadock.data.local.LocalMedia
 import com.lovelev.mediadock.data.local.LocalFile
 import com.lovelev.mediadock.data.MediaTypes
 import com.lovelev.mediadock.data.local.MediaDatabase
+import com.lovelev.mediadock.data.local.MediaDao
 import com.lovelev.mediadock.data.local.MediaItemEntity
 import com.lovelev.mediadock.data.local.TitleDetail
 import com.lovelev.mediadock.data.local.TitleOverride
@@ -235,9 +236,11 @@ class LibraryRepository(
 
                 db.withTransaction {
                     val dao = db.mediaDao()
+                    // 先接住上一次的刮削结果，再整批替换 —— 否则每次重扫都要重刮全库
+                    val merged = dao.keepScraped(found)
                     // **不是 deleteAll**：库里还有本地媒体那两半，一起删会把它们扫掉
                     dao.deleteWebDavItems(LocalMedia.SAF_LIKE, LocalMedia.CONTENT_LIKE)
-                    dao.insertAll(found)
+                    dao.insertAll(merged)
                 }
                 _scan.value = ScanState.Done(files = found.size, truncated = truncated)
             } catch (e: WebDavException) {
@@ -263,9 +266,38 @@ class LibraryRepository(
             lastModified = lastModified,
             parsedTitle = parsed.title,
             year = parsed.year,
-            season = parsed.season,
+            // 文件名只给集数时，季号往往在上层目录（S01 / Season 1 / 第1季）——
+            // 不补的话 S01/S02 的同集号会互相覆盖排序
+            season = parsed.season ?: TitleParser.seasonOfPath(path),
             episode = parsed.episode,
         )
+    }
+
+    /**
+     * 扫描是整批替换，但**刮削结果必须留下来**：
+     * 每次加几集就重刮全库，既慢又白烧 TMDB 配额（用户明确反馈过）。
+     * 按 path 把上一次的 MATCHED / FAILED 结果接回去；文件大小变了说明文件被换过，
+     * 旧匹配不再可信，就让它重新刮。
+     */
+    private suspend fun MediaDao.keepScraped(fresh: List<MediaItemEntity>): List<MediaItemEntity> {
+        val previous = allItems().associateBy { it.path }
+        return fresh.map { item ->
+            val old = previous[item.path] ?: return@map item
+            val sameFile = old.sizeBytes == null || item.sizeBytes == null || old.sizeBytes == item.sizeBytes
+            if (sameFile && old.scrapeState != ScrapeStatus.UNSCRAPED) {
+                item.copy(
+                    scrapeState = old.scrapeState,
+                    tmdbId = old.tmdbId,
+                    posterPath = old.posterPath,
+                    backdropPath = old.backdropPath,
+                    overview = old.overview,
+                    rating = old.rating,
+                    scrapedAt = old.scrapedAt,
+                )
+            } else {
+                item
+            }
+        }
     }
 
     // ---------------------------------------------------------------- 本地媒体
@@ -304,8 +336,9 @@ class LibraryRepository(
             val entities = outcome.files.map { it.toEntity() }
             db.withTransaction {
                 val dao = db.mediaDao()
+                val merged = dao.keepScraped(entities)
                 dao.deleteLocalItems(LocalMedia.SAF_LIKE, LocalMedia.CONTENT_LIKE)
-                dao.insertAll(entities)
+                dao.insertAll(merged)
             }
             _scan.value = ScanState.Done(files = entities.size, truncated = outcome.truncated)
         }
@@ -339,8 +372,9 @@ class LibraryRepository(
             val entities = outcome.files.map { it.toEntity() }
             db.withTransaction {
                 val dao = db.mediaDao()
+                val merged = dao.keepScraped(entities)
                 dao.deleteLocalItems(LocalMedia.SAF_LIKE, LocalMedia.CONTENT_LIKE)
-                dao.insertAll(entities)
+                dao.insertAll(merged)
             }
             _scan.value = ScanState.Done(files = entities.size, truncated = outcome.truncated)
         }
@@ -357,8 +391,9 @@ class LibraryRepository(
     /** 和 WebDAV 条目走同一个解析器 —— 所以本地文件扫进来也有像样的片名和海报墙。 */
     private fun LocalFile.toEntity(): MediaItemEntity {
         val parsed = TitleParser.parse(fileName = name, folderName = folderName)
+        val storedPath = LocalMedia.toStoredPath(key)
         return MediaItemEntity(
-            path = LocalMedia.toStoredPath(key),
+            path = storedPath,
             name = name,
             sizeBytes = sizeBytes,
             // 实体里这列是 String?（WebDAV 那边存的是 RFC1123 字符串）。
@@ -366,7 +401,9 @@ class LibraryRepository(
             lastModified = lastModified.toString(),
             parsedTitle = parsed.title,
             year = parsed.year,
-            season = parsed.season,
+            // 文件名只给集数时，季号往往在上层目录（S01 / Season 1 / 第1季）——
+            // 不补的话 S01/S02 的同集号会互相覆盖排序
+            season = parsed.season ?: TitleParser.seasonOfPath(storedPath),
             episode = parsed.episode,
         )
     }

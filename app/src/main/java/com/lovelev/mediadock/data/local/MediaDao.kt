@@ -13,6 +13,10 @@ interface MediaDao {
     @Query("SELECT * FROM media_items ORDER BY path")
     fun observeAll(): Flow<List<MediaItemEntity>>
 
+    /** 扫描时用来把上一次的刮削结果按路径接回去（见 LibraryRepository.keepScraped）。 */
+    @Query("SELECT * FROM media_items")
+    suspend fun allItems(): List<MediaItemEntity>
+
     /** 待刮削：没刮过的 + 上次没匹配上的（用户再点一次就当重试）。 */
     @Query("SELECT * FROM media_items WHERE scrapeState != 'MATCHED' ORDER BY path")
     suspend fun pendingScrape(): List<MediaItemEntity>

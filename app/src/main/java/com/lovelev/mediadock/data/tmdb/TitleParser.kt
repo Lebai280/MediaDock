@@ -30,7 +30,12 @@ object TitleParser {
     private val SXXEXX = Regex("(?i)(?<![A-Za-z0-9])S(\\d{1,2})[\\s._-]*E(\\d{1,3})(?![0-9])")
     private val EPXX = Regex("(?i)(?<![A-Za-z0-9])(?:EP|E)(\\d{1,3})(?![0-9])")
     private val SEASON_WORD = Regex("(?i)(?<![A-Za-z0-9])season[\\s._-]*(\\d{1,2})(?![0-9])")
+    private val SEASON_DIR_EN = Regex("(?i)^(?:s|season)\\s*(\\d{1,2})$")
+    private val SEASON_DIR_CN = Regex("^第\\s*(\\d{1,2})\\s*季$")
     private val NXNN = Regex("(?<![0-9])(\\d{1,2})x(\\d{1,3})(?![0-9])")
+    // 中文动漫常见的「裸集数」：葬送的芙莉莲01.mp4、四月是你的谎言 22.mp4
+    private val BARE_EPISODE = Regex("(?<![0-9])(\\d{1,3})\\s*$")
+    private val RESOLUTION_NUMBERS = setOf(0, 144, 240, 360, 480, 576, 720)
     private val LEADING_INDEX = Regex("^\\s*\\d{1,3}\\s*[.\\-_]\\s*")
     private val CHANNEL_TAG = Regex("(?i)(?<![A-Za-z0-9])MA[\\s._-]?\\d(?:\\.\\d)?(?![0-9])")
     private val CJK_RUN = Regex("[\\u3400-\\u4dbf\\u4e00-\\u9fff]+")
@@ -151,6 +156,26 @@ object TitleParser {
         }
         NXNN.find(source)?.let { m ->
             return m.groupValues[1].toIntOrNull() to m.groupValues[2].toIntOrNull()
+        }
+        // 裸数字放最后：像 720 这种常见分辨率数值不认（文件名末尾恰好是它时宁可不当集数）
+        BARE_EPISODE.find(source)?.let { m ->
+            val n = m.groupValues[1].toIntOrNull() ?: return@let
+            if (n in RESOLUTION_NUMBERS) return@let
+            return null to n
+        }
+        return null
+    }
+
+    /**
+     * 从完整路径里找季号：`S01` / `Season 1` / `第1季` 目录。
+     * 扫描时如果文件名本身没给出季（`葬送的芙莉莲01.mp4` 放在 `S01/` 下），用它补上。
+     */
+    fun seasonOfPath(path: String): Int? {
+        val dirs = path.substringBeforeLast('/', "").split('/')
+        for (dir in dirs.asReversed()) {
+            val t = dir.trim()
+            SEASON_DIR_EN.find(t)?.groupValues?.get(1)?.toIntOrNull()?.let { return it }
+            SEASON_DIR_CN.find(t)?.groupValues?.get(1)?.toIntOrNull()?.let { return it }
         }
         return null
     }

@@ -98,4 +98,22 @@ class WallEntryTest {
         assertEquals(2, wall.size)
         assertEquals(listOf("A/剧一", "A/剧二"), wall.map { it.key })
     }
+
+    @Test
+    fun `跨 S01 S02 目录的同一部剧并成一块`() {
+        // 用户的真实结构：动漫/葬送的芙莉莲/S01/简日双语.喵萌奶茶屋/葬送的芙莉莲01.mp4
+        val wall = groupWall(
+            listOf(
+                item("动漫/葬送的芙莉莲/S01/简日双语.喵萌奶茶屋/葬送的芙莉莲01.mp4", episode = 1, season = 1),
+                item("动漫/葬送的芙莉莲/S01/简日双语.喵萌奶茶屋/葬送的芙莉莲02.mp4", episode = 2, season = 1),
+                item("动漫/葬送的芙莉莲/S02/简日双语.喵萌奶茶屋/葬送的芙莉莲01.mp4", episode = 1, season = 2),
+            ),
+        )
+        val series = wall.single() as WallEntry.Series
+        assertEquals("动漫/葬送的芙莉莲", series.key)
+        assertEquals(
+            listOf(1 to 1, 1 to 2, 2 to 1),
+            series.episodes.map { it.season to it.episode },
+        )
+    }
 }

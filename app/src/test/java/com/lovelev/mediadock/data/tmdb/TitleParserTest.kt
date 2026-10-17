@@ -128,4 +128,19 @@ class TitleParserTest {
         assertEquals("秒速五厘米", p.title)
         assertEquals(2007, p.year)
     }
+
+    @Test
+    fun `裸数字集数也能识别`() {
+        val p = TitleParser.parse("葬送的芙莉莲01.mp4")
+        assertEquals("葬送的芙莉莲", p.title)
+        assertEquals(1, p.episode)
+    }
+
+    @Test
+    fun `季号可以从路径里的 S01 目录补出来`() {
+        val path = "动漫/葬送的芙莉莲/S01/简日双语.喵萌奶茶屋/葬送的芙莉莲01.mp4"
+        assertEquals(1, TitleParser.seasonOfPath(path))
+        assertEquals(2, TitleParser.seasonOfPath("动漫/某剧/Season 2/某剧01.mp4"))
+        assertEquals(3, TitleParser.seasonOfPath("动漫/某剧/第3季/某剧01.mp4"))
+    }
 }

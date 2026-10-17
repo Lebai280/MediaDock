@@ -18,8 +18,22 @@ sealed interface WallEntry {
 
     data class Series(val episodes: List<MediaItemEntity>) : WallEntry {
         override val sample: MediaItemEntity = episodes.first()
-        override val key: String = episodes.first().path.substringBeforeLast('/', "")
+        override val key: String = seriesRootOf(episodes.first().path)
     }
+}
+
+/** `S01` / `Season 1` / `第1季` 这一层目录。 */
+private val SEASON_DIR = Regex("(?i)^(?:s|season)\\s*\\d{1,2}$|^第\\s*\\d{1,2}\\s*季$")
+
+/**
+ * 一部剧的「根」：如果路径中间有季目录（`…/葬送的芙莉莲/S01/简日…/xx01.mp4`），
+ * 根取季目录的上一层，这样 S01 和 S02 能并成同一块；没有季目录就按直接父目录。
+ */
+internal fun seriesRootOf(path: String): String {
+    val dir = path.substringBeforeLast('/', "")
+    val segments = dir.split('/')
+    val seasonIndex = segments.indexOfLast { SEASON_DIR.matches(it.trim()) }
+    return if (seasonIndex > 0) segments.take(seasonIndex).joinToString("/") else dir
 }
 
 /** 集数排序：先季、再集、最后名字兜底。 */
@@ -42,7 +56,7 @@ fun groupWall(items: List<MediaItemEntity>): List<WallEntry> {
     val (numbered, standalone) = items.partition { it.episode != null }
 
     val series = numbered
-        .groupBy { it.path.substringBeforeLast('/', "") }
+        .groupBy { seriesRootOf(it.path) }
         .filterValues { it.size >= 2 }
         .map { (_, episodes) -> WallEntry.Series(episodes.orderedEpisodes()) }
 
