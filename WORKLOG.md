@@ -26,7 +26,7 @@
 
 - 项目路径：`E:\code\MediaDock`
 - 包名 / applicationId：`com.lovelev.mediadock`
-- 当前版本：`0.5.0`（versionCode 13）—— 站点已发 0.5.0
+- 当前版本：`0.5.1`（versionCode 14）—— 站点已发 0.5.1
 
 ---
 
@@ -1632,6 +1632,12 @@ lock tapped / unlock tapped
 
 **注意**：站点上的 `MediaDock-0.5.0.apk` 在发布后**被同名替换过两次**（先白边修复 + 内部拆分，
 再首页孤线修复），versionCode 仍是 13，所以不会弹更新提示；当前站点文件 sha256 以上面那条为准。
+
+**0.5.1（versionCode 14）**：把上面两处界面修复作为**正式版本**重新发布，不再同名覆盖 0.5.0。
+APK sha256 `fbdbcc80…4bf8fe`；`version.json` 已指向 0.5.1；真机从 0.5.0 点「检查更新」
+能看到「发现新版本 0.5.1」。同一轮还在站点 nginx 加了 `.apk` 的 MIME
+（`application/vnd.android.package-archive`，配置备份 `personal-site.bak.apkmime.20261017`），
+浏览器不再把 APK 报成「可能有害 / .bin」。
 
 ---
 
