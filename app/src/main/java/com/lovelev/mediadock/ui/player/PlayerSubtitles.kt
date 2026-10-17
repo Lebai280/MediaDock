@@ -1,0 +1,239 @@
+package com.lovelev.mediadock.ui.player
+
+import android.content.Context
+import android.net.Uri
+import android.provider.OpenableColumns
+import androidx.compose.foundation.clickable
+import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.items
+import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.ButtonDefaults
+import androidx.compose.material3.HorizontalDivider
+import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.OutlinedTextField
+import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
+import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.setValue
+import androidx.compose.ui.Alignment
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.unit.dp
+import androidx.media3.common.C
+import androidx.media3.common.MediaItem
+import androidx.media3.common.MimeTypes
+import androidx.media3.session.MediaController
+import com.lovelev.mediadock.data.log.AppLog
+import com.lovelev.mediadock.data.repo.LocalSubtitle
+import com.lovelev.mediadock.data.subtitle.SubtitleHit
+import com.lovelev.mediadock.data.subtitle.subtitleLanguageLabel
+import com.lovelev.mediadock.data.tmdb.TitleParser
+import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.launch
+
+/**
+ * 把字幕挂到当前播放上。
+ *
+ * 做法是**重建 MediaItem 再重设**（不改播放器内部状态）：给当前条目加上这条 SubtitleConfiguration，
+ * 用 `setMediaItem(新条目, 当前进度)` —— 进度不丢，只是重开一下解码。App 侧加载的字幕没有语言标记，
+ * 播放服务里开了 `setSelectUndeterminedTextLanguage(true)`，所以会自动被选上。
+ */
+internal fun mountSubtitle(controller: MediaController?, local: LocalSubtitle) {
+    val c = controller ?: return
+    val current = c.currentMediaItem ?: return
+    val configuration = MediaItem.SubtitleConfiguration.Builder(Uri.fromFile(local.file))
+        .setMimeType(local.mimeType)
+        .setSelectionFlags(C.SELECTION_FLAG_DEFAULT)
+        .build()
+    val existing = current.localConfiguration?.subtitleConfigurations.orEmpty()
+        .filterNot { it.uri == configuration.uri }
+    val position = c.currentPosition
+    c.setMediaItem(
+        current.buildUpon().setSubtitleConfigurations(existing + configuration).build(),
+        position,
+    )
+    c.prepare()
+    c.play()
+    AppLog.d("player", "subtitle mounted: ${local.file.name} @${position}ms")
+}
+
+/** 从 SAF 的 content:// 里问出显示名（带扩展名，好判断字幕类型）。 */
+internal fun queryDisplayName(context: Context, uri: Uri): String {
+    runCatching {
+        context.contentResolver.query(uri, arrayOf(OpenableColumns.DISPLAY_NAME), null, null, null)
+            ?.use { cursor ->
+                if (cursor.moveToFirst()) {
+                    val index = cursor.getColumnIndex(OpenableColumns.DISPLAY_NAME)
+                    if (index >= 0) cursor.getString(index)?.let { return it }
+                }
+            }
+    }
+    return uri.lastPathSegment ?: "subtitle.srt"
+}
+
+/** ExoPlayer 要按 MIME 选解析器，扩展名对不上就解不出字幕。 */
+internal fun subtitleMimeType(url: String): String =
+    when (url.substringAfterLast('.', "").lowercase()) {
+        "ass", "ssa" -> MimeTypes.TEXT_SSA
+        "vtt" -> MimeTypes.TEXT_VTT
+        else -> MimeTypes.APPLICATION_SUBRIP
+    }
+
+/**
+ * 在线搜索字幕。片名/年份**从当前文件名解析出来预填**（复用 TitleParser，和刮削用同一套规则）；
+ * 结果按下载量排序；点一条就下载 + 挂载。
+ */
+@Composable
+internal fun SubtitleSearchDialog(
+    vm: PlayerViewModel,
+    path: String,
+    onDownloaded: (LocalSubtitle) -> Unit,
+    onDismiss: () -> Unit,
+) {
+    val scope = rememberCoroutineScope()
+    val parsed = remember(path) {
+        TitleParser.parse(
+            fileName = path.substringAfterLast('/'),
+            folderName = path.substringBeforeLast('/', "").substringAfterLast('/'),
+        )
+    }
+    var query by remember { mutableStateOf(parsed.title) }
+    var languages by remember { mutableStateOf("zh-cn,en") }
+    var busy by remember { mutableStateOf(false) }
+    var results by remember { mutableStateOf<List<SubtitleHit>>(emptyList()) }
+    var notice by remember { mutableStateOf<String?>(null) }
+    var configured by remember { mutableStateOf(true) }
+
+    LaunchedEffect(Unit) { configured = vm.subtitlesConfigured() }
+
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text("在线搜索 · ${vm.subtitleProviderName}") },
+        text = {
+            Column {
+                if (!configured) {
+                    Text("还没填字幕源凭据。去「设置 → 字幕源」把 API Key 和账号填上，回来就能搜。")
+                } else {
+                    OutlinedTextField(
+                        value = query,
+                        onValueChange = { query = it },
+                        label = { Text("片名") },
+                        singleLine = true,
+                        modifier = Modifier.fillMaxWidth(),
+                    )
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        LANGUAGES.forEach { (label, value) ->
+                            TextButton(
+                                onClick = { languages = value },
+                                colors = ButtonDefaults.textButtonColors(
+                                    contentColor = if (languages == value) {
+                                        MaterialTheme.colorScheme.primary
+                                    } else {
+                                        MaterialTheme.colorScheme.onSurfaceVariant
+                                    },
+                                ),
+                            ) { Text(label) }
+                        }
+                        Spacer(Modifier.weight(1f))
+                        TextButton(
+                            onClick = {
+                                val keyword = query.trim()
+                                if (keyword.isEmpty()) return@TextButton
+                                scope.launch {
+                                    busy = true
+                                    notice = null
+                                    results = emptyList()
+                                    try {
+                                        results = vm.searchSubtitles(
+                                            query = keyword,
+                                            year = parsed.year,
+                                            season = parsed.season,
+                                            episode = parsed.episode,
+                                            languages = languages,
+                                        )
+                                        if (results.isEmpty()) notice = "没找到，换个片名试试"
+                                        AppLog.d("player", "subtitle search '$keyword' -> ${results.size}")
+                                    } catch (e: CancellationException) {
+                                        throw e
+                                    } catch (e: Exception) {
+                                        notice = e.message ?: "搜索失败"
+                                    } finally {
+                                        busy = false
+                                    }
+                                }
+                            },
+                            enabled = !busy,
+                        ) { Text(if (busy) "…" else "搜索") }
+                    }
+                    notice?.let {
+                        Text(
+                            text = it,
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.error,
+                        )
+                    }
+                    if (results.isNotEmpty()) {
+                        HorizontalDivider()
+                        LazyColumn(modifier = Modifier.fillMaxWidth().height(240.dp)) {
+                            items(results, key = { it.id }) { hit ->
+                                Column(
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .clickable(enabled = !busy) {
+                                            scope.launch {
+                                                busy = true
+                                                notice = null
+                                                try {
+                                                    onDownloaded(vm.downloadSubtitle(hit))
+                                                } catch (e: CancellationException) {
+                                                    throw e
+                                                } catch (e: Exception) {
+                                                    notice = e.message ?: "下载失败"
+                                                } finally {
+                                                    busy = false
+                                                }
+                                            }
+                                        }
+                                        .padding(vertical = 10.dp),
+                                ) {
+                                    Text(
+                                        text = hit.label,
+                                        style = MaterialTheme.typography.bodyMedium,
+                                        maxLines = 1,
+                                        overflow = TextOverflow.Ellipsis,
+                                    )
+                                    Text(
+                                        text = listOfNotNull(
+                                            subtitleLanguageLabel(hit.language).takeIf { it.isNotBlank() },
+                                            hit.downloads?.let { "下载 $it" },
+                                            hit.release?.takeIf { it.isNotBlank() },
+                                        ).joinToString(" · "),
+                                        style = MaterialTheme.typography.bodySmall,
+                                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                        maxLines = 1,
+                                        overflow = TextOverflow.Ellipsis,
+                                    )
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        },
+        confirmButton = { TextButton(onClick = onDismiss) { Text("关闭") } },
+    )
+}
+
+/** 搜字幕时的语言选项（显示名 to OpenSubtitles 用的语言标记）。 */
+private val LANGUAGES = listOf("中文" to "zh-cn", "英文" to "en", "全部" to "zh-cn,en")

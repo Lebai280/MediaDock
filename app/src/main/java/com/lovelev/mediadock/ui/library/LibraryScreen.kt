@@ -124,8 +124,9 @@ fun LibraryScreen(
             Spacer(Modifier.height(8.dp))
             RunningStrip(runningLabel)
             Spacer(Modifier.height(4.dp))
+            // 分隔线只给状态条收边。没有状态条时画它 = 首页顶部一条孤零零的线（用户反馈）。
+            HorizontalDivider()
         }
-        HorizontalDivider()
 
         when {
             blocked -> Center {

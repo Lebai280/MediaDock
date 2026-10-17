@@ -29,7 +29,7 @@
 cd /e/code/MediaDock
 export JAVA_HOME="E:\code\tools\jdk21" && export GRADLE_USER_HOME="E:\code\.gradle"
 ./gradlew :app:assembleRelease          # 出签名包（签名配置读 local.properties）
-./gradlew :app:testDebugUnitTest        # 82 个单测，本机可跑，不需要真机
+./gradlew :app:testDebugUnitTest        # 85 个单测，本机可跑，不需要真机
 ```
 
 **CI 已接入**（`.github/workflows/build.yml`）：推 master 自动跑单测 + 出签名包，
@@ -51,7 +51,9 @@ export JAVA_HOME="E:\code\tools\jdk21" && export GRADLE_USER_HOME="E:\code\.grad
 
 ## 现在到哪了（2026-10-17）
 
-**`0.5.0`（versionCode 13）已装真机并逐项验过；站点上发的是 `0.4.1`。**
+**`0.5.0`（versionCode 13）已装真机并逐项验过，站点上发的也是 `0.5.0`（2026-10-17 发布）。**
+发布后按用户反馈修了「详情页上下白边」（坑 70），并做了内部整理（PlayerScreen 拆分、
+401/429 回归单测、仓库清理）—— 站点 APK 已用同名替换成最终版，versionCode 仍 13。
 
 沿革：0.3.0 首个正式签名版 · 0.3.1 播放页压暗 · 0.3.2 取消不再误报 + 分享带 TMDB ·
 0.3.3 迷你播放条 · 0.3.4 底栏/搜索栏压到 NagoMusic 尺寸 · 0.3.5 音轨切换 ·
@@ -68,15 +70,12 @@ export JAVA_HOME="E:\code\tools\jdk21" && export GRADLE_USER_HOME="E:\code\.grad
 
 ## 下一步（按优先级）
 
-1. **把 0.5.0 发到站点**（线上还是 0.4.1）：传 APK → 改 `version.json` → 改发版页三处版本号
-   与「版本历史」。`versionCode` **只增不减**。
-2. **等用户配合的两项**：本地字幕挂载（手机 ⋯→字幕→从本地文件加载…，
+1. **等用户配合的两项**：本地字幕挂载（手机 ⋯→字幕→从本地文件加载…，
    测试字幕在 `Download/mediadock-test.srt`）、在线字幕真实请求（设置→字幕源 填 OpenSubtitles 凭据）。
-3. **依赖库数据的 4 项**（不是代码问题）：同级目录字幕、分季分集聚合、自动播放下一集、
+2. **依赖库数据的 4 项**（不是代码问题）：同级目录字幕、分季分集聚合、自动播放下一集、
    海报块那条 3dp 进度条。要验得先往库里放一部带字幕的剧。
-4. 候选功能：多资源切换（按 tmdbId 归并同一部片的多个文件）、片单/举报、海报墙筛选排序、
+3. 候选功能：多资源切换（按 tmdbId 归并同一部片的多个文件）、片单/举报、海报墙筛选排序、
    FFmpeg 扩展（解 avi/rmvb —— 工程量大，除非确实要看）、开 R8 minify。
-
 ## 文档规矩
 
 改完东西**及时**更新 `WORKLOG.md`（决策 / 结果 / 坑 / 下一步）和本文件 —— 用户明确要求

@@ -76,6 +76,28 @@ internal fun PlayerImmersive(route: String?) {
 internal fun Context.autoRotateEnabled(): Boolean =
     Settings.System.getInt(contentResolver, Settings.System.ACCELEROMETER_ROTATION, 1) == 1
 
+/**
+ * 系统栏图标明暗。
+ *
+ * 详情页是**始终深色**的一整块面（海报取色铺满），所以状态栏/导航栏要强制浅色图标；
+ * 其余页面跟随 App 当前主题（用户可能把主题强制成深色，而系统还是浅色 ——
+ * 这时若按系统算，会得到「深底 + 深图标」= 看不清）。
+ */
+@Composable
+internal fun SystemBarAppearance(route: String?, darkTheme: Boolean) {
+    val context = LocalContext.current
+    val activity = context.findActivity()
+    DisposableEffect(route, activity, darkTheme) {
+        if (activity != null) {
+            val controller = WindowCompat.getInsetsController(activity.window, activity.window.decorView)
+            val lightIcons = route == Routes.DETAIL || darkTheme
+            controller.isAppearanceLightStatusBars = !lightIcons
+            controller.isAppearanceLightNavigationBars = !lightIcons
+        }
+        onDispose { }
+    }
+}
+
 /** 从 Compose 的 LocalContext 里把 Activity 剥出来（它可能被 ContextWrapper 包着）。 */
 internal fun Context.findActivity(): Activity? {
     var current: Context? = this

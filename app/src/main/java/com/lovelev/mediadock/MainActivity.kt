@@ -67,6 +67,7 @@ import com.lovelev.mediadock.ui.library.LibraryViewModel
 import com.lovelev.mediadock.ui.nav.PlayerImmersive
 import com.lovelev.mediadock.ui.nav.PlayerOrientation
 import com.lovelev.mediadock.ui.nav.Routes
+import com.lovelev.mediadock.ui.nav.SystemBarAppearance
 import com.lovelev.mediadock.ui.player.MiniPlayerBar
 import com.lovelev.mediadock.ui.player.NowPlayingViewModel
 import com.lovelev.mediadock.ui.player.PlayerScreen
@@ -103,7 +104,7 @@ class MainActivity : ComponentActivity() {
 
                 val start = startRoute
                 if (start != null) {
-                    HomeScaffold(navController, start, container)
+                    HomeScaffold(navController, start, container, darkTheme = themeMode.resolveDark())
                 }
             }
         }
@@ -127,6 +128,7 @@ private fun HomeScaffold(
     navController: NavHostController,
     start: String,
     container: AppContainer,
+    darkTheme: Boolean,
 ) {
     val entry by navController.currentBackStackEntryAsState()
     val currentRoute = entry?.destination?.route
@@ -143,6 +145,8 @@ private fun HomeScaffold(
     // 播放页自动横屏、离开时还回系统（见 PlayerOrientation 里的注释，别挪回播放页里）
     PlayerOrientation(currentRoute)
     PlayerImmersive(currentRoute)
+    // 详情页整页深色，系统栏图标必须是浅色；其余页面跟随 App 主题
+    SystemBarAppearance(currentRoute, darkTheme)
 
     Scaffold(
         modifier = Modifier.fillMaxSize(),
@@ -198,9 +202,15 @@ private fun HomeScaffold(
             }
         },
     ) { insets ->
-        // 播放页不套 Scaffold 的内边距 —— 不然视频会被状态栏/导航栏夹出黑边（用户提过）
+        // 播放页不套 Scaffold 的内边距 —— 不然视频会被状态栏/导航栏夹出黑边（用户提过）。
+        // 详情页也一样：它本身是深色整页（海报取色铺满），套内边距会在上下露出窗口底色，
+        // 看起来就是两条白边（2026-10-17 用户反馈）。内边距改由详情页自己处理。
         val contentModifier =
-            if (currentRoute == Routes.PLAYER) Modifier else Modifier.padding(insets)
+            if (currentRoute == Routes.PLAYER || currentRoute == Routes.DETAIL) {
+                Modifier
+            } else {
+                Modifier.padding(insets)
+            }
         AppNavHost(
             navController = navController,
             startRoute = start,

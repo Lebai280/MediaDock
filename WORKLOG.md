@@ -1,7 +1,7 @@
 # MediaDock — 交接文档
 
 > **新会话请从这里读。** 决策 / 结果 / 坑 / 下一步全部在这一个文件里，不记流水账。
-> 最后更新：2026-10-16（已纳入 git，远程 `Lebai280/MediaDock` 私有仓库）
+> 最后更新：2026-10-17（已纳入 git，远程 `Lebai280/MediaDock` 私有仓库）
 >
 > 📋 `NEXT_SESSION.md` 是一段**已经写好、可直接整段复制**的交接提示词（含构建命令与下一步），
 > 开新窗口时把它贴进去即可。本文件是细节归档。
@@ -26,7 +26,7 @@
 
 - 项目路径：`E:\code\MediaDock`
 - 包名 / applicationId：`com.lovelev.mediadock`
-- 当前版本：`0.3.0`（versionCode 3）—— 首个**正式签名**的发布版
+- 当前版本：`0.5.0`（versionCode 13）—— 站点已发 0.5.0
 
 ---
 
@@ -1590,6 +1590,48 @@ lock tapped / unlock tapped
 
 > 顺带结论：官方市场里针对这个项目**只有 kotlin-lsp 值得装**。`code-review` / `simplify` / `run` /
 > `frontend-design` / `security-review` / `impeccable` 本来就可用，重复安装只会吃常驻 token 且互相打架。
+
+### 0.5.0 发布 + 交接整理（2026-10-17）
+
+**发布**：0.5.0（versionCode 13）已发到站点。APK 18,717,785 B，最终 sha256
+`94488c6d…56e7dd`（本地 / 服务器 / HTTPS 下载三处一致）；`version.json` 的 versionCode = 13；
+发版页三处版本号与「版本历史」已更新。真机「设置 → 关于 → 检查更新」实测命中线上
+`version.json`（nginx 日志 15:22–15:23 三条 `okhttp/5.5.0` 200），显示「已是最新版本」。
+
+**坑 70：详情页上下两条白边（用户真机反馈）。**
+详情页本身是始终深色的整页（海报取色铺满），但导航外壳给所有非播放页套了
+`Modifier.padding(insets)`，状态栏/导航栏那两块露出 **Activity 的浅色 windowBackground**
+（`android:Theme.Material.Light.NoActionBar`）—— 截图像素实测上边 0–115px、下边 3168–3199px
+都是 `(246,246,243)`。
+→ 修法：`Routes.DETAIL` 和播放页一样**不套 Scaffold 内边距**，改由详情页自己处理：
+`Column` 加 `navigationBarsPadding()`、顶部 `TopBar` 加 `statusBarsPadding()`（海报因此能铺到
+状态栏下面，整页一体）；同时新增 `SystemBarAppearance(route, darkTheme)`：详情页强制浅色系统栏
+图标，其余页面跟随 App 主题（不是跟随系统 —— 用户可能把主题强制成深色而系统还是浅色）。
+**别再给详情页套回 Scaffold 内边距。**
+
+**坑 71：首页最上面那条孤线（用户随后反馈）。**
+`LibraryScreen` 顶部无条件画了一条 `HorizontalDivider()`。它原本是给「扫刮补状态条」收边的，
+但 0.5.0 把搜索框搬走后，没有状态条时它就成了贴在状态栏下面的一条孤线。
+→ 改成只在 `runningLabel != null`（真有状态条）时画。**别把分隔线留在没有上方内容的位置。**
+
+**代码整理（不改变行为）**
+- `PlayerScreen.kt` 1313 → 457 行，拆成：`PlayerControls.kt`（自绘控件）、
+  `PlayerComponents.kt`（进度条 / 锁定键 / 对话框 / 提示）、`PlayerSubtitles.kt`
+  （挂载 / 在线搜索）、`PlayerCapture.kt`（截图存相册）、`PlayerFormatting.kt`
+  （音轨标签 / 错误翻译 / 队列判定）。全是移动，没有改逻辑。
+- 新增 `WebDavClientTest`（JDK 自带 HttpServer，不引依赖）：断言 401 / 429 / 500
+  **都只发一次请求**并抛对应异常 —— 把「绝不重试」从注释纪律变成红灯。单测 82 → **85**。
+- `hs_err_pid46688.log`（161KB JVM 崩溃日志）原来被 git 跟踪，已 `git rm --cached`
+  删除并加 `hs_err_pid*.log` 规则。
+- README / WORKLOG 顶部版本号从 0.3.0 修正到 0.5.0。
+
+**真机验证（S21 Ultra，release 签名包）**：播放页起播（`PLAYING`，position 4.9s → 107s）、
+点按唤出控件再点暂停（`PAUSED`，日志 `center play/pause tapped`）、⋯ 菜单
+（字幕 / 详细信息 / 截图；单音轨时音轨项正确隐藏）、字幕菜单（关闭字幕 / 从本地文件加载… /
+在线搜索…）、返回后迷你播放条显示「已暂停」。无崩溃。
+
+**注意**：站点上的 `MediaDock-0.5.0.apk` 在发布后**被同名替换过两次**（先白边修复 + 内部拆分，
+再首页孤线修复），versionCode 仍是 13，所以不会弹更新提示；当前站点文件 sha256 以上面那条为准。
 
 ---
 

@@ -26,3 +26,7 @@ app/schemas/
 
 # Claude Code 本机设置（个人权限白名单，不进仓库）
 .claude/settings.local.json
+
+# JVM crash dumps
+hs_err_pid*.log
+replay_pid*.log

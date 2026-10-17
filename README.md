@@ -56,14 +56,14 @@ compileSdk 37.2 / targetSdk 36 / minSdk 26
 8 个功能阶段（构建链 / 数据源 / 浏览 / 播放 / 媒体库 / TMDB 刮削 / 播放体验 / 字幕与设置）
 **全部完成并逐屏真机验证过**，界面也已按 VidHub 版式与用户站点配色改造。
 
-当前版本 `0.3.0`（versionCode 3）—— 首个**正式签名**的发布版，站点上已放发版信息，
+当前版本 `0.5.0`（versionCode 13），站点上已发 0.5.0，
 应用内「设置 → 关于 → 检查更新」可用。
 
 > ⚠️ **构建 release 包需要 keystore**：密码在 `local.properties`（已 gitignore），
 > 密钥库在仓库外 `E:\code\keystore\`。**没有它的机器只能 `assembleDebug`。**
 > 丢了 keystore 就再也无法更新这个 App —— 详见 [WORKLOG.md](WORKLOG.md) 的「换成正式签名」一节。
 
-详见 [WORKLOG.md](WORKLOG.md) —— 现状、硬约束、代码地图、路线图、坑清单（编号到 59）。
+详见 [WORKLOG.md](WORKLOG.md) —— 现状、硬约束、代码地图、路线图、坑清单（编号到 69）。
 
 ## 仓库
 
