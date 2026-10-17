@@ -41,6 +41,16 @@ data class TmdbDetails(
     val genres: List<String>,
     val country: String?,
     val cast: List<CastMember>,
+    val totalEpisodes: Int? = null,
+    val totalSeasons: Int? = null,
+)
+
+/** 分集元数据（按季拉取）。 */
+data class TmdbEpisode(
+    val episode: Int,
+    val name: String,
+    val stillPath: String?,
+    val runtimeMinutes: Int?,
 )
 
 /** 一条刮削结果。图片只存 path，完整地址由 [posterUrl] 现拼。 */
@@ -94,6 +104,30 @@ class TmdbClient(private val client: OkHttpClient) {
         return results.map { it.toMatch() }
     }
 
+    /** 拉一季的分集元数据（剧照/分集名/时长）。详情页按需调用，调用方负责缓存。 */
+    suspend fun fetchSeason(tmdbId: Int, season: Int, secret: TmdbSecret): List<TmdbEpisode> =
+        withContext(Dispatchers.IO) {
+            val body = readBody(
+                requestFor("/tv/$tmdbId/season/$season", mapOf("language" to LANGUAGE), secret),
+            )
+            val dto = try {
+                JSON.decodeFromString<SeasonResponse>(body)
+            } catch (e: CancellationException) {
+                throw e
+            } catch (e: Exception) {
+                throw TmdbException("TMDB 分集数据无法解析：${e.message}", e)
+            }
+            dto.episodes.orEmpty().mapNotNull { e ->
+                val number = e.episode_number ?: return@mapNotNull null
+                TmdbEpisode(
+                    episode = number,
+                    name = e.name.orEmpty(),
+                    stillPath = e.still_path,
+                    runtimeMinutes = e.runtime?.takeIf { it > 0 },
+                )
+            }
+        }
+
     /** 拉一条的详情 + 演职员。剧集走 `/tv`，电影走 `/movie`。 */
     suspend fun fetchDetails(tmdbId: Int, isTv: Boolean, secret: TmdbSecret): TmdbDetails? =
         withContext(Dispatchers.IO) {
@@ -130,6 +164,8 @@ class TmdbClient(private val client: OkHttpClient) {
                     fallback = dto.production_countries?.firstOrNull()?.name,
                 ),
                 cast = listOfNotNull(director) + cast,
+                totalEpisodes = dto.number_of_episodes?.takeIf { it > 0 },
+                totalSeasons = dto.number_of_seasons?.takeIf { it > 0 },
             )
         }
 
@@ -219,9 +255,26 @@ class TmdbClient(private val client: OkHttpClient) {
         fun posterUrl(posterPath: String, width: Int = 342): String =
             "https://image.tmdb.org/t/p/w$width$posterPath"
 
+        /** 分集剧照。 */
+        fun stillUrl(stillPath: String, width: Int = 300): String =
+            "https://image.tmdb.org/t/p/w$width$stillPath"
+
         private val JSON = Json { ignoreUnknownKeys = true }
     }
 }
+
+@Serializable
+private data class SeasonResponse(
+    val episodes: List<EpisodeDto>? = null,
+)
+
+@Serializable
+private data class EpisodeDto(
+    val episode_number: Int? = null,
+    val name: String? = null,
+    val still_path: String? = null,
+    val runtime: Int? = null,
+)
 
 @Serializable
 private data class DetailResponse(
@@ -229,6 +282,8 @@ private data class DetailResponse(
     val first_air_date: String? = null,
     val runtime: Int? = null,
     val episode_run_time: List<Int>? = null,
+    val number_of_episodes: Int? = null,
+    val number_of_seasons: Int? = null,
     val genres: List<GenreDto>? = null,
     val production_countries: List<CountryDto>? = null,
     val origin_country: List<String>? = null,

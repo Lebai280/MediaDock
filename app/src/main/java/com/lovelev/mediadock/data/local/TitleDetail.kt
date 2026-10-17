@@ -29,6 +29,9 @@ data class TitleDetail(
     /** 演职人员的 JSON（见 `TmdbClient.CastMember`）。 */
     val castJson: String,
     val fetchedAt: Long,
+    /** 剧集总集数 / 总季数（TMDB 官方值；电影为 null）。 */
+    val totalEpisodes: Int? = null,
+    val totalSeasons: Int? = null,
 )
 
 @Dao

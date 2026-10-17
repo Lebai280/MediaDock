@@ -27,6 +27,7 @@ import androidx.sqlite.db.SupportSQLiteDatabase
         Favorite::class,
         TitleOverride::class,
         TitleDetail::class,
+        EpisodeMeta::class,
     ],
     version = MediaDatabase.VERSION,
     exportSchema = false,
@@ -37,10 +38,11 @@ abstract class MediaDatabase : RoomDatabase() {
     abstract fun favoriteDao(): FavoriteDao
     abstract fun titleOverrideDao(): TitleOverrideDao
     abstract fun titleDetailDao(): TitleDetailDao
+    abstract fun episodeMetaDao(): EpisodeMetaDao
 
     companion object {
         /** 当前库表版本。**单一来源**：`@Database` 与迁移覆盖单测都读它。 */
-        const val VERSION = 6
+        const val VERSION = 7
 
         /** v3 → v4：加收藏表。纯新增，不动既有数据。 */
         val MIGRATION_3_4 = object : Migration(3, 4) {
@@ -78,11 +80,30 @@ abstract class MediaDatabase : RoomDatabase() {
         }
 
         /**
+         * v6 → v7：详情表补总集数/总季数；新增分集元数据表（剧照/分集名/时长）。
+         * 都是纯新增，不动既有用户数据。
+         */
+        val MIGRATION_6_7 = object : Migration(6, 7) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL("ALTER TABLE `title_details` ADD COLUMN `totalEpisodes` INTEGER")
+                db.execSQL("ALTER TABLE `title_details` ADD COLUMN `totalSeasons` INTEGER")
+                db.execSQL(
+                    "CREATE TABLE IF NOT EXISTS `episode_meta` (" +
+                        "`tmdbId` INTEGER NOT NULL, `season` INTEGER NOT NULL, " +
+                        "`episode` INTEGER NOT NULL, `name` TEXT NOT NULL, " +
+                        "`stillPath` TEXT, `runtimeMinutes` INTEGER, " +
+                        "`fetchedAt` INTEGER NOT NULL, " +
+                        "PRIMARY KEY(`tmdbId`, `season`, `episode`))",
+                )
+            }
+        }
+
+        /**
          * **所有迁移都放这个数组里，容器整批注册** ——
          * 之前把迁移分开写、容器只注册了其中一个，结果升级走了 destructive 兜底，
          * 把库和进度一起清了。加新迁移时只改这里，容器会自动带上。
          * 注意数组要放在各迁移定义**之后**（companion 是顺序初始化的）。
          */
-        val MIGRATIONS = arrayOf(MIGRATION_3_4, MIGRATION_4_5, MIGRATION_5_6)
+        val MIGRATIONS = arrayOf(MIGRATION_3_4, MIGRATION_4_5, MIGRATION_5_6, MIGRATION_6_7)
     }
 }

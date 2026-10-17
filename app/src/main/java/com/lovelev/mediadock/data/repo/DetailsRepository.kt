@@ -1,5 +1,6 @@
 package com.lovelev.mediadock.data.repo
 
+import com.lovelev.mediadock.data.local.EpisodeMeta
 import com.lovelev.mediadock.data.local.MediaDatabase
 import com.lovelev.mediadock.data.local.MediaItemEntity
 import com.lovelev.mediadock.data.local.TitleDetail
@@ -74,7 +75,9 @@ class DetailsRepository(
      * 返回 null 表示成功（或本来就有）；否则是给界面看的一句话。
      */
     suspend fun ensure(path: String, tmdbId: Int, isTv: Boolean, force: Boolean = false): String? {
-        if (!force && db.titleDetailDao().find(path) != null) return null
+        val existing = db.titleDetailDao().find(path)
+        // 老缓存可能没有总集数（v7 新增列）—— 剧集缺这个值就重新拉一次
+        if (!force && existing != null && (!isTv || existing.totalEpisodes != null)) return null
 
         val secret = credentials.loadTmdbSecret()?.let(::TmdbSecret)
             ?: return "还没填写 TMDB 凭据"
@@ -168,8 +171,39 @@ class DetailsRepository(
                 country = details.country,
                 castJson = json.encodeToString(details.cast),
                 fetchedAt = System.currentTimeMillis(),
+                totalEpisodes = details.totalEpisodes,
+                totalSeasons = details.totalSeasons,
             ),
         )
+    }
+
+    /** 某一季的分集元数据：先查缓存，没有就拉一次并落库（失败返回空，不抛）。 */
+    suspend fun seasonEpisodes(tmdbId: Int, season: Int): List<EpisodeMeta> {
+        val cached = db.episodeMetaDao().find(tmdbId, season)
+        if (cached.isNotEmpty()) return cached
+        val secret = credentials.loadTmdbSecret()?.let(::TmdbSecret) ?: return emptyList()
+        val episodes = try {
+            tmdb.fetchSeason(tmdbId, season, secret)
+        } catch (e: kotlinx.coroutines.CancellationException) {
+            throw e
+        } catch (e: Exception) {
+            return emptyList()
+        }
+        if (episodes.isEmpty()) return emptyList()
+        val now = System.currentTimeMillis()
+        val rows = episodes.map {
+            EpisodeMeta(
+                tmdbId = tmdbId,
+                season = season,
+                episode = it.episode,
+                name = it.name,
+                stillPath = it.stillPath,
+                runtimeMinutes = it.runtimeMinutes,
+                fetchedAt = now,
+            )
+        }
+        db.episodeMetaDao().upsertAll(rows)
+        return rows
     }
 
     private companion object {

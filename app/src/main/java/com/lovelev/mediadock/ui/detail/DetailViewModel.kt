@@ -9,6 +9,7 @@ import androidx.lifecycle.ViewModelProvider
 import androidx.lifecycle.viewModelScope
 import androidx.lifecycle.viewmodel.initializer
 import androidx.lifecycle.viewmodel.viewModelFactory
+import com.lovelev.mediadock.data.local.EpisodeMeta
 import com.lovelev.mediadock.data.local.MediaItemEntity
 import com.lovelev.mediadock.data.local.PlaybackProgress
 import com.lovelev.mediadock.data.local.TitleDetail
@@ -187,6 +188,27 @@ class DetailViewModel(private val container: AppContainer) : ViewModel() {
         viewModelScope.launch {
             container.library.saveOverride(paths, "", null)
             notice = container.library.rescrapeSeries(paths)
+        }
+    }
+
+    /** 当前季的分集元数据（剧照/分集名/时长），按集号索引。 */
+    var episodeMeta by mutableStateOf<Map<Int, EpisodeMeta>>(emptyMap())
+        private set
+    private val seasonCache = mutableMapOf<Int, Map<Int, EpisodeMeta>>()
+    private var seasonToken = 0
+
+    fun loadSeason(tmdbId: Int, season: Int) {
+        seasonCache[season]?.let {
+            episodeMeta = it
+            return
+        }
+        val token = ++seasonToken
+        viewModelScope.launch {
+            val map = container.details.seasonEpisodes(tmdbId, season)
+                .associateBy { it.episode }
+            seasonCache[season] = map
+            // 用户可能已经切到别的季，只有最后一次请求能更新界面
+            if (token == seasonToken) episodeMeta = map
         }
     }
 
