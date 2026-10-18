@@ -15,6 +15,8 @@
   3. **增量扫描**：全量 BFS + 整表替换 + 2 万文件上限；
   4. **持久任务 + 分页**：扫描/刮削是内存 job，列表是全量 Flow + 内存过滤。
 - 建议顺序：**先把这四块地基做完，再加高级功能**；否则每加一个功能都会返工。
+- 高规格播放（HDR10 / HDR10+ / HLG / DV / 10-bit / Atmos / 高刷）按 **Phase 3 的 3A–3D** 推进：
+  先能力探测与诊断，再直出，再降级/软解，最后投屏与体验项。
 - SQLite 不是瓶颈：5k–20k 条视频对 Room 很轻松；瓶颈是扫描请求数、TMDB 配额、海报渲染和状态管理。
 
 ---
@@ -184,6 +186,21 @@ scan_queue(source_id, remote_key, depth, PRIMARY KEY(source_id, remote_key))
 
 scrape_tasks(logical_id TEXT PK, state TEXT, attempts INTEGER,
              next_attempt_at INTEGER, priority INTEGER, last_error TEXT, updated_at INTEGER)
+
+media_stream_info(
+  file_id TEXT PK, container TEXT, video_codec TEXT, profile INTEGER, level INTEGER,
+  bit_depth INTEGER, color_primaries TEXT, color_transfer TEXT, color_matrix TEXT,
+  hdr_format TEXT, dolby_vision_profile INTEGER,
+  width INTEGER, height INTEGER, frame_rate REAL, bitrate INTEGER,
+  audio_tracks_json TEXT, subtitle_tracks_json TEXT,
+  probed_at INTEGER, probe_source TEXT, probe_error TEXT
+)
+
+device_capabilities(
+  device_key TEXT PK, display_hdr_types TEXT, max_width INTEGER, max_height INTEGER,
+  max_refresh REAL, video_codecs_json TEXT, audio_outputs_json TEXT,
+  passthrough_codecs_json TEXT, updated_at INTEGER
+)
 ```
 
 说明：
@@ -231,19 +248,68 @@ scrape_tasks(logical_id TEXT PK, state TEXT, attempts INTEGER,
 - **图片**：Coil 磁盘缓存设上限；列表只预取可见页；海报/剧照分尺寸请求；20k 条不做本地缩略图，除非有明确收益。
 - **详情页**：作品详情、季/集、版本列表都来自 `works/episodes/work_versions`；按需加载，不在打开时拉全库。
 
-### 3.7 播放框架
+### 3.7 播放与高规格（HDR / 10-bit / 多声道）
 
-- **地址解析**：`PlaybackResolver` 按 `logicalId` 返回候选列表（来自 `work_versions`），按 source 优先级、可用性、清晰度排序；播放失败可切换候选；401/429 标记 source 不可用，**不重试**。
-- **播放器**：保留 Media3 + `WebDavMediaDataSource`（改为按 source 取凭据）；保留媒体客户端 `Accept-Encoding: identity` / 无 `callTimeout`；保留 `WebDavLoadErrorPolicy`。
-- **高级播放（按阶段）**：
-  - FFmpeg 软解兜底（RMVB/AVI/10-bit）；
-  - 画中画；
-  - 投屏（Media3 Cast / DLNA）；
-  - 字幕样式（字号/颜色/描边/背景/延迟）、音轨切换、倍速；
-  - 跳过片头/片尾（存时间点）；
-  - HDR/杜比：依赖设备与解码器，做兼容性检测，不承诺全设备。
-- **进度**：按 `logicalId` 写；多源切换/换版本保持续播位置；可选同步到 `SyncProvider`。
-- **服务**：`PlaybackService` 仍为唯一播放载体；通知、锁屏、后台行为保持现状。
+**目标**：高规格片源做到“能直出就直出，不能直出就明确降级”，不静默黑屏、偏色或卡顿。
+
+#### 3.7.1 能力模型
+
+- **`DeviceCapabilities`**：显示支持的 HDR 类型（HDR10 / HDR10+ / HLG / DV）、最大分辨率与刷新率、可用视频解码器（MIME / profile / level / 位深）、音频输出与直通能力（HDMI / eARC / 蓝牙 / 扬声器）、最大声道数。
+- **`StreamInfo`**：容器、视频编码 / profile / level、位深、色彩原色 / 传输 / 矩阵、HDR 类型、DV profile、分辨率 / 帧率 / 码率、音轨（编码 / 声道 / Atmos）、字幕轨（文本 / PGS）。
+- **探测来源**：
+  - 显示：`Display.getHdrCapabilities()`、`Display.getMode()` / `supportedModes`；
+  - 解码：`MediaCodecList` + `MediaFormat` 支持检查；**最终以解码器实际初始化成功为准**；
+  - 音频：`AudioManager` / `AudioDeviceInfo` / Media3 `AudioCapabilities`；
+  - 片源：Media3 extractor 读到 `Format.colorInfo` / `sampleMimeType` / `codecs`；必要时做轻量容器头解析。
+- **缓存**：设备能力每次开机 / 显示变化更新；片源信息按文件版本缓存，**不在扫描时探测 20k 条**。
+
+#### 3.7.2 播放决策（PlaybackPlan）
+
+输入：`logicalId` + 候选文件 / 版本 + `StreamInfo` + `DeviceCapabilities` + 用户偏好。
+
+输出：选中的文件 / 版本、解码器（硬件 / FFmpeg 软解）、HDR 模式、音频模式、显示模式（分辨率 + 刷新率）、字幕渲染方式、失败回退链。
+
+规则：
+
+- 优先选设备**真正能渲染**的最高规格；不以文件名或扩展名判断。
+- **HDR**：显示与解码器都支持 → 直出；否则按格式降级（HDR10+ → HDR10；DV → HDR10 基础层；HLG → SDR）；都不行 → 色调映射。
+- **10-bit**：设备支持 10-bit 解码则直出，否则 8-bit 输出或软解。
+- **音频**：输出端支持直通 → 直通；否则解码；手机扬声器 / 蓝牙 → 下混；Atmos 元数据在 PCM 解码后丢失，要在 UI 标明。
+- **刷新率**：按片源帧率匹配（23.976 / 24 / 25 / 30 / 50 / 60 / 120）；离开播放页 / PiP 时恢复。
+- **回退**：解码器初始化失败 → 软解 / FFmpeg；当前版本不可用 → 另一个版本 / 源；401/429 → 标记源封锁，**不重试**。
+
+#### 3.7.3 渲染与 Media3
+
+- 保留 Media3：`Format.colorInfo`、`DefaultTrackSelector`、`DefaultRenderersFactory`（可加 FFmpeg 扩展）。
+- **HDR 直出**：SurfaceView / PlayerView 输出 HDR；控件层保持 SDR 安全色；不要在 HDR 画面上叠加会抬亮度的半透明层。
+- **色调映射**：优先硬件 / Media3 effect；4K 软件色调映射代价高，必须检测并提示；不支持时明确显示“HDR→SDR”。
+- **帧率**：`VideoFrameReleaseHelper` + 显示模式；避免在后台 / PiP 切换模式。
+- **音频**：`DefaultAudioSink` / `AudioCapabilities`；HDMI / eARC 直通；蓝牙 / 扬声器下混。
+- **字幕**：文本字幕样式；PGS 等图形字幕按 Media3 能力处理，不支持时明确提示（可后接 FFmpeg）。
+- **诊断**：播放信息面板显示实际解码器、HDR 模式、音频输出、丢帧、码率；写日志（不含凭据）。
+
+#### 3.7.4 探测与缓存
+
+- 首次播放 / 打开详情页时按需探测；用 Range 请求只读容器头；超时或失败标记 unknown，不阻塞播放。
+- 缓存键：`fileId + size + mtime/etag`；文件变化自动失效。
+- 探测结果用于：详情页规格徽标（4K / HDR10 / DV / Atmos）、播放决策、筛选（“只看 HDR”）。
+- 不在扫描时全量探测；可选后台“补齐媒体信息”任务按优先级慢慢补。
+
+#### 3.7.5 格式与设备策略
+
+- **HDR10**：主流设备支持；直出。
+- **HDR10+**：设备支持则直出，否则按 HDR10 静态元数据播放。
+- **HLG**：设备支持则直出，否则 SDR 映射。
+- **Dolby Vision**：profile 5 / 8 / 7 差异大；仅在设备 / 解码器明确支持时直出；否则用 HDR10 基础层或 SDR 映射。**不承诺所有设备支持 DV**。
+- **音频**：AAC / AC3 / EAC3 / TrueHD / DTS；直通依赖 HDMI / eARC 与功放；手机端按能力下混。
+- **视频编码**：HEVC Main10 / AV1 / VP9；硬解优先，FFmpeg 兜底。
+- **容器**：MP4 / MKV；MKV 的 PGS / 多音轨要按轨道处理。
+
+#### 3.7.6 测试矩阵
+
+- **设备**：S21 Ultra（HDR10+ / HEVC 10-bit / 高刷）、一台 DV 设备（如有）、SDR 模拟器、Chromecast / TV、HDMI / eARC。
+- **片源**：HDR10、HDR10+、HLG、DV P5 / P8、4K60 HEVC、AV1、TrueHD Atmos、DTS-HD、PGS 字幕。
+- **验收**：支持的格式直出且规格徽标正确；不支持时按预期降级并给出原因；音频直通 / 下混符合预期；刷新率匹配；无持续丢帧；401/429 不重试。
 
 ### 3.8 多数据源
 
@@ -340,10 +406,14 @@ scrape_tasks(logical_id TEXT PK, state TEXT, attempts INTEGER,
 - 多源合并、版本切换、播放失败切换。
 - 验收：两个 WebDAV 源 + 本地同时挂载；同一作品合并；源被封锁时其他源不受影响。
 
-### Phase 3 — 高级播放
+### Phase 3 — 高规格播放
 
-- FFmpeg 软解兜底；画中画；投屏；字幕样式；音轨；倍速；跳过片头尾；HDR/杜比兼容性检测。
-- 验收：RMVB/AVI/10-bit 至少一种原本不能播的格式可播；投屏/画中画真机通过。
+- **3A 能力模型**：`DeviceCapabilities` + `StreamInfo` 探测 + 播放诊断面板（先不改播放行为）。
+- **3B HDR 直出**：HDR10 / HDR10+ / HLG 直出，刷新率匹配，音频直通 / 下混。
+- **3C 降级与软解**：色调映射、DV 基础层、FFmpeg 软解兜底（RMVB / AVI / 10-bit）。
+- **3D 体验**：画中画、投屏（Media3 Cast / DLNA）、字幕样式、跳过片头尾。
+- 验收：支持的格式直出且规格徽标正确；不支持时按预期降级并说明原因；4K60 HDR 无持续丢帧；
+  HDMI / eARC 音频直通可用；RMVB/AVI/10-bit 至少一种原本不能播的格式可播；401/429 不重试。
 
 ### Phase 4 — 同步 / TV（可选）
 
@@ -365,6 +435,11 @@ scrape_tasks(logical_id TEXT PK, state TEXT, attempts INTEGER,
 | 中文搜索分词 | 搜不到 | 专门的 search_text / trigram 方案，基准测试 |
 | 多模块过度拆分 | 构建/维护成本 | 控制在 8–10 个模块 |
 | FFmpeg 包体/许可证 | APK 变大、合规风险 | 后置，评估 LGPL/GPL 与体积 |
+| HDR / DV 设备碎片化 | 黑屏、偏色、错误 HDR | 能力探测 + 解码器实际初始化 + 明确降级 |
+| 4K 软件色调映射 | 卡顿、发热、掉帧 | 硬件优先，软解时提示并允许降级 |
+| 音频直通设备差异 | 无声、只剩立体声 | 探测输出能力 + 下混兜底 + UI 标明 |
+| PGS / 图形字幕 | 字幕不显示 | 能力检测 + 提示，必要时接 FFmpeg |
+| 流信息探测成本 | 大库全探测慢 | 按需探测 + 缓存 + 后台低优先级补齐 |
 | TV/同步范围蔓延 | 架构分叉 | 先定决策，单独立项 |
 
 ---
@@ -383,9 +458,14 @@ scrape_tasks(logical_id TEXT PK, state TEXT, attempts INTEGER,
 | 字幕（内嵌/在线/本地） | 有 | 保留 + 样式 |
 | 音轨 / 倍速 / 截图 | 有 | 保留 |
 | 多版本切换 | 有（按 tmdbId） | Phase 2 多源版本 |
+| 4K / 10-bit | 部分（硬解） | Phase 3 |
+| HDR10 / HDR10+ / HLG | 部分（设备相关） | Phase 3 直出 / 降级 |
+| Dolby Vision | 未承诺 | Phase 3（按设备能力） |
+| Atmos / DTS 直通 | 无 | Phase 3 |
+| 刷新率匹配 | 无 | Phase 3 |
+| PGS / 图形字幕 | 未验证 | Phase 3 |
 | 画中画 | 无 | Phase 3 |
 | 投屏 | 无 | Phase 3 |
-| HDR / 杜比 | 部分（设备相关） | Phase 3 检测 |
 | 跳过片头/片尾 | 无 | Phase 3 |
 | 多端同步 | 无 | Phase 4（可选） |
 | TV 端 | 明确不做 | Phase 4（如改决策） |
@@ -434,6 +514,57 @@ interface PlaybackResolver {
     suspend fun candidates(id: LogicalId): List<PlaybackVariant>
 }
 
+// 高规格播放
+enum class HdrFormat { SDR, HDR10, HDR10_PLUS, HLG, DOLBY_VISION }
+enum class HdrMode { DIRECT, TONE_MAP, DV_BASE_LAYER, HLG_TO_SDR }
+enum class AudioMode { PASSTHROUGH, DECODE, DOWNMIX }
+enum class DecoderChoice { HARDWARE, FFMPEG_SOFTWARE }
+
+data class StreamInfo(
+    val fileId: String,
+    val videoCodec: String?,
+    val profile: Int?,
+    val bitDepth: Int?,
+    val hdrFormat: HdrFormat?,
+    val dolbyVisionProfile: Int?,
+    val width: Int?,
+    val height: Int?,
+    val frameRate: Float?,
+    val bitrate: Int?,
+    val audioTracks: List<AudioTrackInfo>,
+    val subtitleTracks: List<SubtitleTrackInfo>,
+)
+
+data class DeviceCapabilities(
+    val displayHdrFormats: Set<HdrFormat>,
+    val maxWidth: Int,
+    val maxHeight: Int,
+    val maxRefresh: Float,
+    val videoCodecs: Set<String>,
+    val passthroughCodecs: Set<String>,
+)
+
+data class PlaybackPlan(
+    val fileId: String,
+    val decoder: DecoderChoice,
+    val hdrMode: HdrMode,
+    val audioMode: AudioMode,
+    val preferredDisplayModeId: Int?,
+    val fallback: List<PlaybackPlan> = emptyList(),
+)
+
+interface StreamProbe {
+    suspend fun probe(fileId: String): StreamInfo?
+}
+
+interface CapabilityRepository {
+    fun current(): DeviceCapabilities
+}
+
+interface PlaybackPlanner {
+    suspend fun plan(id: LogicalId): PlaybackPlan?
+}
+
 interface SyncProvider {
     suspend fun pull(since: Long): SyncDelta
     suspend fun push(delta: SyncDelta)
@@ -457,7 +588,8 @@ data class LibraryFilter(
 1. `ARCHITECTURE.md` 入库（本文件）。
 2. 开启 `exportSchema`，生成并提交 `app/schemas/8.json`。
 3. 新建 `:core:model` 模块，先放 `SourceId` / `LogicalId` / `SourceType` / 纯函数（不搬现有代码）。
-4. v9 迁移骨架：新增 `sources` / `works` / `episodes` / `scan_runs` / `scrape_tasks` 等表；`media_items` 加 `source_id` / `logical_id`；回填脚本；保留旧列。
+4. v9 迁移骨架：新增 `sources` / `works` / `episodes` / `scan_runs` / `scrape_tasks` /
+   `media_stream_info` / `device_capabilities` 等表；`media_items` 加 `source_id` / `logical_id`；回填脚本；保留旧列。
 5. 加 `MigrationTestHelper` 测试（v8→v9）。
 6. 用真实库副本跑一遍迁移，核对数据。
 7. 全部通过后再进入 Phase 1。
