@@ -329,7 +329,7 @@ media_fts USING FTS4(title, aliases, people, tokenize=unicode61)
 - **未看筛选**：查询 `progress.completed = 0` 或不存在进度；判定规则与自动下一集共用（见 3.15）。
 - **搜索**：
   - 英文/数字：FTS4（`unicode61`）或 SQL `LIKE`；
-  - 中文：SQLite 默认分词不适合中文。建议维护一列 `search_text`（标题 + 演员 + 类型，CJK 字符之间加空格，或存拼音首字母），用 FTS4 前缀匹配；或引入 FTS5 trigram。先做 20k 条基准测试再定。注意 Room 注解只支持 `@Fts4`，FTS5 需手写建表与 DAO。
+  - 中文：**已定 FTS4 + `search_text`**（CJK 字符间加空格，查询转为短语）；目标机不支持 FTS5 trigram（S2）。
   - 输入防抖 250ms；搜索走 Paging，不一次性加载全库。
 - **字幕检索**：OpenSubtitles 的 moviehash 需要读文件，WebDAV 上代价高；优先按标题 + 季集 + 语言搜索，hash 只用于本地/已下载文件。
 - **UI 状态**：每个 feature 统一 `ViewModel + UiState`；composable 不得直接拿 `AppContainer`；筛选/排序状态用 `SavedStateHandle` 或持久化。
@@ -531,7 +531,8 @@ media_fts USING FTS4(title, aliases, people, tokenize=unicode61)
 ### 3.16 搜索与索引
 
 - **查询管线**：输入防抖 250ms → 归一化（大小写、全半角、去首尾空格）→ FTS/LIKE → 筛选 → 排序 → 分页。
-- **中文搜索**：SQLite 默认分词不适合中文。方案：维护 `search_text`（标题/别名/演员/类型，CJK 字符间加空格）+ FTS4 `unicode61` 前缀匹配；或 FTS5 trigram；以 20k 条数据完成基准测试后确定。
+- **中文搜索（已定，S2）**：FTS4 + `search_text`（标题/别名/演员/类型，CJK 字符间加空格），
+  查询把 CJK 串转为空格短语；目标机不支持 FTS5 trigram。见 ADR-024。
 - **筛选维度**：类型、年份、国家、类型标签、演员、来源、未看、4K/HDR（来自 `media_stream_info`）。
 - **索引**：
   - `works(type, year, rating, updated_at)`
@@ -1025,6 +1026,7 @@ data class LibraryFilter(
 | ADR-021 | v9 兼容采用只读 VIEW | 现有 UI 读路径不变 | 写路径改新表；Room VIEW 由 S1 验证 |
 | ADR-022 | 多集/版本/进度用完整模型 | 避免边界推断错误 | `movie_versions` / `episode_versions` / `file_segments` / 分表进度 |
 | ADR-023 | 开工前修 B1–B6 + 4 个 spike | 降低迁移与返工风险 | 0a 延后，先完成 S1–S4 |
+| ADR-024 | 中文搜索用 FTS4 + `search_text` | 目标机不支持 FTS5 trigram；FTS4 p95 3.44 ms | 查询构造需把 CJK 转为空格短语；索引随标题/演员重建 |
 
 > 新增决策时在表格末尾追加，并在 WORKLOG 记录背景与影响。
 
@@ -1175,13 +1177,13 @@ feature 之间禁止互相依赖；跨页导航由 :app 负责。
 - D11 多用户/儿童模式：**做**（Phase 5）。
 - D13 离线下载：**做**（Phase 5，按用户选择、配额管理）。
 - D14 平板/折叠屏：**正式支持**（Phase 5，`WindowSizeClass`）。
+- D5 中文搜索：**FTS4 + `search_text`**（CJK 逐字空格 + 短语查询）；FTS5 trigram 在目标设备不可用。
 - B1/B2/B3 设计：**UUID + `logical_key`；完整多集/版本模型；v9 兼容 VIEW**（见 15.2–15.4）。
 
 > 上述“全部纳入”指剩余主题均纳入架构与路线图；多端同步仍按 D2 暂缓，TV 按 D1 单列。
 
 | 编号 | 决策 | 选项 | 建议 | 影响 |
 |---|---|---|---|---|
-| D5 | 中文搜索 | FTS4+search_text / FTS5 trigram / 内存索引 | 先基准测试；注意 Room 注解仅支持 `@Fts4`，FTS5 需手写建表 | 搜索体验与实现成本 |
 | D6 | DI | 手写容器 / Hilt | 现阶段手写，模块化后再评估 | 构建时间与测试便利 |
 | D7 | HDR/DV 承诺 | 能力探测+降级 / 承诺全设备 | 能力探测，不承诺 DV | 用户预期与兼容性 |
 | D9 | 数据库加密 | 不加密 / SQLCipher | 不加密（凭据已单独加密） | 性能与复杂度 |
@@ -1519,6 +1521,10 @@ scrape_tasks(
 
 **S1 结果（2026-10-18）**：SQL 迁移 spike 全部通过（VIEW 与 legacy 逐列一致、用户数据映射/去重正确）；
 Room `@DatabaseView` 在 SM-G998U1 真机通过（含 `IN (:paths)`）。详见 WORKLOG 同名条目。
+
+**S2 结果（2026-10-18）**：目标机 SQLite **不支持 FTS5 trigram**（`no such module: fts5`）；
+FTS4（CJK 逐字空格 + 短语查询）20k 条 p50 1.20 ms / p95 3.44 ms；LIKE 基线 p50 7.85 ms / p95 8.11 ms；
+DB 约 5.7 MB。**选定 FTS4 + `search_text`**，详见 WORKLOG 与 ADR-024。
 
 
 ### 15.10 启动门槛

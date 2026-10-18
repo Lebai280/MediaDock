@@ -1916,6 +1916,28 @@ APK sha256 `fbdbcc80…4bf8fe`；`version.json` 已指向 0.5.1；真机从 0.5.
   或独立 `work_details`；0a schema 必须补齐。
 - 下一步：S2 中文 FTS、S3 DLNA/SMB 选型、S4 FFmpeg 16KB/HDR。
 
+### 2026-10-18 · S2：中文搜索 20k 基准
+
+**背景**：架构 D5 需在 FTS4（`search_text`）与 FTS5 trigram 之间选定中文搜索方案，
+并以 20k 条数据验证查询延迟与正确性。
+
+**变更**：
+- 新增 `ChineseSearchBenchmarkTest`（androidTest）：真机生成 20k 条合成作品，
+  分别建立 FTS4（CJK 逐字空格 + 短语）、FTS5 trigram（若支持）与 LIKE 基线，
+  测量 p50/p95 并校验标题/演员查询结果。
+- 无产品代码变更。
+
+**验证（SM-G998U1 / Android 15）**：
+- FTS5 trigram **不可用**：`no such module: fts5`。
+- FTS4：p50 **1.20 ms**、p95 **3.44 ms**；LIKE 基线 p50 7.85 ms、p95 8.11 ms。
+- 20k 条数据库约 **5.7 MB**；标题、2 字查询、演员查询均命中；测试通过。
+- 结论：选择 **FTS4 + `search_text`**，查询把 CJK 串转为空格短语；不使用 FTS5。
+
+**备注**：
+- 索引随标题/别名/演员变化重建；`MediaItemEntity` 的标题覆盖变更也要触发重建。
+- 2 字中文查询可用（FTS5 trigram 需 ≥3 字，且目标机不支持）。
+- 下一步：S3 DLNA/SMB 选型、S4 FFmpeg 16KB/HDR。
+
 ---
 
 ## 8. 待办
@@ -1925,7 +1947,7 @@ APK sha256 `fbdbcc80…4bf8fe`；`version.json` 已指向 0.5.1；真机从 0.5.
 1. **第二季验证**：已完成（2026-10-18）——「葬送的芙莉莲」38 集（库中 38），第 2 季 29–38 正常。
 2. **刮削重试**：确认手机代理可用后，在「我的 → 刮削」手动重试失败项（当前约 86 条）。
 3. **片单完整链路**：详情页 → 加入片单 → 选择或新建片单 → 从片单播放。
-4. **S2**：中文 FTS 20k 基准（FTS4+search_text / FTS5 trigram）。
+4. **S2**：已完成（2026-10-18）——目标机不支持 FTS5；FTS4 20k 条 p95 3.44 ms，选定 FTS4 + `search_text`。
 5. **S3**：DLNA / SMB 客户端选型与最小 demo。
 6. **S4**：FFmpeg 16KB + HDR/DV/Atmos 真机能力验证。
 7. **运维记录**：OpenList `movie1`–`movie8` 的 `base_path` 已改为 `/夸克/影视`；
