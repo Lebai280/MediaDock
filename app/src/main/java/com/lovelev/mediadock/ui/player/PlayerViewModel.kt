@@ -64,7 +64,7 @@ sealed interface PlayerState {
  */
 class PlayerViewModel(private val container: AppContainer) : ViewModel() {
 
-    /** 实际要播的队列：选中的文件兜底成一个单元素队列，保证永不为空。 */
+    /** 实际要播的队列：选中的文件回退成一个单元素队列，保证永不为空。 */
     private val queue: List<String> = container.playbackSelection.let { selection ->
         selection.queue.ifEmpty { listOfNotNull(selection.path) }
     }
@@ -78,7 +78,7 @@ class PlayerViewModel(private val container: AppContainer) : ViewModel() {
     var controller by mutableStateOf<MediaController?>(null)
         private set
 
-    /** 连不上播放服务（正常情况下不该发生，见 WORKLOG 坑 14 的兜底说明）。 */
+    /** 连不上播放服务（正常情况下不该发生，见 WORKLOG 问题 14 的回退说明）。 */
     var connectFailed by mutableStateOf(false)
         private set
 
@@ -222,7 +222,7 @@ class PlayerViewModel(private val container: AppContainer) : ViewModel() {
                 }
             }
         } catch (e: CancellationException) {
-            throw e   // 取消要原样抛出，别当成业务失败吞掉
+            throw e   // 取消要原样抛出，不得作为业务失败吞掉
         } catch (e: Exception) {
             emptyMap()
         }

@@ -108,7 +108,7 @@ fun LibraryScreen(
         scanState is ScanState.Done && scanState.truncated -> "达到扫描上限，结果可能不完整"
         scrapeState is ScrapeState.Done && scrapeState.failed > 0 ->
             "${scrapeState.matched} 条匹配上 · ${scrapeState.failed} 条没匹配上"
-        // 成功数和失败数分开报 —— 别把「处理过的总数」当成功数（网络不通时每条都会失败）
+        // 成功数和失败数分开报 —— 不得将「处理过的总数」作为成功数（网络不通时每条都会失败）
         fillState is DetailFillState.Done -> when {
             fillState.filled == 0 && fillState.failed == 0 -> null
             fillState.failed == 0 -> "已补齐 ${fillState.filled} 条影片信息"
@@ -147,7 +147,7 @@ fun LibraryScreen(
 
             items.isEmpty() && searching -> Center {
                 Text(
-                    text = "没找到匹配的片子",
+                    text = "未找到匹配影片",
                     style = MaterialTheme.typography.bodyMedium,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
@@ -199,7 +199,7 @@ private fun HomeFeed(
         if (unwatchedOnly) items.filter { (progress[it.path] ?: 0f) < 0.92f } else items
     }
     val wall = remember(filteredItems, sort) { sortWall(groupWall(filteredItems), sort) }
-    // 分类行先归并成「剧 / 单片」的块 —— 在网格外面算好（别在 item 里重复 groupWall）
+    // 分类行先归并成「剧 / 单片」的块 —— 在网格外面算好（不得在 item 内重复执行 groupWall）
     val genreWalls = remember(genreSections) {
         genreSections.map { row -> row to groupWall(row.items) }
     }
@@ -414,15 +414,9 @@ private fun WelcomeHero(
         horizontalAlignment = Alignment.CenterHorizontally,
     ) {
         Text(
-            text = "欢迎来到 MediaDock",
+            text = "媒体库为空",
             style = MaterialTheme.typography.headlineSmall,
             color = MaterialTheme.colorScheme.onSurface,
-        )
-        Spacer(Modifier.height(10.dp))
-        Text(
-            text = "媒体库为空",
-            style = MaterialTheme.typography.bodyMedium,
-            color = MaterialTheme.colorScheme.onSurfaceVariant,
         )
 
         Spacer(Modifier.height(36.dp))

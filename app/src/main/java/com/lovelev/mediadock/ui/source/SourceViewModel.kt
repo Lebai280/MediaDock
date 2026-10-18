@@ -65,7 +65,7 @@ class SourceViewModel(private val container: AppContainer) : ViewModel() {
         retryBlocked = false
         state = TestState.Idle
         // TMDB 是全局设置，分享文本里带了就一并存上。
-        // ⚠️ 只在上面 parse 认得这段文本时才取 —— 否则剪贴板里随便一段带「tmdb」字样的文本
+        // 只在上面 parse 认得这段文本时才取 —— 否则剪贴板里任意包含「tmdb」字样的文本
         // 就会把用户的密钥覆盖掉。
         val tmdb = ShareConfig.parseTmdb(text.orEmpty())
         if (tmdb != null) viewModelScope.launch { container.credentials.saveTmdbSecret(tmdb) }
@@ -73,7 +73,7 @@ class SourceViewModel(private val container: AppContainer) : ViewModel() {
         return true
     }
 
-    /** 手动点「粘贴分享配置」：认不出来要说一声，别让人以为点了没反应。 */
+    /** 手动点「粘贴分享配置」：认不出来要说一声，避免用户认为点击无响应。 */
     fun pasteShared(text: String?) {
         if (!applyShared(text)) sharedHint = "剪贴板里没识别到分享配置"
     }

@@ -27,7 +27,7 @@ class SubtitleFile(
 interface SubtitleProvider {
     val name: String
 
-    /** 凭据配好了没。没配就引导用户去设置页（返回 false，别抛异常）。 */
+    /** 凭据配好了没。未配置时引导用户去设置页（返回 false，不得抛出异常）。 */
     suspend fun isConfigured(): Boolean
 
     /**

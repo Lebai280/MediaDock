@@ -11,7 +11,7 @@ import kotlinx.coroutines.flow.Flow
  * 分集元数据（TMDB `/tv/{id}/season/{n}` 拉回来的）。
  *
  * 详情页要按爆米花的样式显示「剧照 + 分集标题 + 时长」，这些 TMDB 的总览接口里没有，
- * 必须按季拉一次。**拉过就缓存**，别每次打开详情页都打 TMDB。
+ * 必须按季拉一次。**拉过就缓存**，不得每次打开详情页都请求 TMDB。
  */
 @Entity(
     tableName = "episode_meta",

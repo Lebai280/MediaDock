@@ -56,7 +56,7 @@ class SettingsViewModel(private val container: AppContainer) : ViewModel() {
     var themeMode by mutableStateOf(ThemeMode.SYSTEM)
         private set
 
-    // 不能叫 setThemeMode —— 会和 `var themeMode` 自动生成的 setter 撞名（WORKLOG 坑 6）
+    // 不能叫 setThemeMode —— 会和 `var themeMode` 自动生成的 setter 撞名（WORKLOG 问题 6）
     fun pickThemeMode(mode: ThemeMode) {
         themeMode = mode
         viewModelScope.launch { container.credentials.saveThemeMode(mode.stored) }
@@ -84,7 +84,7 @@ class SettingsViewModel(private val container: AppContainer) : ViewModel() {
         .map { it.size }
         .stateIn(viewModelScope, SharingStarted.Eagerly, 0)
 
-    /** 本地媒体目录显示成什么（取最后一段路径，别把整串 content:// 甩给用户）。 */
+    /** 本地媒体目录显示成什么（取最后一段路径，不得将完整 content:// 字符串直接展示给用户）。 */
     var localFolderLabel by mutableStateOf("")
         private set
 
@@ -97,9 +97,9 @@ class SettingsViewModel(private val container: AppContainer) : ViewModel() {
             sourceHost = savedSource?.let { WebDavUrl.parse(it.url)?.host }.orEmpty()
             localFolderLabel = container.credentials.loadLocalTree().orEmpty().let(::friendlyFolderName)
         }
-        // 提示跟着**扫描状态**走，别写死一句「正在…」就不管了 ——
-        // 之前就是这么写的，扫完了那句还在，看着像卡住了。
-        // 主题：跟着存储走（也可能是别处改的），别只在本地存一份
+        // 提示由**扫描状态**驱动，不得固定为「正在…」；
+        // 此前实现中扫描完成后提示未更新，表现为卡住。
+        // 主题由存储状态驱动，避免仅在本地保存副本。
         viewModelScope.launch {
             container.credentials.themeMode.collect { themeMode = ThemeMode.fromStored(it) }
         }
@@ -114,7 +114,7 @@ class SettingsViewModel(private val container: AppContainer) : ViewModel() {
                             if (state.truncated) "（达到上限，可能不完整）" else ""
 
                     is ScanState.Failed -> state.message
-                    // Idle：不动提示，别把刚扫完的结果擦掉
+                    // Idle：保持提示，避免清除刚完成的扫描结果
                     ScanState.Idle -> localHint
                 }
             }
@@ -122,15 +122,15 @@ class SettingsViewModel(private val container: AppContainer) : ViewModel() {
     }
 
     /**
-     * 用户选好目录了：**先把授权持久化**再落盘。
+     * 选择目录后，**先持久化授权**再保存配置。
      *
-     * 不 take 的话只在本次进程有效，重启后那棵树就打不开了 —— 表现是「扫过一次，下次全没了」。
+     * 未持久化时授权仅在当前进程有效，重启后无法访问该目录。
      */
     /**
-     * 扫系统媒体库。**这是本地媒体的推荐入口** —— 一次权限弹窗就够，不用用户去找文件夹，
-     * 而且整库一次查询就回来了（SAF 逐目录遍历慢得多）。
+     * 扫描系统媒体库。**这是本地媒体的推荐入口**：仅需一次权限授权，
+     * 整库通过一次查询返回；SAF 逐目录遍历较慢。
      *
-     * 权限由界面那边先申请好再调这里（申请要 Activity 结果，只能在 composable 里发起）。
+     * 权限由界面层申请后再调用此处（权限申请需要 Activity 结果，只能在 composable 中发起）。
      */
     fun scanMediaStore() {
         viewModelScope.launch {
@@ -152,7 +152,7 @@ class SettingsViewModel(private val container: AppContainer) : ViewModel() {
             PackageManager.PERMISSION_GRANTED
 
     fun noteMediaPermissionDenied() {
-        localHint = "没有视频权限就读不了系统媒体库 —— 也可以改用「指定文件夹」"
+        localHint = "未授予视频权限，可使用「指定文件夹」。"
     }
 
     fun clearLocalHint() {
@@ -168,12 +168,12 @@ class SettingsViewModel(private val container: AppContainer) : ViewModel() {
                 )
             }.isSuccess
             if (!taken) {
-                localHint = "拿不到这个文件夹的长期权限，换一个试试"
+                localHint = "无法获取该文件夹的持久权限，请选择其他文件夹。"
                 return@launch
             }
             container.credentials.saveLocalTree(uri.toString())
             localFolderLabel = friendlyFolderName(uri.toString())
-            localHint = "已选中，开始扫描…"
+            localHint = "已选择，正在扫描…"
             container.library.startLocal(uri)
         }
     }
@@ -186,7 +186,7 @@ class SettingsViewModel(private val container: AppContainer) : ViewModel() {
         }
     }
 
-    /** 移除本地目录：授权和库里的本地条目一起清掉。WebDAV 那边一根汗毛都不动。 */
+    /** 移除本地目录：同时清除授权与库中的本地条目，不影响 WebDAV 数据。 */
     fun removeLocal() {
         viewModelScope.launch {
             val tree = container.credentials.loadLocalTree()
@@ -205,7 +205,7 @@ class SettingsViewModel(private val container: AppContainer) : ViewModel() {
         }
     }
 
-    /** `content://…/tree/primary%3AMovies` → `Movies`。取不出来就退回「已选择」。 */
+    /** `content://…/tree/primary%3AMovies` → `Movies`。无法提取时回退为「已选择」。 */
     private fun friendlyFolderName(treeUri: String): String {
         if (treeUri.isBlank()) return ""
         return runCatching {
@@ -244,7 +244,7 @@ class SettingsViewModel(private val container: AppContainer) : ViewModel() {
 
     /**
      * 生成「分享给朋友」的文本（读一次已保存的数据源）。
-     * 没有数据源返回 null —— 界面据此提示，别把空文本复制给用户。
+     * 没有数据源返回 null —— 界面据此提示，不得复制空文本。
      */
     suspend fun buildShareText(): String? = container.credentials.load()?.let {
         ShareConfig.build(
@@ -299,7 +299,7 @@ class SettingsViewModel(private val container: AppContainer) : ViewModel() {
 
     /**
      * 查在线更新。[manual] = 用户在设置里点的 —— 那次要把「检查中 / 连不上」都说出来；
-     * 启动时那次静默检查**失败不吭声**（别一进设置就挂个红字），命中新版本才留个标记。
+     * 启动时那次静默检查**失败不吭声**（避免进入设置页即显示错误提示），命中新版本才留个标记。
      */
     fun checkUpdate(manual: Boolean) {
         if (update is UpdateUiState.Checking) return

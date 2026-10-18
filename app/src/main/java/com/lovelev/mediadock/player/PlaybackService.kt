@@ -74,8 +74,8 @@ class PlaybackService : MediaSessionService() {
             // 缓冲：**只动「卡顿后重新起播」这一档**（默认 5s → 8s）。
             // 源是夸克经 VPS 中转（约 3MB/s），带宽一抖就会 stall/resume 来回切，
             // 多等一点再恢复，体感比反复卡一下顺。
-            // ⚠️ 其余三档保持默认：调大 maxBufferMs 是白吃内存
-            // （60s @ 3MB/s ≈ 180MB），没有实测依据不要动。
+            // 其余三档保持默认：调大 maxBufferMs 是白吃内存
+            // （60s @ 3MB/s ≈ 180MB），无实测依据时不得修改。
             .setLoadControl(
                 DefaultLoadControl.Builder()
                     .setBufferDurationsMs(
@@ -165,7 +165,7 @@ class PlaybackService : MediaSessionService() {
     }
 
     private companion object {
-        /** 节流：播放中每 5 秒落一次，别每帧都写库。 */
+        /** 节流：播放中每 5 秒落一次，不得每帧写入数据库。 */
         const val SAVE_INTERVAL_MS = 5_000L
     }
 }

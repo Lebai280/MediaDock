@@ -44,7 +44,7 @@ class SubtitleRepository(
         val file = try {
             active.download(hit)
         } catch (e: CancellationException) {
-            throw e   // 取消要原样抛出，别当成业务失败吞掉
+            throw e   // 取消要原样抛出，不得作为业务失败吞掉
         } catch (e: Exception) {
             throw e
         }
@@ -58,7 +58,7 @@ class SubtitleRepository(
     fun save(name: String, bytes: ByteArray): LocalSubtitle {
         val directory = File(context.filesDir, "subtitles").apply { mkdirs() }
         // 未知扩展名**不能默默当 srt**：选中 .torrent / .mp4 时会被 SubripParser
-        // 当文本硬解，日志里全是二进制乱码、界面上什么也不显示（坑 73）。
+        // 当文本硬解，日志里全是二进制乱码、界面上什么也不显示（问题 73）。
         val ext = name.substringAfterLast('.', "").lowercase()
         if (ext !in SUBTITLE_EXTENSIONS) {
             throw SubtitleException(
@@ -73,7 +73,7 @@ class SubtitleRepository(
         try {
             target.writeBytes(bytes)
         } catch (e: CancellationException) {
-            throw e   // 取消要原样抛出，别当成业务失败吞掉
+            throw e   // 取消要原样抛出，不得作为业务失败吞掉
         } catch (e: Exception) {
             throw SubtitleException("字幕存不下来：${e.message}", e)
         }

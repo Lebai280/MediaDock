@@ -51,7 +51,7 @@ class LibraryViewModel(private val container: AppContainer) : ViewModel() {
 
     /**
      * 改搜索词。方法名不能叫 `setQuery` —— 会和 `var query` 合成的 setter 撞 JVM 签名
-     * （Kotlin 报 Platform declaration clash，见 WORKLOG 坑 6）。
+     * （Kotlin 报 Platform declaration clash，见 WORKLOG 问题 6）。
      */
     fun editQuery(value: String) {
         query = value
@@ -137,7 +137,7 @@ class LibraryViewModel(private val container: AppContainer) : ViewModel() {
     }
 
     fun toggleScan() {
-        // 取消只取消扫描本身，别顺带把刮削的进度提示也抹掉
+        // 取消只取消扫描本身，不得同时清除刮削进度提示
         if (scan.value is ScanState.Running) container.library.cancelScan() else container.library.start()
     }
 

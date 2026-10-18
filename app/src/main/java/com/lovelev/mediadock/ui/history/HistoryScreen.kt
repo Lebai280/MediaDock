@@ -107,7 +107,7 @@ fun HistoryScreen(
         if (recent.isEmpty()) {
             Box(Modifier.padding(insets).fillMaxSize(), contentAlignment = Alignment.Center) {
                 Text(
-                    text = "还没看过什么",
+                    text = "暂无记录",
                     style = MaterialTheme.typography.bodyMedium,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )

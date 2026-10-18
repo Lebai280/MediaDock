@@ -3,10 +3,10 @@ package com.lovelev.mediadock.data.webdav
 /**
  * WebDAV 交互的可分类错误。
  *
- * 注意目标服务器（OpenList/AList）的语义：
- *  - 401 密码错、429 账号被锁定、404 路径失效。
- *  - **401/429 绝不重试**：OpenList 的失败锁定按来源 IP 计数，而 nginx 反代会让所有客户端
- *    都显示成同一个 IP，所以任何一个客户端反复试错会把所有人的 WebDAV 一起锁死。
+ * 目标服务器（OpenList/AList）语义：
+ *  - 401 密码错误、429 账号被锁定、404 路径失效。
+ *  - **401/429 不得重试**：OpenList 的失败锁定按来源 IP 计数，而 nginx 反向代理使所有客户端
+ *    显示为同一 IP，任一客户端反复试错可能导致所有 WebDAV 客户端被锁定。
  */
 sealed class WebDavException(
     val userMessage: String,
@@ -15,14 +15,14 @@ sealed class WebDavException(
 
     /** 401：凭据不正确。**调用方不得重试**。 */
     class Unauthorized : WebDavException(
-        "账号或密码不正确。请确认后手动再试 —— 不要反复重试：" +
-            "重复失败会触发服务器锁定，导致其他设备也无法访问。",
+        "账号或密码不正确。请确认后手动重试；请勿反复尝试，" +
+            "重复失败将触发服务器锁定，导致其他设备无法访问。",
     )
 
     /** 429：已被服务器锁定。 */
     class Locked : WebDavException(
-        "服务器已暂时锁定登录（通常是之前有客户端输错密码）。" +
-            "请等待一段时间，期间不要重复尝试。",
+        "服务器已暂时锁定登录（通常由于此前有客户端密码错误）。" +
+            "请等待一段时间，期间请勿重复尝试。",
     )
 
     /** 404：路径不存在（不是网络问题）。 */
@@ -35,7 +35,7 @@ sealed class WebDavException(
     )
 
     class Network(cause: Throwable?) : WebDavException(
-        "连不上服务器：${cause?.message ?: "网络错误"}",
+        "无法连接服务器：${cause?.message ?: "网络错误"}",
         cause,
     )
 

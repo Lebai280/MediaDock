@@ -82,7 +82,7 @@ class NowPlayingViewModel(private val container: AppContainer) : ViewModel() {
 
     /**
      * mediaId 就是文件路径（见 [PlayerViewModel.Playable]），所以标题直接从这里取 ——
-     * 比依赖 MediaMetadata 可靠（我们并没有给每个 item 写 metadata）。
+     * 比依赖 MediaMetadata 可靠（本项目未给每个 item 写 metadata）。
      */
     private fun refresh(item: MediaItem?) {
         title = item?.mediaId?.substringAfterLast('/')?.takeIf { it.isNotBlank() }

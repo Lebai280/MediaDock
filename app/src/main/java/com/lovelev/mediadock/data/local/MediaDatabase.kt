@@ -12,10 +12,10 @@ import androidx.sqlite.db.SupportSQLiteDatabase
  * `media_items` 是缓存（丢了重扫就行），但 `playback_progress`、`favorites`、
  * `title_overrides`、`title_details` 都是用户数据，丢一次就是真的丢了。
  *
- * **升级方向的破坏性兜底已经去掉**（AppContainer 只留了 `OnDowngrade`）：
+ * **升级方向的破坏性回退已经去掉**（AppContainer 只留了 `OnDowngrade`）：
  * 漏写迁移的后果现在是「打开库时抛异常」，而不是「静默清库」。
  * 动 `media_items`（缓存）结构时，写一条显式的命名迁移（里面可以 DROP TABLE 再建），
- * 别指望兜底 —— 兜底一旦生效，用户数据也跟着一起没。
+ * 别指望回退 —— 回退一旦生效，用户数据也跟着一起没。
  *
  * 版本号是**单一来源** [VERSION]，`@Database` 与 [MigrationCoverageTest] 都用它 ——
  * 改了版本却没补迁移，单测会红。
@@ -122,7 +122,7 @@ abstract class MediaDatabase : RoomDatabase() {
 
         /**
          * **所有迁移都放这个数组里，容器整批注册** ——
-         * 之前把迁移分开写、容器只注册了其中一个，结果升级走了 destructive 兜底，
+         * 之前把迁移分开写、容器只注册了其中一个，结果升级走了 destructive 回退，
          * 把库和进度一起清了。加新迁移时只改这里，容器会自动带上。
          * 注意数组要放在各迁移定义**之后**（companion 是顺序初始化的）。
          */

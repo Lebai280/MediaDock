@@ -67,7 +67,7 @@ private fun lastModifiedMillis(value: String?): Long {
     }.getOrDefault(0L)
 }
 
-/** 集数排序：先季、再集、最后名字兜底。 */
+/** 集数排序：先季、再集、最后名字回退。 */
 fun List<MediaItemEntity>.orderedEpisodes(): List<MediaItemEntity> =
     sortedWith(compareBy({ it.season ?: 0 }, { it.episode ?: 0 }, { it.name }))
 

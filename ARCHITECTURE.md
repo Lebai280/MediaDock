@@ -1,6 +1,7 @@
 # MediaDock 架构与 10TB 改造计划
 
 > 状态：草案（2026-10-18），供评审后按阶段实施。
+> 修订：2026-10-18 第二版。评审后补充：v9 迁移映射与逐键校验、身份合并规则、多集单文件、源契约拆分、投屏能力模型、明文流量落地方式。
 > 目标：支撑 10TB+ 媒体库、多数据源、网易爆米花级功能；手机/平板优先，TV 与多端同步按决策单独排期。
 > 本文只写架构与计划，不含运维信息（WebDAV 地址 / 账号 / 服务器一律不写进仓库）。
 
@@ -15,12 +16,15 @@
   3. **增量扫描**：全量 BFS + 整表替换 + 2 万文件上限；
   4. **持久任务 + 分页**：扫描/刮削是内存 job，列表是全量 Flow + 内存过滤。
 - 建议顺序：**先把这四块地基做完，再加高级功能**；否则每加一个功能都会返工。
+- v9 身份迁移**单独发一版**（只切数据层，UI 与仓库结构不动），验证通过后再做重构；迁移与重构不混版本，否则出错无法定位。
 - 高规格播放（HDR10 / HDR10+ / HLG / DV / 10-bit / Atmos / 高刷）按 **Phase 3 的 3A–3D** 推进：
   先能力探测与诊断，再直出，再降级/软解，最后投屏与体验项。
 - 已定方向（2026-10-18）：手机 + 投屏、TV 单列；暂不做多端同步（预留接口）；
   多源包含 WebDAV / 本地 / SMB / Emby / Jellyfin；身份迁移一次性切换 + 迁移守卫。
 - 剩余主题（设置/凭据分层、发现/首页、元数据提供方、播放会话生命周期、网络契约、
   安全/供应链、测试/诊断、自适应 UI、离线下载、用户资料、架构治理）见 **第 14 节**。
+- 企业级评审整改与启动门槛见 **第 15 节**：6 个阻塞项、UUID + `logical_key`、兼容 VIEW、
+  完整多集模型、4 个 spike；先修阻塞再开工。
 - SQLite 不是瓶颈：5k–20k 条视频对 Room 很轻松；瓶颈是扫描请求数、TMDB 配额、海报渲染和状态管理。
 
 ---
@@ -29,7 +33,7 @@
 
 ### 1.1 本文假设
 
-- 单开发者 + AI 协作；个人自用，但代码质量和可交接性要求高。
+- 维护规模：1–2 人（含 AI 辅助开发）；交付标准：企业级，强调可维护性、可审计性与可交接性。
 - 手机/平板优先；TV、投屏、多端同步作为可选阶段。
 - 10TB 主要在 WebDAV / OpenList（可能多个账号或多个 NAS），本地媒体为补充。
 - 库规模按 **5,000–20,000 个视频文件、1,000–5,000 个作品**估算。
@@ -43,9 +47,12 @@
 | 多端同步 | **暂不做，预留 `SyncProvider`** | 不引入后端；先做本地导出/导入 |
 | 数据源 | **WebDAV + 本地 + SMB + Emby/Jellyfin 都要** | Phase 2 同时支持四类源；复杂度最高 |
 | 身份迁移 | **一次性切换 + 迁移守卫** | 工期短；必须有自动备份、校验与回滚 |
+| 迁移发版 | **v9 单独发版**，与重构解耦 | 出问题能定位；旧列留到 v10 做 shadow compare |
+| 投屏主路径 | **DLNA 优先，Cast 可选** | 国产设备通常无 GMS，Cast 发不出去 |
+| 明文流量 | 保留 `http://` + **OkHttp 主机批准清单** | `network_security_config` 是编译期静态配置，无法覆盖用户新增主机 |
 | DI | 手写容器，暂不引入 Hilt | 模块化后再评估 |
 
-> 其余待定项见 13.7（D5–D12）；D8 / D11 / D13 / D14 已按 2026-10-18「都做」纳入 Phase 5，
+> 其余待定项见 13.7（D5–D12）；D8 / D11 / D13 / D14 已于 2026-10-18 决定纳入 Phase 5，
 > 具体设计见第 14 节。
 
 ---
@@ -93,10 +100,16 @@ flowchart TD
     F3 --> DATA
     F4 --> DATA
     F5 --> DATA
+    F1 --> UI[:core:ui]
+    F2 --> UI
+    F3 --> UI
+    F4 --> UI
+    F5 --> UI
     DATA --> DB[:core:database]
     DATA --> NET[:core:network]
     DATA --> DS[:core:datastore]
     DATA --> MODEL[:core:model]
+    UI --> MODEL
     DB --> MODEL
     NET --> MODEL
     DS --> MODEL
@@ -106,11 +119,12 @@ flowchart TD
 - **`:core:database`**：Room 实体 / DAO / 迁移 / FTS。只依赖 `:core:model`。
 - **`:core:network`**：WebDAV、TMDB、字幕源等客户端；接口 + 实现。
 - **`:core:datastore`**：凭据、设置、主题、同步游标。
+- **`:core:ui`**：共享 Compose 组件（海报卡、评分、空态、加载）与主题 token；feature 只能依赖它，不能互相依赖。
 - **`:core:data`**：仓库接口与实现、扫描/刮削调度、逻辑身份解析、播放地址解析。
 - **`:feature:*`**：Compose 页面 + ViewModel + UiState；**禁止 feature 之间互相依赖**，跨页导航由 `:app` 负责。
 - **`:app`**：`AppContainer`（或 Hilt 入口）、导航、底部栏、主题。
 
-> 模块数量控制在 8–10 个。不要为了“架构好看”拆成十几个；模块化的目的是强制依赖方向和缩短构建，不是文件夹艺术。
+> 模块数量控制在 8–12 个（含 `:core:ui`）。模块划分以强制依赖方向、缩短构建时间和降低变更成本为目标，不以数量为目标。
 
 ### 3.2 技术框架
 
@@ -123,7 +137,7 @@ flowchart TD
 | 长任务 | WorkManager | 扫描/刮削/同步；前台类型 `dataSync` |
 | 分页 | Paging 3 + Room PagingSource | 海报墙按 `works` 分页 |
 | 搜索 | Room FTS4（或 FTS5 trigram） | 中文分词需专门处理 |
-| 播放软解 | Media3 FFmpeg decoder | RMVB/AVI/10-bit 兜底；注意包体与许可证 |
+| 播放软解 | Media3 FFmpeg decoder | RMVB/AVI/10-bit 回退；注意包体与许可证 |
 | SMB | SMBJ 或 jcifs-ng（评估后二选一） | SMB2/3；自定义 DataSource 流式播放 |
 | Emby / Jellyfin | REST API（OkHttp） | 直接播放/转码；元数据以服务端为准 |
 | 投屏 | Media3 Cast | Phase 3 |
@@ -143,6 +157,13 @@ flowchart TD
 - 一个逻辑条目可以对应**多个物理文件**（多版本、多数据源）；播放时选一个。
 - 用户数据只引用 `logicalId`，播放位置按“集/电影”而不是文件。
 - 文件移动/改名后，扫描重新关联到同一 `logicalId`；未匹配文件被刮削后，执行一次“临时身份 → 匹配身份”的迁移（合并进度/收藏/片单）。
+- **未匹配文件移动是已知缺口**：`file:` 身份依赖 `remoteKey`，改名/移动即新身份。处理方式：同源扫描时做“疑似移动”启发式（文件名相似 + size 接近 + mtime 接近），**只生成合并建议，不自动执行**；或明确提示用户先刮削再整理目录。
+- **身份合并冲突规则**（临时身份 → 匹配身份、多文件合并到同一逻辑条目时）：
+  - 进度：`updated_at` 最新者胜；位置超过新时长按新时长 clamp；
+  - 收藏 / 片单：并集；
+  - 改名：手动覆盖优先，其余保留最新；
+  - 冲突一律写入迁移/合并报告，供诊断页查看。
+- `LogicalId` 视为不透明字符串，统一经 `LogicalIdCodec` 生成与解析，禁止各处手拼。
 
 #### 3.3.2 表结构（建议）
 
@@ -150,54 +171,84 @@ flowchart TD
 sources(
   id TEXT PK, type TEXT, name TEXT, base_url TEXT, root_path TEXT,
   credential_ref TEXT, enabled INTEGER, priority INTEGER, created_at INTEGER,
-  last_scan_at INTEGER, health TEXT
+  last_scan_at INTEGER, health TEXT,
+  root_generation INTEGER      -- 根路径变更时 +1，作废旧目录缓存/队列
 )
 
 media_files(
   id TEXT PK,                 -- 物理文件 UUID
   source_id TEXT,             -- FK sources
-  remote_key TEXT,            -- WebDAV 相对路径 / content URI / SMB 路径
+  remote_key TEXT,            -- 归一化键：NFC、去尾斜杠、解码一致
   provider_item_id TEXT,      -- Emby/Jellyfin item id（其它源为空）
-  logical_id TEXT,            -- 未匹配时为 file:<sourceId>:<remoteKey>
+  logical_id TEXT,            -- 派生值，可空；多集文件由 file_episodes 决定
+  media_kind TEXT,            -- main / sample / trailer / extra
   name TEXT, size_bytes INTEGER, mtime TEXT, etag TEXT,
   scan_run_id INTEGER, missing_at INTEGER,
   UNIQUE(source_id, remote_key)
 )
 
+file_episodes(
+  file_id TEXT, episode_id TEXT, segment_index INTEGER,
+  PRIMARY KEY(file_id, episode_id)
+)                             -- 一文件多集、多碟分段
+
 works(
   id TEXT PK,                 -- tmdb:movie:<id> / tmdb:tv:<id> / file:...
-  tmdb_id INTEGER, type TEXT, title TEXT, year INTEGER,
+  tmdb_id INTEGER, type TEXT, title TEXT, sort_title TEXT, year INTEGER,
   poster_path TEXT, backdrop_path TEXT, overview TEXT, rating REAL,
-  total_seasons INTEGER, total_episodes INTEGER, updated_at INTEGER,
-  metadata_source TEXT,       -- TMDB / EMBY / JELLYFIN
-  external_ids_json TEXT      -- 其它服务端 ID（Imdb/Tvdb/Emby 等）
+  total_seasons INTEGER, total_episodes INTEGER,
+  collection_id TEXT,         -- 系列电影分组，不等于剧集
+  metadata_source TEXT,       -- TMDB / EMBY / JELLYFIN / NFO
+  external_ids_json TEXT,     -- 其它服务端 ID（Imdb/Tvdb/Emby 等）
+  added_at INTEGER,           -- 首次入库时间（冗余，供“最近添加”排序）
+  latest_file_mtime INTEGER,  -- 冗余，避免每页聚合
+  updated_at INTEGER
 )
+
+collections(id TEXT PK, tmdb_id INTEGER, name TEXT)
 
 episodes(
   id TEXT PK,                 -- tmdb:tv:<id>:s<S>:e<E>
   work_id TEXT, season INTEGER, episode INTEGER,
-  title TEXT, still_path TEXT, runtime INTEGER, air_date TEXT
+  title TEXT, still_path TEXT, runtime INTEGER, air_date TEXT,
+  UNIQUE(work_id, season, episode)
 )
 
-work_versions(work_id, file_id, source_id, quality_label, size_bytes, PRIMARY KEY(work_id, file_id))
+work_versions(work_id, file_id, source_id, quality_label, size_bytes,
+              pinned INTEGER, PRIMARY KEY(work_id, file_id))
 work_genres(work_id, genre, PRIMARY KEY(work_id, genre))
 people(id, name, profile_path)
 work_cast(work_id, person_id, role, ordering, PRIMARY KEY(work_id, person_id))
 
-progress(logical_id, user_id, position_ms, duration_ms, updated_at, device_id,
-         PRIMARY KEY(logical_id, user_id))
+users(id TEXT PK, name TEXT, kind TEXT, pin_hash TEXT, created_at INTEGER)
+
+progress(logical_id, user_id, position_ms, duration_ms, completed INTEGER,
+         updated_at, device_id, PRIMARY KEY(logical_id, user_id))
 favorites(logical_id, user_id, added_at, PRIMARY KEY(logical_id, user_id))
-playlists(id, name, created_at)
+playlists(id, user_id, name, created_at)
 playlist_items(playlist_id, logical_id, added_at, PRIMARY KEY(playlist_id, logical_id))
 title_overrides(logical_id, title, year, PRIMARY KEY(logical_id))
+
+subtitles(
+  id TEXT PK, logical_id TEXT, file_id TEXT, language TEXT,
+  source TEXT, path TEXT, format TEXT, encoding TEXT, downloaded_at INTEGER,
+  UNIQUE(logical_id, file_id, language, source)
+)
+
+downloads(
+  id TEXT PK, logical_id TEXT, file_id TEXT, state TEXT,
+  bytes_total INTEGER, bytes_done INTEGER, local_path TEXT,
+  created_at INTEGER, updated_at INTEGER, error TEXT
+)
 
 scan_runs(id INTEGER PK AUTOINCREMENT, source_id, mode, status,
           started_at, finished_at, dirs, files, error)
 directory_cache(source_id, remote_key, etag, last_modified,
                 last_scan_run_id, child_count, PRIMARY KEY(source_id, remote_key))
-scan_queue(source_id, remote_key, depth, PRIMARY KEY(source_id, remote_key))
+scan_queue(source_id, scan_run_id, remote_key, depth,
+           PRIMARY KEY(source_id, remote_key))
 
-scrape_tasks(logical_id TEXT PK, state TEXT, attempts INTEGER,
+scrape_tasks(logical_id TEXT PK, provider TEXT, state TEXT, attempts INTEGER,
              next_attempt_at INTEGER, priority INTEGER, last_error TEXT, updated_at INTEGER)
 
 media_stream_info(
@@ -214,52 +265,77 @@ device_capabilities(
   max_refresh REAL, video_codecs_json TEXT, audio_outputs_json TEXT,
   passthrough_codecs_json TEXT, updated_at INTEGER
 )
+
+media_fts USING FTS4(title, aliases, people, tokenize=unicode61)
+  -- 中文方案见 D5；若选 FTS5 trigram，需手写建表并纳入迁移管理
 ```
 
 说明：
 
 - `media_files` 是物理事实，`works/episodes` 是展示与用户数据的逻辑层。
+- **一文件多集**（`S01E01-E02`、合集、连播）通过 `file_episodes` 关联；`media_files.logical_id` 只是便捷派生，权威关系在 `file_episodes`。多集文件的进度按“文件”记，播放到片尾时把覆盖的集全部标记完成（见 3.15）。
 - `works` 是**分页单位**：海报墙/搜索/筛选都查 `works`，不再在内存里对全量 `media_items` 做 `groupWall`。
-- `work_versions` 支持一部电影的多个文件/来源；详情页的版本切换从这张表来。
-- 剧集进度按 `episodes.id` 记录；作品级“已看几集”由聚合查询得到。
-- FTS：新增 `media_fts`（标题/别名/演员）；中文分词需要专门方案（见 3.6）。
+- `work_versions` 支持一部电影的多个文件/来源；详情页的版本切换从这张表来；`pinned` 表示用户固定版本。
+- 剧集进度按 `episodes.id`（即对应 `logical_id`）记录；作品级“已看几集”由聚合查询得到。
+- `progress.completed` 表示“已看完”，用于“未看”筛选与自动下一集；默认 `position >= 90%` 或距片尾 < 2 分钟，可手动标记。
+- `works.added_at` / `latest_file_mtime` 是冗余列，由扫描/刮削维护，用于“最近添加”排序，避免分页查询做聚合。
+- `subtitles` 持久化外挂字幕索引（语言、来源、编码），文件删除/改名后可重新关联；播放器不再只靠目录约定。
+- `playlists` 带 `user_id`，与 Phase 5 多资料一致；片单条目仍只引用 `logical_id`。`title_overrides` 保持库级（不随资料变化）。
+- `users` 保存资料（默认资料 + 儿童模式 PIN）；所有用户数据用 `user_id` 关联，迁移时默认填 `default`。
+- `media_fts` 是搜索索引，内容来自 `works` + 演员 + 别名；中文分词见 3.6 / D5。
+- 收藏 / 片单 / 改名引用**作品级** `logicalId`（电影或剧集）；`progress` 引用集级（电影即作品级）。
+- `progress.device_id` 只记录最后写入设备；多设备同步启用后改 `progress_devices` 或每设备一行，避免互相覆盖。
+
+> **评审修订（2026-10-18）**：B1 / B2 的身份与多集模型以 **15.2 / 15.3** 为准；
+> 本节表结构是评审前草案，保留用于对照。
 
 ### 3.4 扫描框架
 
-**目标**：10TB 库首扫可完成，后续增量扫描只处理变化，断点可续，绝不因 401/429 连累其他设备。
+**目标**：10TB 库首次扫描可完成；后续增量扫描仅处理变化；支持断点续扫；401/429 不得影响其他数据源或设备。
 
 - **执行载体**：`ScanWorker`（WorkManager，唯一工作名 `scan:<sourceId>`），长任务 `setForeground`；Android 14+ 声明 `FOREGROUND_SERVICE_DATA_SYNC` 与 `foregroundServiceType="dataSync"`。
 - **模式**：`INCREMENTAL`（默认）/ `FULL`（用户手动）。
+- **扫描代际**：每次扫描生成 `scan_run_id`；`scan_queue` 仅消费当前代际；FULL 重扫或根路径变更时清空该 source 的旧队列，避免新旧任务混用。
+- **键归一化**：所有 `remote_key` 入库前经过 `normalizeRemoteKey()`（Unicode NFC、百分号解码一致、去尾斜杠、统一分隔符）；无法归一化的条目记录并跳过，避免唯一约束失效与身份漂移。
 - **目录缓存**：`directory_cache` 存 `etag` / `last_modified` / `child_count`；根目录优先；如果集合的 etag/mtime 未变且子项数量一致，可跳过子树（OpenList 的集合元数据若不稳，提供“保守模式”：只跳过文件解析，不跳过 PROPFIND）。
 - **差异写入**：
   - 新文件 → 插入 `media_files`；
   - 已有文件 → 比较 `size/mtime/etag`，变化则更新；
-  - 目录中缺失 → 标 `missing_at`（软删除），不立即删用户数据；连续 N 次扫描仍缺失才清理物理记录。
+  - 目录中缺失 → 标 `missing_at`（软删除），不立即删用户数据；**连续 3 次扫描仍缺失**才清理物理记录；
+  - 作品最后一个文件缺失时保留用户数据，作品标记“不可用”，不自动删除。
 - **持久队列**：`scan_queue` 存 BFS 待扫目录；进程被杀后按 `scan_runs` 续跑。
 - **限速与安全**：每个 source 单飞（串行），可配置 1–2 并发；请求间最小间隔；401/429 **立即停止该 source 的所有请求**，写 `sources.health=BLOCKED`，由全局状态展示；绝不重试。
-- **上限**：目录/文件上限改成可配置（默认 200k 目录 / 200k 文件），撞上限只标记“截断”，不冒充完整扫描。
-- **批量写库**：每 N 条一批 `upsert`，不要在一次事务里跨网络请求。
+- **上限**：目录/文件上限改成可配置（默认 200k 目录 / 200k 文件），达到上限时标记为“截断”，不得声明为完整扫描。
+- **忽略与分类**：默认跳过隐藏目录、`@eaDir`、`.trash`、回收站、0 字节文件；`sample` / `trailer` / `featurette` 归为 `media_kind != main`，不进作品墙。
+- **根路径变更**：修改 source 根路径 = `root_generation + 1`，旧目录缓存与队列作废，触发一次 FULL 扫描；未匹配的 `file:` 身份会重建，UI 必须提示“进度可能无法自动关联”。
+- **时长上限**：Android 15 对 `dataSync` 前台服务有 6 小时/24 小时限制；Worker 每 N 条写检查点，被系统停止后自动重新入队续跑。
+- **约束偏好**：扫描可选“仅 Wi-Fi / 仅充电”，映射为 WorkManager `UNMETERED` / `requiresCharging`。
+- **批量写库**：每 N 条执行一批 `upsert`；不得在单个事务内跨网络请求。
 
 ### 3.5 刮削框架
 
 **目标**：2 万条目可暂停、可续跑、按配额限速、失败不阻塞整轮。
 
-- **持久队列**：`scrape_tasks`；扫描/详情页/手动重试都只入队。
+- **持久队列**：`scrape_tasks`（含 `provider` 列）；扫描/详情页/手动重试都只入队。
 - **Worker**：`ScrapeWorker` + 网络约束；批大小 4；令牌桶限速（按 TMDB 配额可配）；429 按 `Retry-After` 退避；401/凭据错误 → 整源暂停并引导设置；单条失败只影响自己。
+- **HTTP 缓存**：TMDB 响应走 OkHttp 磁盘缓存 + ETag；重复刮削/详情页刷新不重复消耗配额。
 - **优先级**：用户正在看的作品 > 最近添加 > 其余；失败条目按 `next_attempt_at` 指数退避。
 - **预算**：DataStore 记录当日请求数；达到预算自动暂停，第二天/用户手动恢复。
-- **匹配**：先精确（标题+年份+季集），失败再去年份；候选结果落库供手动匹配；匹配成功后写 `works/episodes` 并做“临时身份 → 匹配身份”的用户数据合并。
+- **匹配**：先精确（标题+年份+季集），失败再去年份；候选结果落库供手动匹配；匹配成功后写 `works/episodes` 并做“临时身份 → 匹配身份”的用户数据合并（规则见 3.3.1）。
 
 ### 3.6 媒体库查询与 UI
 
 - **分页**：海报墙/搜索/筛选统一查询 `works`（Paging 3），每页 30–60；筛选、排序在 SQL 完成（类型、年份、未看、最近添加、评分）。
+- **未看筛选**：查询 `progress.completed = 0` 或不存在进度；判定规则与自动下一集共用（见 3.15）。
 - **搜索**：
   - 英文/数字：FTS4（`unicode61`）或 SQL `LIKE`；
-  - 中文：SQLite 默认分词不适合中文。建议维护一列 `search_text`（标题 + 演员 + 类型，CJK 字符之间加空格，或存拼音首字母），用 FTS4 前缀匹配；或引入 FTS5 trigram。先做 20k 条基准测试再定。
+  - 中文：SQLite 默认分词不适合中文。建议维护一列 `search_text`（标题 + 演员 + 类型，CJK 字符之间加空格，或存拼音首字母），用 FTS4 前缀匹配；或引入 FTS5 trigram。先做 20k 条基准测试再定。注意 Room 注解只支持 `@Fts4`，FTS5 需手写建表与 DAO。
   - 输入防抖 250ms；搜索走 Paging，不一次性加载全库。
+- **字幕检索**：OpenSubtitles 的 moviehash 需要读文件，WebDAV 上代价高；优先按标题 + 季集 + 语言搜索，hash 只用于本地/已下载文件。
 - **UI 状态**：每个 feature 统一 `ViewModel + UiState`；composable 不得直接拿 `AppContainer`；筛选/排序状态用 `SavedStateHandle` 或持久化。
 - **图片**：Coil 磁盘缓存设上限；列表只预取可见页；海报/剧照分尺寸请求；20k 条不做本地缩略图，除非有明确收益。
 - **详情页**：作品详情、季/集、版本列表都来自 `works/episodes/work_versions`；按需加载，不在打开时拉全库。
+- **未识别作品**：`file:` 作品详情仅显示文件名、大小、路径与“手动匹配”入口，不生成虚假海报或简介。
 
 ### 3.7 播放与高规格（HDR / 10-bit / 多声道）
 
@@ -274,6 +350,7 @@ device_capabilities(
   - 解码：`MediaCodecList` + `MediaFormat` 支持检查；**最终以解码器实际初始化成功为准**；
   - 音频：`AudioManager` / `AudioDeviceInfo` / Media3 `AudioCapabilities`；
   - 片源：Media3 extractor 读到 `Format.colorInfo` / `sampleMimeType` / `codecs`；必要时做轻量容器头解析。
+- **以实测为准**：`MediaCodecList` / `Display.getHdrCapabilities()` 只是声明能力；解码器以初始化成功为准，显示以实际渲染为准——直出后校验 surface dataspace / 解码器输出 `colorInfo`，不一致按 SDR 处理。
 - **缓存**：设备能力每次开机 / 显示变化更新；片源信息按文件版本缓存，**不在扫描时探测 20k 条**。
 
 #### 3.7.2 播放决策（PlaybackPlan）
@@ -285,20 +362,23 @@ device_capabilities(
 规则：
 
 - 优先选设备**真正能渲染**的最高规格；不以文件名或扩展名判断。
+- 版本 tie-breaker：用户 `pinned` > 分辨率 > HDR 类型 > 码率 > 音轨数 > 源优先级。
 - **HDR**：显示与解码器都支持 → 直出；否则按格式降级（HDR10+ → HDR10；DV → HDR10 基础层；HLG → SDR）；都不行 → 色调映射。
 - **10-bit**：设备支持 10-bit 解码则直出，否则 8-bit 输出或软解。
 - **音频**：输出端支持直通 → 直通；否则解码；手机扬声器 / 蓝牙 → 下混；Atmos 元数据在 PCM 解码后丢失，要在 UI 标明。
 - **刷新率**：按片源帧率匹配（23.976 / 24 / 25 / 30 / 50 / 60 / 120）；离开播放页 / PiP 时恢复。
 - **回退**：解码器初始化失败 → 软解 / FFmpeg；当前版本不可用 → 另一个版本 / 源；401/429 → 标记源封锁，**不重试**。
+- **回退执行者**：由 `PlaybackSessionController` 执行；记录已尝试的 `(fileId, decoder, hdrMode)`，同一组合不重试；硬件解码初始化失败直接换软解，不反复试硬解。
 
 #### 3.7.3 渲染与 Media3
 
 - 保留 Media3：`Format.colorInfo`、`DefaultTrackSelector`、`DefaultRenderersFactory`（可加 FFmpeg 扩展）。
-- **HDR 直出**：SurfaceView / PlayerView 输出 HDR；控件层保持 SDR 安全色；不要在 HDR 画面上叠加会抬亮度的半透明层。
+- **HDR 直出**：SurfaceView / PlayerView 输出 HDR；控件层保持 SDR 安全色；不得在 HDR 画面上叠加会提高亮度的半透明层。
 - **色调映射**：优先硬件 / Media3 effect；4K 软件色调映射代价高，必须检测并提示；不支持时明确显示“HDR→SDR”。
 - **帧率**：`VideoFrameReleaseHelper` + 显示模式；避免在后台 / PiP 切换模式。
 - **音频**：`DefaultAudioSink` / `AudioCapabilities`；HDMI / eARC 直通；蓝牙 / 扬声器下混。
 - **字幕**：文本字幕样式；PGS 等图形字幕按 Media3 能力处理，不支持时明确提示（可后接 FFmpeg）。
+- **进度落库**：播放中每 5–10 秒写一次，暂停/切集/退后台/结束时立即写；避免高频 DB 写。
 - **诊断**：播放信息面板显示实际解码器、HDR 模式、音频输出、丢帧、码率；写日志（不含凭据）。
 
 #### 3.7.4 探测与缓存
@@ -314,9 +394,13 @@ device_capabilities(
 - **HDR10+**：设备支持则直出，否则按 HDR10 静态元数据播放。
 - **HLG**：设备支持则直出，否则 SDR 映射。
 - **Dolby Vision**：profile 5 / 8 / 7 差异大；仅在设备 / 解码器明确支持时直出；否则用 HDR10 基础层或 SDR 映射。**不承诺所有设备支持 DV**。
+  - 部分设备“声明支持但实际绿屏/紫屏”：维护已知设备 allowlist + 用户开关；首次 DV 播放异常自动回 HDR10 基础层并记录诊断。
 - **音频**：AAC / AC3 / EAC3 / TrueHD / DTS；直通依赖 HDMI / eARC 与功放；手机端按能力下混。
-- **视频编码**：HEVC Main10 / AV1 / VP9；硬解优先，FFmpeg 兜底。
+  - `AudioDeviceInfo` 无法完整查询接收端格式：采用“尝试直通 → 初始化/播放失败回 PCM 解码”，诊断面板显示实际输出模式。
+  - 默认音轨按用户语言偏好，其次原语言；选择结果持久化。
+- **视频编码**：HEVC Main10 / AV1 / VP9；硬解优先，FFmpeg 回退。
 - **容器**：MP4 / MKV；MKV 的 PGS / 多音轨要按轨道处理。
+- **投屏**：国产设备通常无 GMS，Media3 Cast 不可用；**DLNA 为主路径**，Cast 可选。投屏前用 `RendererCapabilities` 重新计算 PlaybackPlan（接收端 HDR/音频/分辨率），移交失败回本地播放。
 - **Emby / Jellyfin 转码**：优先 Direct Play；转码会丢失 HDR/Atmos，必须在 UI 标明
   “转码中，画质/音质可能降级”；能力协商以客户端能力为准。
 
@@ -330,25 +414,29 @@ device_capabilities(
 
 **范围（已定）**：WebDAV（OpenList，可多账号）、本地（SAF / MediaStore）、SMB、Emby / Jellyfin，全部在 Phase 2 支持。
 
+- **契约拆分**：目录型源实现 `FileSource.list(parentKey)`；Emby/Jellyfin 实现 `CatalogSource.sync(cursor)`（items 分页 + 增量），扫描器走两条路径，`scan_runs` 对 catalog 源记录“同步条目数”而不是目录数。
 - **注册**：`sources` 表 + 添加/编辑/停用界面；每个 source 独立凭据（Keystore 加密）、根路径、优先级、限速、健康状态。
 - **WebDAV**：沿用现有客户端；多账号各建一个 source；401/429 全局封锁。
-- **本地**：SAF / MediaStore；离线可播。
+- **本地**：SAF / MediaStore；离线可播；SAF 授权被收回时把源标为 `AUTH_REQUIRED`，提示重新选择目录。
 - **SMB**：主机 + 共享 + 凭据；SMB2/3 客户端（SMBJ / jcifs-ng 评估后定）；自定义 `DataSource` 支持 Range 流式播放；认证失败映射为 `AuthError`，不重试风暴。
 - **Emby / Jellyfin**：
-  - 服务器地址 + API Key / 用户凭据；条目列表、元数据、播放地址来自服务端。
-  - `ProviderIds` 里的 TMDB ID 用于与其它源合并；没有 TMDB ID 时用服务端 item id 作临时身份。
+  - 服务器地址 + 凭据；只读元数据可用 API Key，播放/进度回写用用户 token。
+  - 条目列表、元数据、播放地址来自服务端；`ProviderIds` 里的 TMDB ID 用于与其它源合并，没有 TMDB ID 时用服务端 item id 作临时身份。
   - 播放优先 **Direct Play**；转码会丢失 HDR/Atmos，必须在 UI 标明“转码中，画质/音质可能降级”。
   - 服务端已有元数据，**不重复 TMDB 刮削**；`works.metadata_source` 标记来源。
+  - 播放地址可能带 token：日志、分享、诊断包必须脱敏。
   - 可选把进度回写服务端（后置），本地进度始终为准。
-- **合并**：同一作品/集按 `logicalId` 合并；`work_versions` 保留每个来源的文件；播放器按优先级选源，失败切换。
-- **去重**：优先按 `tmdbId + season/episode + size` 识别；无法识别时保留为独立版本，不强行合并。
-- **OpenList 多账号**：每个账号建一个 source，共享逻辑库；不要假设所有账号的根路径一致。
+- **合并**：同一作品/集按 `logicalId` 合并；`work_versions` 保留每个来源的文件。
+- **选源顺序**：用户 `pinned` 版本 > `priority` 数值小者（0 最高）> 本地 > 健康源 > 规格更高者；失败按顺序切换，不回头重试已失败源。
+- **去重**：同一作品按 `tmdbId + season/episode` 合并；同一集的不同编码是版本，不是重复条目；无法识别时保留为独立版本，不得强行合并。
+- **删除 source**：默认保留 `works` 与用户数据，删除该源的 `media_files` / `work_versions` / 凭据；作品无剩余文件时标记“不可用”。删除前二次确认并显示影响条目数。
+- **OpenList 多账号**：每个账号建立一个 source，共享逻辑库；不得假设所有账号的根路径一致。
 - **源健康**：每源独立 `SourceHealth`；一个源 401/429 不影响其它源。
 
 ### 3.9 同步（可选）
 
 - **接口**：`SyncProvider { suspend fun pull(since): SyncDelta; suspend fun push(delta) }`。
-- **实现 A（推荐先做）**：WebDAV 上的 JSON 文件（用户自己的网盘），按设备分文件，最后写入者赢；适合个人多设备。
+- **实现 A（推荐先做）**：WebDAV 上的 JSON 文件（用户自己的网盘），按设备分文件，最后写入者优先；适用于小规模多设备场景。
 - **实现 B**：VPS 上的轻量 API + 用户令牌；需要服务端与冲突处理，后置。
 - **同步内容**：进度、收藏、片单、改名；不同步凭据。
 - **冲突**：按 `updatedAt` 最后写入者赢；片单/收藏可做并集；删除用 tombstone。
@@ -375,17 +463,20 @@ device_capabilities(
 ### 3.12 状态管理与 UI 架构
 
 - **单向数据流**：ViewModel 暴露 `StateFlow<UiState>`；界面只发事件（筛选、点击、重试），不直接改仓库。
-- **UiState**：每个页面一个不可变状态（`Loading / Empty / Content / Error`）；错误是状态的一部分，不用全局弹窗兜底。
+- **UiState**：每个页面一个不可变状态（`Loading / Empty / Content / Error`）；错误是状态的一部分，不使用全局弹窗作为回退。
 - **分页 + 筛选**：`PagingData<WorkCard>` + 筛选条件；筛选变化用 `flatMapLatest` 重建 Pager；筛选/排序状态进 `SavedStateHandle`，进程被杀可恢复。
 - **导航**：单 Activity + NavHost；路由用类型化定义（或集中常量）；深度链接预留 `mediadock://play/<logicalId>`、`mediadock://detail/<logicalId>`。
 - **跨页选择**：播放/详情请求放 `SavedStateHandle` 或持久化的 `PlaybackRequest`，不再用应用级可变单例；进程死亡后可恢复。
-- **Compose 性能**：稳定 key、`@Immutable` UI 模型、`derivedStateOf`、只加载可见页图片；不要把 Room 实体直接当 UI 模型（字段变化会触发重组）。
-- **TV（如做）**：单独 `:feature:tv`，DPAD 焦点、焦点恢复、overscan、无触摸假设；不要让手机 UI 兼顾 TV。
+- **Compose 性能**：稳定 key、`@Immutable` UI 模型、`derivedStateOf`、仅加载可见页图片；不得将 Room 实体直接作为 UI 模型（字段变化会触发重组）。
+- **TV（如实施）**：独立 `:feature:tv`，处理 DPAD 焦点、焦点恢复与 overscan；手机 UI 不承担 TV 适配。
 - **无障碍 / 国际化**：contentDescription、对比度 ≥ 4.5:1、TalkBack、RTL（已有 `supportsRtl`）；中文/英文资源分离。
 
 ### 3.13 错误模型与源健康
 
-**统一错误类型**（不要让 UI 解析字符串）：
+**统一错误类型**（UI 不得解析错误字符串）：
+
+> **评审修订（2026-10-18）**：Provider health 与 Source health 必须分离，详见 **15.5**。
+> 下表把 TMDB / 字幕的 401 标成“源 BLOCKED”的条目以 15.5 为准。
 
 | 类型 | 来源 | 行为 |
 |---|---|---|
@@ -393,6 +484,9 @@ device_capabilities(
 | `RateLimited(429)` | WebDAV | 源进入 `BLOCKED`；不重试；提示等待或联系管理员 |
 | `RateLimited(429)` | TMDB / 字幕 | 按 `Retry-After` 退避；配额问题不无限重试 |
 | `NotFound(404)` | WebDAV | 标记文件/目录缺失；不重试 |
+| `Forbidden(403)` | WebDAV | 路径级权限问题：跳过该目录/文件并在扫描报告计数；**不升级为整源 `BLOCKED`** |
+| `ProxyAuthRequired(407)` | 代理 | 提示检查代理配置；不当作源凭据错误 |
+| `ServerError(5xx)` | 全部 | 有界退避（最多 N 次）；不永久封锁源 |
 | `NetworkError` | 全部 | 连接层有限重试 + 退避；用户可见 |
 | `ParseError` | XML / JSON / 容器 | 记录并跳过该条；不重试 |
 | `StorageError` | Room / 文件 | 明确报错；**绝不静默清库** |
@@ -409,9 +503,10 @@ device_capabilities(
 | 层 | 内容 | 预算 / 策略 |
 |---|---|---|
 | Room | 媒体条目、作品、详情、进度、任务 | < 200 MB；WAL；定期 `ANALYZE` |
+| TMDB HTTP | 作品/分集 JSON | OkHttp 磁盘缓存 + ETag；30–90 天，省配额 |
 | Coil 磁盘 | 海报 / 背景 / 剧照 | 默认 512 MB，可配置；LRU |
 | `media_stream_info` | 编码/HDR/音轨探测结果 | 很小；按文件版本失效 |
-| 字幕 | 下载/本地字幕 | `filesDir/subtitles`；清理旧文件 |
+| 字幕 | 下载/本地字幕 | `filesDir/subtitles` + `subtitles` 表索引；清理旧文件 |
 | 日志 | 运行日志 | 512 KB 滚动一份 |
 | 视频 | 不缓存整片 | 10TB 远端；可选热点小缓存（后置） |
 
@@ -426,31 +521,40 @@ device_capabilities(
 - **动漫编号**：支持“按季 1..N”和“全剧绝对集数（29–38）”两种；有季目录时以目录为准；无法判断时允许手动指定编号方式。
 - **多版本**：同一 `logicalId` 多个文件进 `work_versions`；按分辨率/HDR/码率/音轨排序；用户可固定版本。
 - **多碟 / 分段**：同一集多个文件时合并为一个逻辑集，播放时按顺序拼接（后期）；先按版本处理。
-- **合集（Collection）**：TMDB collection 是“系列电影”的分组，不等于电视剧；用独立 `collection_id`，不要混进剧集。
+- **一文件多集**：`file_episodes` 记录覆盖集；进度按文件记，播放到片尾时把覆盖的集全部标记完成；中途退出只记文件级位置，不猜测集边界。
+- **已看判定**：默认 `position >= 90%` 或距片尾 < 2 分钟；用户可手动标记；与“未看”筛选、自动下一集共用同一规则。
+- **合集（Collection）**：TMDB collection 是“系列电影”的分组，不等于电视剧；使用独立 `collection_id`，不得混入剧集。
 - **重复文件**：同 `tmdbId + season/episode` 视为版本；不重复创建用户数据。
-- **未识别**：给临时 `file:` 身份，显示“未识别”；手动匹配后做进度/收藏迁移。
-- **命名问题政策**：凡是命名/目录结构导致的识别问题，明确告诉用户“这是名字问题”、给出当前规则与推荐写法，由用户改名；不写只对某个名字生效的特判。
+- **未识别**：赋予临时 `file:` 身份并显示“未识别”；详情页仅提供文件名、大小、路径与手动匹配入口，不生成虚假元数据；手动匹配后执行进度与收藏迁移。
+- **命名问题政策**：凡由命名或目录结构导致的识别问题，向用户说明问题类别，给出当前规则与推荐写法，由用户调整命名；不得实现仅对特定文件名生效的特判。
 
 ### 3.16 搜索与索引
 
 - **查询管线**：输入防抖 250ms → 归一化（大小写、全半角、去首尾空格）→ FTS/LIKE → 筛选 → 排序 → 分页。
-- **中文搜索**：SQLite 默认分词不适合中文。方案：维护 `search_text`（标题/别名/演员/类型，CJK 字符间加空格）+ FTS4 `unicode61` 前缀匹配；或 FTS5 trigram；用 20k 条做基准后定。
+- **中文搜索**：SQLite 默认分词不适合中文。方案：维护 `search_text`（标题/别名/演员/类型，CJK 字符间加空格）+ FTS4 `unicode61` 前缀匹配；或 FTS5 trigram；以 20k 条数据完成基准测试后确定。
 - **筛选维度**：类型、年份、国家、类型标签、演员、来源、未看、4K/HDR（来自 `media_stream_info`）。
 - **索引**：
   - `works(type, year, rating, updated_at)`
+  - `works(tmdb_id, type)` 唯一（`tmdb_id` 非空时）
+  - `works(added_at)`、`works(latest_file_mtime)`
+  - `episodes(work_id, season, episode)` 唯一
   - `work_genres(genre, work_id)`
   - `work_cast(person_id, work_id)`
   - `media_files(source_id, remote_key)` 唯一
+  - `media_files(source_id, provider_item_id)` 唯一（非空时）
+  - `media_files(logical_id)`、`file_episodes(episode_id)`
   - `progress(logical_id, user_id)`
   - `scrape_tasks(state, next_attempt_at)`
-- **排序**：SQL 侧完成；中文标题排序维护 `sort_title`（拼音或笔画），不要用数据库默认排序。
+  - `subtitles(logical_id, language)`
+  - `downloads(state)`
+- **排序**：SQL 侧完成；中文标题排序维护 `sort_title`（拼音或笔画），不得依赖数据库默认排序。
 - **性能**：FTS 索引 + 分页 + 限制返回；禁止全表 `LIKE '%x%'` 扫描 20k 条。
 
 ### 3.17 后台任务与调度
 
 | 任务 | 载体 | 约束 | 前台 |
 |---|---|---|---|
-| 扫描 | WorkManager，唯一名 `scan:<sourceId>` | 网络；单源串行 | `dataSync` |
+| 扫描 | WorkManager，唯一名 `scan:<sourceId>` | 网络；单源串行；Android 15 单次前台 6 小时上限，需检查点续跑 | `dataSync` |
 | 刮削 | WorkManager，`scrape` | 网络；配额/退避 | 可选 |
 | 补齐详情 | WorkManager，低优先级 | 网络 | 否 |
 | 流信息探测 | WorkManager，低优先级 | 网络；按需 | 否 |
@@ -472,7 +576,7 @@ device_capabilities(
 | 图片缓存 | 默认 512 MB | 可配置；LRU |
 | 应用内存 | < 300 MB | 分页窗口；不加载全库 |
 | 冷启动 | < 2 s | 不读全库；懒初始化；Baseline Profile |
-| 首次扫描 | 5k 目录 × 50–100 ms ≈ 5–8 min | 顺序 PROPFIND；可续跑 |
+| 首次扫描 | 10k ≈ 30–60 min；20k ≈ 1–3 h | 顺序 PROPFIND；200–500 ms/目录；以实测为准；可续跑 |
 | 增量扫描 | < 首次的 10% | 目录缓存 + 只处理变化 |
 | 刮削 20k 条 | 理想 20–60 min，实际数小时 | 4 并发 + 配额；可暂停 |
 | 4K HDR 播放 | 50–100 Mbps | 依赖源站带宽与缓冲 |
@@ -486,9 +590,11 @@ device_capabilities(
 - **基础设置**：WAL、`synchronous=NORMAL`、`busy_timeout`；大批删除后 `VACUUM` 或 `auto_vacuum=INCREMENTAL`；定期 `ANALYZE`。
 - **FTS 维护**：schema 变更后重建；提供“重建索引”调试入口。
 - **备份 / 导出**：迁移前自动备份数据库；后续提供“导出用户数据（进度/收藏/片单/改名）”，便于换机。
+- **导出格式**：JSON 带 `schemaVersion`、导出时间、校验和；导入时校验版本并给冲突策略（跳过 / 覆盖 / 合并）。
 - **完整性检查**：`PRAGMA integrity_check` / `foreign_key_check`；设置页调试入口显示表数量、大小、孤立记录数。
 - **数据质量任务**：孤立文件、重复条目、缺失文件、过期元数据、坏片单；只报告 + 可修复，不自动删用户数据。
 - **损坏恢复**：打开库失败时明确报错并保留原文件；绝不 destructive 清库。
+- **迁移失败恢复的工程约束**：Room 的 `onUpgrade` 抛异常只会回滚事务，不会自动恢复备份。恢复必须在打开数据库之前完成：检测迁移标记 → 关闭并替换 `db` 与 `-wal` / `-shm` → 重新打开；备份放在应用私有目录。
 - **迁移前后**：记录版本、行数、校验和；迁移失败可回滚到备份。
 
 ---
@@ -503,30 +609,54 @@ device_capabilities(
    - `MIGRATIONS` 数组新增一条；
    - schema JSON 提交；
    - `MigrationTestHelper` 测试通过。
-3. 升级方向绝不允许破坏性兜底；降级方向保持现状。
+3. 升级方向绝不允许破坏性回退；降级方向保持现状。
 
 ### 4.2 v8 → v9（地基迁移）
 
-- 新增表：`sources`、`works`、`episodes`、`work_versions`、`work_genres`、`people`、`work_cast`、`scan_runs`、`directory_cache`、`scan_queue`、`scrape_tasks`。
-- 现有表加列/改造：
-  - `media_items`：加 `source_id`、`logical_id`（保留 `path` 作为只读备份）；
-  - `playback_progress` / `favorites` / `playlist_items` / `title_overrides`：加 `logical_id`（旧 path 列保留但不再写入）。
+> **评审修订（2026-10-18）**：v9 采用**兼容 VIEW**，完整映射与备份/状态文件见 **15.4 / 15.7**；
+> 本节旧表结构描述以 15.2 / 15.3 为准。
+
+- 新增表：`sources`、`media_files`、`file_episodes`、`works`、`collections`、`episodes`、`work_versions`、`work_genres`、`people`、`work_cast`、`users`、`subtitles`、`downloads`、`scan_runs`、`directory_cache`、`scan_queue`、`scrape_tasks`、`media_fts`。
+- **`media_items` 的去向（必须明确）**：
+  - v9 起 `media_items` 只读，不再参与读写；数据复制到 `media_files`（物理事实），内联元数据拆到 `works` / `episodes`。
+  - 字段映射见下表。
+
+| 旧字段 | 新位置 | 说明 |
+|---|---|---|
+| `path` | `media_files.remote_key`（归一化后） | 原始 `path` 列保留作备份 |
+| `name` / `size` / `mtime` | `media_files.*` | 直接复制 |
+| `tmdbId` + 类型 | `works.tmdb_id` / `works.type` | 无 tmdbId → `file:` 作品 |
+| 标题 / 海报 / 简介 / 评分 | `works.*` | 以旧缓存为准，缺失的后续刮削补 |
+| 季 / 集 | `episodes` + `file_episodes` | 仅 tmdb 匹配的剧集生成；一文件多集写入 `file_episodes` |
+| 进度 / 收藏 / 片单 / 改名 | 按 `logical_id` 回填 | 见下 |
+
+- 若现有详情缓存在独立表，按 `tmdbId` 映射到 `works` / `episodes`；无法映射的保留原表只读，并在报告中计数。
+
+- 现有用户表加列/改造：
+  - `playback_progress` / `favorites` / `playlist_items` / `title_overrides`：加 `logical_id`（旧 path 列保留但不再写入）；`playback_progress` 加 `completed`。
 - 回填：
+  - 默认资料：插入 `users(id='default')`，旧进度/收藏/片单的 `user_id` 全部填 `default`；
   - 默认 source：现有 WebDAV 数据源；本地媒体单独 `LOCAL` source；
-  - `logical_id`：有 `tmdbId` + 集数 → `tmdb:tv:<id>:s<S>:e<E>`；有 `tmdbId` + 无集数 → `tmdb:movie:<id>`；否则 `file:<sourceId>:<path>`；
-  - 用户数据按 path 映射到 logical_id；同一逻辑条目多个文件时选最早/最完整的一个作为主记录。
+  - 凭据：现有单例凭据写入默认 source 的 `credential_ref`，DataStore 键加 source 前缀；解密失败视为未配置；
+  - `logical_id`：有 `tmdbId` + 集数 → `tmdb:tv:<id>:s<S>:e<E>`；有 `tmdbId` + 无集数 → `tmdb:movie:<id>`；否则 `file:<sourceId>:<normalizedKey>`；
+  - 用户数据按 path 映射到 logical_id；同一逻辑条目多个文件时按 3.3.1 的冲突规则合并；
+  - 一文件多集：按解析结果写 `file_episodes`，旧数据无法判断时按单集处理并在报告中列出。
 - **一次性切换**（已定）：v9 迁移完成后，App 直接读写新结构；旧列/旧表保留到 v10 作为人工回滚备份，不再参与读写。
 - **迁移守卫（必须实现）**：
-  1. 迁移前自动备份数据库（含 WAL 检查点）到应用目录，并导出用户数据 JSON；
+  1. 迁移前自动备份数据库（含 WAL 检查点）到应用私有目录，并导出用户数据 JSON；
   2. 在事务中完成建表 + 回填 + 切换；
-  3. 校验行数/关键计数（媒体条目、进度、收藏、片单、改名、详情）与迁移前一致；
-  4. 任一校验失败 → 回滚事务、恢复备份、阻止进入主界面并提示错误；
-  5. 迁移成功也保留备份，直到用户确认新版本稳定。
-- **发布要求**：v9 是高风险版本，必须先跑真实 v8 库副本 + 回滚演练，再发版；版本说明中明确“升级前会自动备份”。
+  3. **逐键校验**：不只对行数，对 `(logical_id, position, completed)`、收藏/片单/改名做校验和，前后必须一致；
+  4. 生成迁移报告：未映射、多对一、空 tmdbId、身份冲突的条目数与样例；
+  5. 任一校验失败 → 回滚事务、恢复备份、阻止进入主界面并提示错误；
+  6. 迁移成功也保留备份，直到用户确认新版本稳定；
+  7. 提供调试开关做 **shadow compare**：新旧列各读一次，差异写日志，跑 1–2 个版本再删旧列。
+- **发布要求**：v9 是高风险版本，必须先跑脱敏 v8 fixture + 真实库副本 + 回滚演练，再发版；版本说明中明确“升级前会自动备份”。
+- **单独发版**：v9 只切数据层，UI 与仓库结构不动；通过后再做 Phase 0 剩余重构。当前库规模小（38 集），迁移成本低，重点在映射正确性，不在性能。
 
 ### 4.3 迁移验证
 
-- **CI**：`MigrationTestHelper` 覆盖 v8→v9；再加一条“真实 v8 库副本”的集成测试（脱敏 fixture）。
+- **CI**：`MigrationTestHelper` 覆盖 v8→v9；再加一条“脱敏 v8 fixture”的集成测试。
+- **fixture 生成**：用脚本按 v8 schema 生成种子库（含进度/收藏/片单/改名），提交到测试资源；不得使用真实用户数据库。
 - **迁移前**：自动备份 + 导出用户数据；记录行数与校验和。
 - **迁移后**：核对视频数、进度条数、收藏数、片单数、改名数、详情数、总集数；逐项与备份一致。
 - **回滚演练**：人为制造校验失败，确认能恢复备份并阻止进入主界面。
@@ -537,15 +667,17 @@ device_capabilities(
 
 ## 5. 分阶段路线图
 
+> **v1.0 定义**：Phase 0 + Phase 1 完成（迁移稳定、增量扫描、持久刮削、分页/FTS）。后续 Phase 是增强，不是 v1.0 门槛。
+
 ### Phase 0 — 地基（建议先做）
 
 **目标**：不改用户可见行为，先把数据模型和模块骨架搭好。
 
-- 开启/提交 schema；模块骨架（`:core:model` / `:core:database` / `:core:network` / `:core:data`，feature 逐步迁）。
-- v9 迁移：sources + logicalId + scan/scrape 表 + 回填。
-- 拆 `LibraryRepository`：`MediaScanner`（WebDAV/本地）、`MetadataScraper`、`LibraryQueryRepository`。
-- 统一 ViewModel / UiState；移除 composable 对 `AppContainer` 的直接依赖。
-- 验收：现有 38 集、播放、收藏、片单全部正常；迁移测试通过；无数据丢失。
+- **0a 地基（先单独发版）**：开启/提交 schema；`:core:model` / `:core:database` 骨架；v9 迁移（sources + logicalId + 映射表 + 回填 + 逐键校验 + shadow compare）；迁移报告。
+- **0b 结构（迁移验证通过后再做）**：`:core:network` / `:core:data` 骨架；`MetadataScraper`、`LibraryQueryRepository` 抽取。
+- **后移到 Phase 1**：拆 `MediaScanner`（Phase 1 本来就要重写成 WorkManager 版）、统一 ViewModel / UiState、移除 composable 对 `AppContainer` 依赖。
+- 验收：现有 38 集、播放、收藏、片单全部正常；迁移测试与回滚演练通过；无数据丢失。
+- 估算：0a 约 1–2 周；0b 约 1 周（按 1–2 人维护规模估算，实际以进度为准）。
 
 ### Phase 1 — 10TB 扫描与刮削
 
@@ -558,6 +690,7 @@ device_capabilities(
 
 - `sources` 管理界面；每源凭据/优先级/健康状态。
 - `MediaSource` 实现：**WebDAV、本地、SMB、Emby、Jellyfin**（已定）。
+- 实施顺序：**2a WebDAV 多账号 + 本地 → 2b SMB → 2c Emby/Jellyfin**；每一档单独验收，避免四类源同时引入。
 - 多源合并、版本切换、播放失败切换；Emby/Jellyfin 优先 Direct Play。
 - 验收：WebDAV（可多账号）+ 本地 + SMB + Emby/Jellyfin 至少各挂一个；同一作品合并；
   一个源被封锁/不可用不影响其它源；转码时明确提示 HDR/Atmos 可能降级。
@@ -566,7 +699,7 @@ device_capabilities(
 
 - **3A 能力模型**：`DeviceCapabilities` + `StreamInfo` 探测 + 播放诊断面板（先不改播放行为）。
 - **3B HDR 直出**：HDR10 / HDR10+ / HLG 直出，刷新率匹配，音频直通 / 下混。
-- **3C 降级与软解**：色调映射、DV 基础层、FFmpeg 软解兜底（RMVB / AVI / 10-bit）。
+- **3C 降级与软解**：色调映射、DV 基础层、FFmpeg 软解回退（RMVB / AVI / 10-bit）。
 - **3D 体验**：画中画、投屏（Media3 Cast / DLNA）、字幕样式、跳过片头尾。
 - 验收：支持的格式直出且规格徽标正确；不支持时按预期降级并说明原因；4K60 HDR 无持续丢帧；
   HDMI / eARC 音频直通可用；RMVB/AVI/10-bit 至少一种原本不能播的格式可播；401/429 不重试。
@@ -591,20 +724,23 @@ device_capabilities(
 
 | 阶段 | Epic | 交付 | 验收 |
 |---|---|---|---|
-| 0 | E0.1 Schema 导出 | `exportSchema` + `8.json` + MigrationTestHelper | 迁移测试脚手架能跑 |
-| 0 | E0.2 核心模块 | `:core:model/database/network/data` 骨架 | 依赖方向单向，构建通过 |
-| 0 | E0.3 v9 表与回填 | sources / works / episodes / logicalId | v8 数据完整迁移 |
-| 0 | E0.4 仓库拆分 | Scanner / Scraper / QueryRepository | 现有行为不变 |
-| 0 | E0.5 UI 状态统一 | 页面 ViewModel + UiState | composable 不再拿 AppContainer |
-| 0 | E0.6 迁移验证 | 真实库副本 + 回滚演练 | 数据零丢失 |
+| 0a | E0.1 Schema 导出 | `exportSchema` + `8.json` + MigrationTestHelper | 迁移测试脚手架能跑 |
+| 0a | E0.2 核心数据模块 | `:core:model` / `:core:database` 骨架 | 依赖方向单向，构建通过 |
+| 0a | E0.3 v9 表与回填 | 映射表 + sources/works/episodes/file_episodes/logicalId | v8 数据完整迁移 |
+| 0a | E0.4 迁移验证 | 脱敏 v8 fixture + 逐键校验 + shadow compare + 回滚演练 | 数据零丢失 |
+| 0b | E0.5 网络/数据模块 | `:core:network` / `:core:data` 骨架 | 依赖方向单向 |
+| 1 | E1.6 仓库拆分 | Scanner（随 Phase 1 重写）/ Scraper / QueryRepository | 现有行为不变 |
+| 1 | E1.7 UI 状态统一 | 页面 ViewModel + UiState | composable 不再拿 AppContainer |
 | 1 | E1.1 增量扫描 | 目录缓存 + WorkManager + 续跑 | 20k 扫描可中断续跑 |
 | 1 | E1.2 持久刮削 | `scrape_tasks` + Worker + 预算 | 可暂停/恢复/限速 |
 | 1 | E1.3 Works/分页 | `works` 查询 + Paging 3 | 20k 海报墙不卡 |
 | 1 | E1.4 搜索/筛选 | FTS + SQL 过滤 + 排序 | 中文搜索可用 |
 | 1 | E1.5 压测 | 20k 合成数据 | 内存/帧率达标 |
-| 2 | E2.1 MediaSource | WebDAV / 本地 / SMB / Emby / Jellyfin 实现 | 四类源可同时挂载 |
-| 2 | E2.2 源管理 UI | 添加/编辑/停用/健康 | 凭据隔离、401 不串源 |
-| 2 | E2.3 合并/版本 | `work_versions` + 失败切换 + Direct Play | 同作品多源合并；转码有提示 |
+| 2 | E2.1 FileSource | WebDAV 多账号 + 本地 | 2a 验收 |
+| 2 | E2.2 SMB | SMB2/3 + 流式播放 | 2b 验收 |
+| 2 | E2.3 CatalogSource | Emby / Jellyfin 同步 + Direct Play | 2c 验收 |
+| 2 | E2.4 源管理 UI | 添加/编辑/停用/健康/删除影响 | 凭据隔离、401 不串源 |
+| 2 | E2.5 合并/版本 | `work_versions` + 失败切换 + 选源规则 | 同作品多源合并；转码有提示 |
 | 3 | E3.1 能力模型 | `DeviceCapabilities` + `StreamInfo` + 诊断 | 规格徽标正确 |
 | 3 | E3.2 HDR 直出 | HDR10/HDR10+/HLG + 刷新率 + 音频 | 真机直出/直通 |
 | 3 | E3.3 降级/软解 | 色调映射 + DV 基础层 + FFmpeg | 不支持时明确降级 |
@@ -616,6 +752,20 @@ device_capabilities(
 | 5 | E5.4 诊断/上报 | 诊断包 + 可选远端 | 默认关闭、无凭据 |
 | 5 | E5.5 生态治理 | 许可证 + 依赖检查 + feature flag | 门禁通过 |
 
+### 5.2 粗略规模（按 1–2 人维护规模估算）
+
+| 阶段 | 粗估 | 说明 |
+|---|---|---|
+| 0a | 1–2 周 | 迁移、映射、校验、回滚演练 |
+| 0b | 1 周 | 模块骨架 |
+| 1 | 3–5 周 | 扫描/刮削/分页/FTS |
+| 2 | 4–6 周 | WebDAV+本地 → SMB → Emby/Jellyfin 分档 |
+| 3 | 4–6 周 | 能力模型、HDR 直出、降级/软解 |
+| 4 | 3–4 周 | TV feature 与焦点 |
+| 5 | 持续 | 资料、下载、平板、诊断、治理 |
+
+> 估算用于评估进度偏差，不构成交付承诺；任一阶段超出上限 50% 时，优先缩减范围，不增加人力。
+
 ---
 
 ## 6. 风险与对策
@@ -623,19 +773,25 @@ device_capabilities(
 | 风险 | 影响 | 对策 |
 |---|---|---|
 | logicalId 迁移错误 | 用户进度/收藏错位或丢失 | 保留旧列、迁移测试、真机抽查、迁移前备份 |
+| 一文件多集 | 进度/已看判定错误 | `file_episodes` + 文件级进度 + 片尾整段标记 |
+| 未匹配文件移动 | 进度/收藏断链 | 疑似移动建议 + UI 提示先刮削 |
+| 源根路径变更 | 未匹配身份整体失效 | `root_generation` + FULL 扫描 + 关联提示 |
 | 扫描请求过多触发 OpenList 锁定 | 全站 WebDAV 不可用 | 单源串行、限速、401/429 全局封锁、绝不重试 |
 | 20k 条 TMDB 刮削耗时/配额 | 刮削长期不完成 | 持久队列、预算、优先级、暂停/恢复 |
 | 全量列表/内存分组 | 卡顿、OOM | Paging 3 + works 表 + SQL 过滤 |
 | WorkManager 前台限制 | 长扫描被杀 | `dataSync` 前台类型 + 通知 + 可续跑 |
 | 中文搜索分词 | 搜不到 | 专门的 search_text / trigram 方案，基准测试 |
-| 多模块过度拆分 | 构建/维护成本 | 控制在 8–10 个模块 |
+| 多模块过度拆分 | 构建/维护成本 | 控制在 8–12 个模块 |
 | FFmpeg 包体/许可证 | APK 变大、合规风险 | 后置，评估 LGPL/GPL 与体积 |
 | HDR / DV 设备碎片化 | 黑屏、偏色、错误 HDR | 能力探测 + 解码器实际初始化 + 明确降级 |
+| 投屏无 GMS | Cast 不可用 | DLNA 为主，Cast 可选 |
+| 明文主机白名单 | 静态配置无法覆盖用户主机 | OkHttp 主机批准清单 + 明确警告 |
+| 字幕无持久模型 | 改名后字幕丢失 | `subtitles` 表 + 重新关联 |
 | SMB 客户端维护 | 认证/流式播放不稳定 | 选成熟库（SMBJ/jcifs-ng），封装 `MediaSource`，可替换 |
 | Emby/Jellyfin 转码 | HDR/Atmos 被降级 | 优先 Direct Play；转码明确提示；能力协商 |
 | 一次性迁移失败 | 用户数据错位/丢失 | 自动备份 + 事务 + 行数校验 + 回滚演练 |
 | 4K 软件色调映射 | 卡顿、发热、掉帧 | 硬件优先，软解时提示并允许降级 |
-| 音频直通设备差异 | 无声、只剩立体声 | 探测输出能力 + 下混兜底 + UI 标明 |
+| 音频直通设备差异 | 无声、只剩立体声 | 探测输出能力 + 下混回退 + UI 标明 |
 | PGS / 图形字幕 | 字幕不显示 | 能力检测 + 提示，必要时接 FFmpeg |
 | 流信息探测成本 | 大库全探测慢 | 按需探测 + 缓存 + 后台低优先级补齐 |
 | TV/同步范围蔓延 | 架构分叉 | 先定决策，单独立项 |
@@ -665,7 +821,7 @@ device_capabilities(
 | 刷新率匹配 | 无 | Phase 3 |
 | PGS / 图形字幕 | 未验证 | Phase 3 |
 | 画中画 | 无 | Phase 3 |
-| 投屏 | 无 | Phase 3 |
+| 投屏 | 无 | Phase 3（DLNA 优先，Cast 可选） |
 | 跳过片头/片尾 | 无 | Phase 3 |
 | 多端同步 | 无 | 暂不做，预留 `SyncProvider` |
 | TV 端 | 暂不做 | 单列 Phase 4（已定） |
@@ -675,10 +831,19 @@ device_capabilities(
 
 ## 8. 接口草图
 
+> **评审修订（2026-10-18）**：接口中的身份类型以 **15.2** 的 `ContentId` / `LogicalKey` 为准；
+> `LogicalId` 仅作为兼容名称保留。
+
 ```kotlin
 // core:model
 @JvmInline value class SourceId(val value: String)
 @JvmInline value class LogicalId(val value: String)   // tmdb:... / file:...
+
+object LogicalIdCodec {
+    fun forMovie(tmdbId: Int): LogicalId
+    fun forEpisode(tmdbId: Int, season: Int, episode: Int): LogicalId
+    fun forFile(sourceId: SourceId, remoteKey: String): LogicalId
+}
 
 enum class SourceType { WEBDAV, LOCAL, SMB, EMBY, JELLYFIN }
 enum class ScanMode { INCREMENTAL, FULL }
@@ -695,10 +860,21 @@ data class Source(
 interface MediaSource {
     val id: SourceId
     val type: SourceType
-    suspend fun list(parentKey: String): List<RemoteEntry>
     suspend fun probe(): SourceHealth
     suspend fun resolvePlayback(fileId: String): PlaybackVariant
 }
+
+interface FileSource : MediaSource {
+    suspend fun list(parentKey: String): List<RemoteEntry>
+}
+
+interface CatalogSource : MediaSource {
+    suspend fun sync(cursor: String?): CatalogDelta
+}
+
+data class CatalogDelta(val items: List<RemoteEntry>, val nextCursor: String?)
+
+fun normalizeRemoteKey(raw: String): String
 
 // core:data
 interface ScanScheduler {
@@ -715,6 +891,19 @@ interface ScrapeScheduler {
 interface PlaybackResolver {
     suspend fun candidates(id: LogicalId): List<PlaybackVariant>
 }
+
+interface SubtitleProvider {
+    suspend fun search(query: SubtitleQuery): List<SubtitleCandidate>
+    suspend fun download(candidate: SubtitleCandidate): SubtitleFile
+}
+
+data class SubtitleQuery(
+    val title: String, val season: Int?, val episode: Int?, val language: String,
+)
+data class SubtitleCandidate(
+    val id: String, val provider: String, val language: String, val releaseName: String?,
+)
+data class SubtitleFile(val path: String, val encoding: String?)
 
 // 高规格播放
 enum class HdrFormat { SDR, HDR10, HDR10_PLUS, HLG, DOLBY_VISION }
@@ -743,6 +932,13 @@ data class DeviceCapabilities(
     val maxHeight: Int,
     val maxRefresh: Float,
     val videoCodecs: Set<String>,
+    val passthroughCodecs: Set<String>,
+)
+
+data class RendererCapabilities(   // DLNA / Cast 接收端
+    val hdrFormats: Set<HdrFormat>,
+    val maxWidth: Int,
+    val maxHeight: Int,
     val passthroughCodecs: Set<String>,
 )
 
@@ -785,16 +981,18 @@ data class LibraryFilter(
 
 ## 9. 第一个 PR 的范围
 
+> **评审后调整（2026-10-18）**：先按 **15.10** 提交基线并完成 S1–S4，再开始 0a；
+> 0a 采用 15.2–15.4 的 UUID / 完整多集模型 / 兼容 VIEW。
+
 不做功能，只做地基，保证可回滚：
 
-1. `ARCHITECTURE.md` 入库（本文件）。
+1. `ARCHITECTURE.md` 入库（本文件，含第二版修订）。
 2. 开启 `exportSchema`，生成并提交 `app/schemas/8.json`。
-3. 新建 `:core:model` 模块，先放 `SourceId` / `LogicalId` / `SourceType` / 纯函数（不搬现有代码）。
-4. v9 迁移骨架：新增 `sources` / `works` / `episodes` / `scan_runs` / `scrape_tasks` /
-   `media_stream_info` / `device_capabilities` 等表；`media_items` 加 `source_id` / `logical_id`；回填脚本；保留旧列。
-5. 加 `MigrationTestHelper` 测试（v8→v9）。
-6. 用真实库副本跑一遍迁移，核对数据。
-7. 全部通过后再进入 Phase 1。
+3. 新建 `:core:model` 模块：`SourceId` / `LogicalId` / `LogicalIdCodec` / `SourceType` / `normalizeRemoteKey` / 纯函数（不搬现有代码）。
+4. v9 迁移：按 4.2 的映射表建表与回填；`media_items` 转只读；`file_episodes` / `subtitles` / `media_fts` 一并建好。
+5. `MigrationTestHelper`（v8→v9）+ 脱敏 fixture + 逐键校验 + 回滚演练。
+6. **单独发一版**：只切数据层，UI 与仓库结构不动；真机验证现有 38 集、进度、收藏、片单。
+7. 验证通过后再进入 0b / Phase 1。
 
 > 约束不变：401/429 不重试、真迁移、版本单一来源、改完真机验证。
 
@@ -806,11 +1004,11 @@ data class LibraryFilter(
 |---|---|---|---|
 | ADR-001 | 保持单 Activity + Compose，不重写跨端 | 团队规模与 Media3 生态 | TV 需单独 feature |
 | ADR-002 | 用户数据引用 `logicalId`，物理文件用 `fileId` | 改名/移动/多源不丢进度 | 需要 v9 迁移与身份合并 |
-| ADR-003 | 模块控制在 8–10 个，暂用手写 DI | 降低构建与认知成本 | 模块边界靠约定与评审 |
+| ADR-003 | 模块控制在 8–12 个，暂用手写 DI | 降低构建与认知成本 | 模块边界靠约定与评审 |
 | ADR-004 | Room 是唯一媒体库数据源，列表用 Paging 3 | 20k 级不能全量加载 | 需要 `works` 查询与 SQL 过滤 |
 | ADR-005 | 扫描/刮削用 WorkManager + 持久队列 | 长任务要可续跑、可取消 | 需要 FGS 类型与通知 |
 | ADR-006 | Media3 + 能力探测，HDR 按设备直出/降级 | 设备碎片化，不能假设全支持 | DV 不承诺全设备 |
-| ADR-007 | 不引入后端，除非确认多端同步 | 个人项目避免运维负担 | 同步先做 WebDAV JSON |
+| ADR-007 | 不引入后端，除非确认多端同步 | 控制运维成本与攻击面 | 同步先做 WebDAV JSON |
 | ADR-008 | 401/429 全局封锁，任何入口不重试 | OpenList 按 IP 锁定的硬约束 | 需要统一 SourceGate |
 | ADR-009 | 升级方向只做真迁移，绝不 destructive | 用户数据不可恢复 | 迁移测试是发布门槛 |
 | ADR-010 | 不做“目录即剧集”的粗暴分组 | 合集目录会误合并 | 只按集数 + 季根分组 |
@@ -818,6 +1016,15 @@ data class LibraryFilter(
 | ADR-012 | 暂不做多端同步，预留 `SyncProvider` | 避免后端运维 | 先做导出/导入 |
 | ADR-013 | 多源包含 WebDAV / 本地 / SMB / Emby / Jellyfin | 用户已确认“都要” | Phase 2 复杂度与测试面最大 |
 | ADR-014 | 身份迁移一次性切换 + 迁移守卫 | 用户选择工期优先 | 必须自动备份、校验、回滚演练 |
+| ADR-015 | v9 迁移单独发版，与重构解耦 | 失败时能定位是迁移还是重构 | 发布节奏多一版 |
+| ADR-016 | 投屏 DLNA 优先，Cast 可选 | 国产设备普遍无 GMS | Cast 只作为加分项 |
+| ADR-017 | 明文流量用 OkHttp 主机批准清单 | `network_security_config` 是编译期静态配置 | 需在网络层做运行时拦截 |
+| ADR-018 | 文件型源与目录型源拆分契约 | Emby/Jellyfin 是 item 同步，不是目录 BFS | 扫描器两条路径 |
+| ADR-019 | 多集文件用 `file_episodes`，进度按文件 | 无法可靠推断集边界 | 片尾整段标记完成 |
+| ADR-020 | 身份主键用不可变 UUID，`logical_key` 仅作唯一键 | 匹配/改名不级联用户数据 | 需要 `MergeContents` 与 v9 迁移 |
+| ADR-021 | v9 兼容采用只读 VIEW | 现有 UI 读路径不变 | 写路径改新表；Room VIEW 由 S1 验证 |
+| ADR-022 | 多集/版本/进度用完整模型 | 避免边界推断错误 | `movie_versions` / `episode_versions` / `file_segments` / 分表进度 |
+| ADR-023 | 开工前修 B1–B6 + 4 个 spike | 降低迁移与返工风险 | 0a 延后，先完成 S1–S4 |
 
 > 新增决策时在表格末尾追加，并在 WORKLOG 记录背景与影响。
 
@@ -839,7 +1046,7 @@ data class LibraryFilter(
 
 ## 12. 文档维护
 
-- 本文件记录**长期架构与决策**；具体实现进展、坑、验证结果写 `WORKLOG.md`。
+- 本文件记录**长期架构与决策**；具体实现进展、问题与验证结果写入 `WORKLOG.md`。
 - 新增/修改 ADR 时同步更新相关章节；废弃决策保留编号并标注状态。
 - 任何与安全、凭据、401/429、迁移相关的改动，必须先对照本文件再动手。
 
@@ -881,9 +1088,10 @@ data class LibraryFilter(
 | 任务持久化 | 扫描/刮削是内存 job | WorkManager + `scan_runs` / `scrape_tasks` + 续跑 | 进程死亡后续跑 |
 | 主线程 IO | `AppLog.write` 在亮度/音量手势循环里同步落盘 | 异步队列 + 节流；StrictMode 检查 | 手势无卡顿 |
 | Android 14 媒体权限 | 只声明 `READ_MEDIA_VIDEO` | 补 `READ_MEDIA_VISUAL_USER_SELECTED` + 部分授权 UI | Android 14/15 可扫本地 |
-| 明文流量 | `network_security_config` 全局放行 | 至少对 `http://` 明确警告；后续按主机白名单 | 用户知情；公网默认 HTTPS |
-| 数据小坑 | `PlaylistRepository.delete` 无事务；`SourceViewModel.test` 允许空密码；`DetailViewModel.init` 的 `first{}` 可能永久挂起 | 事务、非空校验、加超时/条件 | 对应单测或代码审查 |
+| 明文流量 | `network_security_config` 全局放行；静态配置无法覆盖用户新增主机 | OkHttp 拦截器 + 用户批准的主机清单；添加源时明确警告 | 未批准主机拒绝 `http://` |
+| 数据层缺陷 | `PlaylistRepository.delete` 无事务；`SourceViewModel.test` 允许空密码；`DetailViewModel.init` 的 `first{}` 可能永久挂起 | 事务、非空校验、加超时/条件 | 对应单测或代码审查 |
 | 401 字幕探针 | `PlayerViewModel.findSubtitles` catch 所有异常返回空 | 走 `SourceGate`；401/429 标记封锁并提示 | 不再静默吞 401 |
+| 深链校验 | `mediadock://` 可被外部应用触发 | 只接受 DB 中存在的 `logicalId`，永不接受 URL 参数 | 外部无法触发任意播放 |
 
 ### 13.3 现有代码改进清单（P1）
 
@@ -893,11 +1101,12 @@ data class LibraryFilter(
 | UI 状态统一 | Mine/Search/Playlist/History 直接拿 `AppContainer` | 全部 ViewModel + UiState；composable 不碰容器 | 无 `AppContainer` 出现在 `ui/` |
 | 全量列表 | `observeAll()` + 内存 `groupWall` / 搜索 | `works` 表 + Paging 3 + SQL 筛选 + FTS | 20k 列表不卡 |
 | 错误模型 | 字符串 message + `catch(Exception)` | typed error + 统一映射 + `CancellationException` 规则 | UI 不再解析字符串 |
-| 模块化 | 单 `:app` | `:core:*` + `:feature:*`（8–10 个） | 依赖方向单向 |
+| 模块化 | 单 `:app` | `:core:*` + `:feature:*`（8–12 个） | 依赖方向单向 |
 | Lint / 依赖 / 文档 | 34 个 lint error（多为 Media3 UnstableApi）；未用依赖；proguard 注释过时 | `@OptIn`、删依赖、修文档、lint 进 CI | lint 无新增错误 |
-| 轮询/功耗 | 播放页 200ms、迷你条 1s 常驻 | 只在可见/播放时轮询；后台停 | 待机电量可接受 |
+| 轮询/功耗 | 播放页 200ms、迷你播放条 1s 常驻 | 仅在可见或播放时轮询；后台停止 | 待机电量可接受 |
 | 备份/完整性 | 无导出、无完整性检查 | 见 P0；设置页调试入口 | 可自检 |
 | 供应链 | 依赖版本集中，但无自动更新/校验 | 定期升级；CI 校验；密钥只在 secrets | 可重复构建 |
+| 字幕持久化 | 仅靠 `filesDir/subtitles` 约定 | `subtitles` 表 + 编码探测（GBK/GB18030/UTF-16） | 改名后仍可关联 |
 
 ### 13.4 现有代码改进清单（P2）
 
@@ -921,8 +1130,9 @@ data class LibraryFilter(
 ```text
 :core:model   ← 所有模块（纯 Kotlin，不依赖 Android）
 :core:database / :core:network / :core:datastore ← :core:model
+:core:ui      ← :core:model（只放共享 Compose 组件与主题 token）
 :core:data    ← 上述 core 模块
-:feature:*    ← :core:data / :core:model
+:feature:*    ← :core:data / :core:model / :core:ui
 :app          ← 所有 feature + core
 feature 之间禁止互相依赖；跨页导航由 :app 负责。
 ```
@@ -934,7 +1144,7 @@ feature 之间禁止互相依赖；跨页导航由 :app 负责。
 3. 全局可变状态：`PlaybackSelection` / `DetailSelection` → `SavedStateHandle` 或持久化 `PlaybackRequest`。
 4. 数据边界：仓库对外返回 domain model，不把 Room 实体直接抛给 UI；实体变化不触发无谓重组。
 5. 错误边界：网络层抛 typed error，仓库翻译成用户可见状态，UI 只渲染。
-6. 重复逻辑：搜索/分组/解析保持纯函数单测；不要在两个页面各写一份过滤。
+6. 重复逻辑：搜索、分组与解析保持纯函数单测；不得在多个页面重复实现过滤逻辑。
 
 **判断标准**：
 
@@ -949,12 +1159,12 @@ feature 之间禁止互相依赖；跨页导航由 :app 负责。
 1. 编译 + 单测通过；纯逻辑改动同步补单测。
 2. 涉及数据库：schema 导出、迁移测试、真实库副本验证；禁止 destructive 升级。
 3. 涉及网络/凭据：不得新增 401/429 自动重试；日志不含凭据；分享/备份有确认。
-4. 涉及 UI/播放：真机验证（文字说明看什么 + 日志证据；不要求用户截图）。
+4. 涉及 UI/播放：进行真机验证（说明验证项并提供日志证据；不要求提供截图）。
 5. 不引入全量加载、全表扫描、主线程 IO；性能敏感改动跑 20k 基线。
 6. lint 无新增错误；未使用依赖不进入主干。
 7. WORKLOG 记录「背景 / 变更 / 验证 / 备注」；架构决策更新本文件。
 
-### 13.7 待决策（需要和你讨论）
+### 13.7 待决策项
 
 **已定（2026-10-18）**：
 - D1 TV/投屏：先手机 + 投屏；TV 单列 Phase 4。
@@ -965,12 +1175,13 @@ feature 之间禁止互相依赖；跨页导航由 :app 负责。
 - D11 多用户/儿童模式：**做**（Phase 5）。
 - D13 离线下载：**做**（Phase 5，按用户选择、配额管理）。
 - D14 平板/折叠屏：**正式支持**（Phase 5，`WindowSizeClass`）。
+- B1/B2/B3 设计：**UUID + `logical_key`；完整多集/版本模型；v9 兼容 VIEW**（见 15.2–15.4）。
 
-> “都做”指上述剩余主题全部纳入架构与路线图；同步仍按 D2 暂缓，TV 按 D1 单列。
+> 上述“全部纳入”指剩余主题均纳入架构与路线图；多端同步仍按 D2 暂缓，TV 按 D1 单列。
 
 | 编号 | 决策 | 选项 | 建议 | 影响 |
 |---|---|---|---|---|
-| D5 | 中文搜索 | FTS4+search_text / FTS5 trigram / 内存索引 | 先基准测试，倾向 FTS4+search_text | 搜索体验与实现成本 |
+| D5 | 中文搜索 | FTS4+search_text / FTS5 trigram / 内存索引 | 先基准测试；注意 Room 注解仅支持 `@Fts4`，FTS5 需手写建表 | 搜索体验与实现成本 |
 | D6 | DI | 手写容器 / Hilt | 现阶段手写，模块化后再评估 | 构建时间与测试便利 |
 | D7 | HDR/DV 承诺 | 能力探测+降级 / 承诺全设备 | 能力探测，不承诺 DV | 用户预期与兼容性 |
 | D9 | 数据库加密 | 不加密 / SQLCipher | 不加密（凭据已单独加密） | 性能与复杂度 |
@@ -981,7 +1192,7 @@ feature 之间禁止互相依赖；跨页导航由 :app 负责。
 
 ## 14. 剩余架构主题（全量落地）
 
-> 用户已确认“都做”。以下主题全部纳入架构与路线图，按 Phase 0–5 排期；不要求一次发版完成。
+> 产品决策：以下主题全部纳入架构与路线图，按 Phase 0–5 排期；不要求单次发版完成。
 > 多端同步仍按 D2 暂缓（预留 `SyncProvider`）；TV 按 D1 单列 Phase 4。
 
 ### 14.1 设置与凭据分层
@@ -999,7 +1210,7 @@ feature 之间禁止互相依赖；跨页导航由 :app 负责。
 - **`HomeSectionProvider` 接口**：每个 section 返回分页数据 + 标题 + 空态；`HomeFeed` 只负责顺序与渲染。
 - **Section 类型**：
   - 继续观看（进度）；最近添加（扫描时间）；最近播放；
-  - 因为你看了/收藏了（本地类型/演员相似，不编造理由）；
+  - 基于观看或收藏记录的相似推荐（依据本地类型/演员，推荐理由须可解释）；
   - 高分推荐（TMDB）；合集（Collection）；片单；收藏；
   - 分类行；来源分区（多源时可切换）。
 - **规则**：去重、优先级、可配置顺序、隐藏空 section；推荐理由必须可解释；不做假数据。
@@ -1011,6 +1222,7 @@ feature 之间禁止互相依赖；跨页导航由 :app 负责。
 - **`MetadataProvider` 接口**：search / details / episodes / images / externalIds；实现：
   - TMDB（默认）；Emby / Jellyfin（服务端元数据）；NFO（本地，用户已整理）；
   - 预留 Bangumi / AniDB（动漫别名、绝对集数）。
+- **NFO 解析**：禁用 XML 外部实体（XXE），限制文件大小与嵌套深度。
 - **优先级与合并**：用户手动覆盖 > NFO > Emby/Jellyfin > TMDB（可配置）；记录 `metadata_source` 与 `external_ids`，不静默覆盖。
 - **字段**：本地化标题/别名、简介、海报/背景、分集组、绝对集数、演员/导演/类型、合集、预告片。
 - **刷新**：按条目/整库；失败不阻塞；手动重匹配；冲突诊断（显示来源与候选）。
@@ -1023,6 +1235,8 @@ feature 之间禁止互相依赖；跨页导航由 :app 负责。
 - **队列**：自动下一集、上一集/下一集、插入/移除/移动、随机/循环、从片单/合集播放。
 - **播放能力**：章节、书签、预告片、倍速持久化、字幕/音轨选择持久化、跳过片头/片尾。
 - **投屏移交**：手机 ↔ 接收端会话移交；接收端能力协商（HDR/音频/分辨率）；移交失败回本地。
+- **接收端模型**：`RendererCapabilities` 单独建模，投屏时重新计算 PlaybackPlan；不支持 HDR 的接收端明确降级。
+- **队列持久化**：当前队列、索引、源、字幕/音轨选择写入 `PlaybackRequest`（DataStore/DB），进程死亡可恢复。
 - **架构**：`PlaybackSessionController` 门面 + `PlaybackRequest/State`；UI 不持有 ExoPlayer。
 - **测试**：状态机单测 + 设备矩阵（耳机、来电、PiP、进程死亡）。
 
@@ -1037,6 +1251,7 @@ feature 之间禁止互相依赖；跨页导航由 :app 负责。
 
 ### 14.6 安全、供应链与发布
 
+- **明文流量落地**：`network_security_config` 是编译期静态配置，无法按运行时新增主机放行；实际策略是 OkHttp 拦截器维护“用户批准的主机清单”，未批准主机拒绝 `http://`。
 - **威胁模型**：
   - 资产：凭据、媒体库、进度/收藏、片单、下载内容；
   - 对手：网络窃听、恶意服务端、丢失设备、其它 App、供应链；
@@ -1104,5 +1319,212 @@ feature 之间禁止互相依赖；跨页导航由 :app 负责。
 | 用户资料/儿童模式、离线下载、平板/折叠、诊断/可选上报、许可证、架构治理 | Phase 5 |
 | 多端同步 | 暂缓（Phase 6，如恢复） |
 
+---
 
+## 15. 企业级评审整改与启动门槛（2026-10-18）
 
+### 15.1 结论与已定决策
+
+第二版架构可作为实施基础，但开工前仍有 6 个阻塞项（B1–B6）。按评审结论，先修阻塞、跑完 spike，再进入 Phase 0a。
+
+已定决策：
+
+| 项 | 决策 |
+|---|---|
+| 逻辑身份 | **不可变 UUID + 唯一 `logical_key`**（tmdb/file） |
+| v9 兼容 | **兼容 VIEW**（旧 `media_items` 读路径不变；写路径改新表） |
+| 多集/版本/进度 | **完整模型**：`movie_versions` / `episode_versions` / `file_segments` / 分表进度 |
+| 开工顺序 | **修 B1–B6 + 4 个 spike 后开工**；0a 只做数据层与兼容桥 |
+
+当前状态：工作区有 54 个未提交文件（第二版文档 + 注释/文案）；单测 98/98 通过；release 构建通过。开工前先提交为基线。
+
+### 15.2 B1：身份模型修订（覆盖 3.3.1 / 3.3.2）
+
+**术语**：
+
+- `WorkId` / `EpisodeId`：UUID，不可变；用户数据只引用它们。
+- `LogicalKey`：`tmdb:movie:<id>` / `tmdb:tv:<id>` / `tmdb:tv:<id>:s<S>:e<E>` / `file:<sourceId>:<key>`；
+  唯一，但**允许变化**（未匹配 → 匹配）。
+- `ContentId`：`WorkId`（电影/剧集作品）或 `EpisodeId`（剧集分集）的统称。
+
+**关键表**（替换原草案中 `works.id` / `episodes.id` 直接用 logical key、`work_versions`、`file_episodes`）：
+
+```text
+works(
+  id TEXT PK,                 -- UUID，不可变
+  logical_key TEXT NOT NULL UNIQUE,
+  tmdb_id INTEGER, type TEXT, title TEXT, sort_title TEXT, year INTEGER,
+  poster_path TEXT, backdrop_path TEXT, overview TEXT, rating REAL,
+  total_seasons INTEGER, total_episodes INTEGER, collection_id TEXT,
+  metadata_source TEXT, external_ids_json TEXT,
+  added_at INTEGER, latest_file_mtime INTEGER, updated_at INTEGER
+)
+
+episodes(
+  id TEXT PK,                 -- UUID，不可变
+  logical_key TEXT NOT NULL UNIQUE,
+  work_id TEXT NOT NULL, season INTEGER, episode INTEGER,
+  title TEXT, still_path TEXT, runtime INTEGER, air_date TEXT,
+  UNIQUE(work_id, season, episode)
+)
+
+media_files(
+  id TEXT PK,                 -- UUID，物理文件
+  source_id TEXT NOT NULL,
+  remote_key TEXT NOT NULL,   -- 归一化键
+  legacy_path TEXT,           -- 兼容 VIEW 用的旧 path 原值
+  provider_item_id TEXT,
+  media_kind TEXT,            -- main / sample / trailer / extra
+  name TEXT, size_bytes INTEGER, mtime TEXT, etag TEXT,
+  scan_run_id INTEGER, missing_at INTEGER,
+  UNIQUE(source_id, remote_key)
+)
+
+movie_versions(
+  work_id TEXT, file_id TEXT, source_id TEXT, quality_label TEXT,
+  size_bytes INTEGER, pinned INTEGER, PRIMARY KEY(work_id, file_id)
+)
+
+episode_versions(
+  episode_id TEXT, file_id TEXT, source_id TEXT, quality_label TEXT,
+  size_bytes INTEGER, pinned INTEGER, PRIMARY KEY(episode_id, file_id)
+)
+
+file_segments(
+  file_id TEXT, episode_id TEXT, segment_index INTEGER,
+  start_ms INTEGER, end_ms INTEGER,
+  PRIMARY KEY(file_id, segment_index)
+)                             -- 一文件多集 / 多碟分段的权威边界
+
+movie_progress(work_id TEXT, user_id TEXT, position_ms INTEGER, duration_ms INTEGER,
+               completed INTEGER, updated_at INTEGER, PRIMARY KEY(work_id, user_id))
+episode_progress(episode_id TEXT, user_id TEXT, position_ms INTEGER, duration_ms INTEGER,
+                 completed INTEGER, updated_at INTEGER, PRIMARY KEY(episode_id, user_id))
+file_progress(file_id TEXT, user_id TEXT, position_ms INTEGER, duration_ms INTEGER,
+              updated_at INTEGER, PRIMARY KEY(file_id, user_id))  -- 多集文件
+
+favorites(work_id TEXT, user_id TEXT, added_at INTEGER, PRIMARY KEY(work_id, user_id))
+playlist_items(playlist_id INTEGER, work_id TEXT, added_at INTEGER,
+               PRIMARY KEY(playlist_id, work_id))
+title_overrides(work_id TEXT, title TEXT, year INTEGER, PRIMARY KEY(work_id))
+```
+
+**规则**：
+
+- 未匹配文件：创建临时 `works` / `episodes` 行（UUID），`logical_key = file:<sourceId>:<key>`；匹配后只更新 `logical_key`，用户数据不动。
+- 合并到已存在作品：执行 `MergeContents` 事务——迁移 `movie_versions` / `episode_versions` / `file_segments` / 进度 / 收藏 / 片单 / 改名；冲突规则同 3.3.1；写入审计报告；旧 UUID 标记 tombstone，不物理删除。
+- 不再存在“改 logical_id 级联所有外键”的路径；所有用户数据只引用 UUID。
+- `LogicalKeyCodec` 只生成/解析 key；`ContentId` 类型用于接口。
+
+### 15.3 B2：多集、版本与进度（覆盖 3.3.2 / 3.15）
+
+- **电影版本**：`movie_versions(work_id, file_id)`；一部电影多个文件/来源是版本。
+- **剧集版本**：`episode_versions(episode_id, file_id)`；每集独立选版本，不能把整部剧的文件挂在作品级。
+- **多集文件**：`file_segments(file_id, episode_id, segment_index, start_ms, end_ms)` 记录边界；每个覆盖的集都有一条 `episode_versions`。
+- **进度**：
+  - 普通单集/电影 → `episode_progress` / `movie_progress`（按内容）；
+  - 多集文件 → `file_progress`（按文件）；播放位置越过某段 `end_ms` 时，将该段 `episode_progress.completed = 1`；暂停时不猜测边界。
+  - 已看判定：`position >= 90%` 或距片尾 < 2 分钟；多集文件按段判定。
+- **队列**：多集文件内的“下一集”按 `file_segments`/`episode` 顺序；文件结束后进入下一内容。
+- **权威关系**：`file_segments` + `episode_versions` 是权威；`media_items` 兼容 VIEW 由此投影。
+- **测试**：一文件多集、单集、多版本、跨集边界、暂停/续播、片尾标记。
+
+### 15.4 B3：v9 兼容 VIEW（覆盖 4.2）
+
+- v9 将旧 `media_items` 表重命名为 `media_items_legacy`，创建只读 VIEW `media_items`，列名与原表一致；
+  `legacy_path` 保留旧 `path` 原值，保证现有 UI / 用户数据按旧 path 读取仍正确。
+- 现有 UI 与 `MediaDao` 的**读**查询不变；**写**路径改为写新表（扫描/刮削/删除），删除对 `media_items` 的
+  `insertAll` / `deleteAll` / `markScraped` 写入。
+- v10 在 Phase 1 UI 迁到 `works` 后移除 VIEW 与 legacy 表。
+- **Spike 必须验证**：Room 是否能通过现有 `MediaDao` 的 `@Query SELECT * FROM media_items` 读取 VIEW；
+  `observeByPaths` / `observeMatchedCount` 是否正常；若 Room 校验阻止，则退回“仓库读适配层”，并在 ADR 中记录。
+- 验收：VIEW 行数/关键列与 legacy 逐项一致；UI 现有页面无回归；扫描新数据能出现在现有海报墙。
+
+### 15.5 B4：Provider health 分离（覆盖 3.13）
+
+- `SourceHealth`：WebDAV / SMB / Emby / Jellyfin / LOCAL；只有源健康阻塞媒体库、播放、扫描。
+- `ProviderHealth`：TMDB / OpenSubtitles / NFO；独立 `provider_health(provider, state, last_error, updated_at)`。
+- 错误表修订：
+  - 源 401/429 → 源 `BLOCKED`；
+  - TMDB/字幕 401 → 对应 provider `AUTH_REQUIRED`，暂停其任务，**不阻塞源**；
+  - TMDB/字幕 429 → provider 退避，不阻塞源。
+- `SourceGate` 与 `ProviderGate` 分开；测试覆盖“TMDB 凭据错误时播放/扫描仍正常”。
+
+### 15.6 B5：`scrape_tasks` 主键（覆盖 3.3.2）
+
+```text
+scrape_tasks(
+  id TEXT PK,
+  content_id TEXT NOT NULL, content_kind TEXT NOT NULL,
+  provider TEXT NOT NULL, task_kind TEXT NOT NULL,   -- search/details/episodes
+  state TEXT, attempts INTEGER, next_attempt_at INTEGER,
+  priority INTEGER, last_error TEXT, updated_at INTEGER,
+  UNIQUE(content_id, content_kind, provider, task_kind)
+)
+```
+
+同一内容可有多个 provider / 多种任务；任务幂等，重复入队按唯一键合并。
+
+### 15.7 B6：迁移完整性与备份（覆盖 4.2 / 4.3）
+
+**完整映射矩阵**（必须逐表）：
+
+| v8 表 | v9 去向 | 校验 |
+|---|---|---|
+| `media_items` | `media_files` + `movie_versions` / `episode_versions` + `file_segments` + `works` / `episodes` | 行数、path/name/size、作品/集数 |
+| `playback_progress` | `movie_progress` / `episode_progress` / `file_progress` | 行数、position/duration/completed 校验和 |
+| `favorites` | `favorites(work_id, user_id=default)` | 行数、work 映射 |
+| `playlists` | `playlists(user_id=default)` | 行数 |
+| `playlist_items` | `playlist_items(work_id)` | 行数、work 映射 |
+| `title_overrides` | `title_overrides(work_id)` | 行数、title/year |
+| `title_details` | `works` + `work_genres` + `people` / `work_cast` | 行数、tmdbId、演职员数 |
+| `episode_meta` | `episodes` | 行数、季/集 |
+| `filesDir/subtitles` | `subtitles` 表 + 文件索引 | 文件数、语言/来源 |
+
+- **迁移状态文件**：`filesDir/migration/v9_state.json`，记录阶段、开始/结束、校验和、失败原因；在打开 Room 之前读取。
+- **用户可访问备份**：除应用私有备份外，通过 SAF/MediaStore 导出到用户选择的位置；JSON 导出含 `schemaVersion`、校验和、冲突策略。
+- **恢复**：迁移失败 → 恢复备份并阻止进入主界面；提供“导出诊断包/恢复”入口。
+- **fixture**：脱敏 v8 种子库，覆盖多集、无 tmdbId、多版本、空密码/坏凭据、空收藏/片单。
+- **shadow compare**：v9 保留 1–2 个版本，新旧读路径对比差异写日志；v10 删旧列。
+
+### 15.8 SLO、错误预算与 DoD
+
+| 指标 | 目标 |
+|---|---|
+| 401/429 自动重试 | **0 次/版本** |
+| 迁移数据丢失 | **0 行/0 用户** |
+| 冷启动 p95（S21 Ultra） | ≤ 2 s |
+| 海报墙首屏 p95（20k 库） | ≤ 1 s |
+| 搜索 p95（20k 库） | ≤ 300 ms |
+| 起播 p95（局域网/VPS） | ≤ 3 s |
+| crash-free sessions | ≥ 99.5%（可选上报或本地统计） |
+| 扫描中断续跑成功率 | ≥ 99%（可达源） |
+| 20k 库内存 | 无 OOM；< 300 MB |
+
+- **错误预算**：认证重试与迁移数据丢失为零容忍；扫描/刮削失败预算按源统计，超预算先停任务并提示。
+- **RPO/RTO**：RPO = 最近一次自动备份/导出；RTO = 重装 + 导入/恢复 ≤ 1 小时；迁移前必须备份。
+- **DoD**：编译 + 98+ 单测；迁移测试；lint 无新增；真机验证；性能基线；日志无凭据；文档更新。
+
+### 15.9 开工前四项 Spike
+
+| # | Spike | 退出标准 |
+|---|---|---|
+| S1 | v8 fixture → v9 新 schema → 兼容 VIEW；Room DAO 读 VIEW | 迁移/回滚/逐键校验通过；VIEW 读查询正常；失败有 fallback 结论 |
+| S2 | 中文搜索：FTS4+search_text / FTS5 trigram，20k 合成库 | p95 ≤ 300 ms；选定方案写入 ADR |
+| S3 | DLNA / SMB 客户端评估（维护性、许可证、16KB、API） | 选定库与最小可运行 demo |
+| S4 | FFmpeg 16KB page size + HDR/DV/Atmos 真机能力（S21 + 一台 DV/TV） | 可播放/降级矩阵与包体/许可证结论 |
+
+### 15.10 启动门槛
+
+1. 提交当前 54 个文件为基线（文档第二版 + 注释/文案）；确认 98 单测 + release。
+2. 按 15.2–15.7 修订 schema 与迁移计划，冻结 v9 设计。
+3. 完成 S1–S4，记录结果与 ADR。
+4. 确认 SLO/DoD/CI 门禁。
+5. 开始 0a：只做数据层 + 兼容 VIEW，不混重构。
+6. 0a 真机验证通过后，进入 0b / Phase 1。
+
+### 15.11 仍需确认
+
+- 是否同意先提交当前 54 个文件为基线。
+- S3 后选择 DLNA/SMB 库；S2 后确定 FTS 方案；S4 后确定 HDR/DV 承诺。
+- SLO 目标是否按 15.8 执行。

@@ -76,16 +76,16 @@ class AppContainer(context: Context) {
     val database: MediaDatabase by lazy {
         Room.databaseBuilder(appContext, MediaDatabase::class.java, "library.db")
             // 纯新增表走真迁移 —— 进度/收藏/改名都是用户数据，不能丢。
-            // 迁移清单在 MediaDatabase.MIGRATIONS 里，这里整批注册，别一个个漏加。
+            // 迁移清单在 MediaDatabase.MIGRATIONS 里，这里整批注册，避免逐项遗漏。
             .addMigrations(*MediaDatabase.MIGRATIONS)
-            // **升级方向不留破坏性兜底**：缺迁移就让 Room 抛异常（响亮），绝不静默清库。
+            // **升级方向不留破坏性回退**：缺迁移就让 Room 抛异常（响亮），绝不静默清库。
             // 之前用 fallbackToDestructiveMigration() 时，漏写/漏注册一条迁移的后果是
             // 「库、进度、收藏全被清掉，而编译、单测、启动全都正常」—— 吃过一次亏。
             // 只有「降级」（手动装了旧版 APK）才允许破坏重建：那是人工动作，
             // 而且旧代码本来也读不懂新结构。dropAllTables = false = **只丢结构变了的表**，
             // 进度 / 收藏这些结构没变的表的数据能留下。
             // 动 media_items（缓存）结构时，请写成显式的命名迁移（可以 DROP TABLE 再建），
-            // 而不是指望兜底 —— 兜底一开，用户数据也跟着一起没。
+            // 而不是指望回退 —— 回退一开，用户数据也跟着一起没。
             .fallbackToDestructiveMigrationOnDowngrade(dropAllTables = false)
             .build()
     }

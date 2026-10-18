@@ -69,7 +69,7 @@ sealed interface ScrapeState {
 /**
  * 媒体库：Room 是海报墙的唯一数据源，扫描只负责往库里灌数据。
  *
- * 扫描的规矩（都是硬约束，别松）：
+ * 扫描的规矩（都是硬约束，不得放松）：
  *  - **只由用户主动触发**，绝不在启动时自动跑。
  *  - **顺序 BFS**，一次只发一个 PROPFIND —— 不做并发轰炸。
  *  - **有界**：目录数 / 深度 / 文件数三个上限，撞到就标记 [ScanState.Done.truncated]。
@@ -283,7 +283,7 @@ class LibraryRepository(
                             basicAuthHeader = auth,
                         )
                     } catch (e: WebDavException.NotFound) {
-                        // 扫描途中目录被改名/删掉：跳过它，别让整次扫描失败
+                        // 扫描途中目录被改名/删掉：跳过它，避免整次扫描失败
                         if (dir.isEmpty()) throw e
                         continue
                     }
@@ -540,7 +540,7 @@ class LibraryRepository(
             var failed = 0
 
             try {
-                // 4 个一批：既不是一发一个那么慢，也不会把 TMDB 打爆
+                // 4 个一批：避免逐条请求的低效，同时避免对 TMDB 造成突发压力
                 for (batch in pending.chunked(SCRAPE_CONCURRENCY)) {
                     if (!isActive) return@launch
                     val results = coroutineScope {
@@ -638,7 +638,7 @@ class LibraryRepository(
      * 进度按 path 存、是可续播的用户数据，不是缓存；重新扫描后还接着续。
      */
     suspend fun clearLibrary() {
-        cancelAll() // 别一边扫/刮一边清
+        cancelAll() // 避免扫描或刮削期间执行清理
         db.withTransaction { db.mediaDao().deleteAll() }
     }
 

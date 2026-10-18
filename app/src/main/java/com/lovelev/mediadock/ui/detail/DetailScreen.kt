@@ -123,7 +123,7 @@ fun DetailScreen(
             modifier.fillMaxSize().background(NeutralPageTone),
             contentAlignment = Alignment.Center,
         ) {
-            Text("没有可显示的内容", style = MaterialTheme.typography.bodyMedium, color = OnBackdropFaint)
+            Text("暂无内容", style = MaterialTheme.typography.bodyMedium, color = OnBackdropFaint)
         }
         return
     }
@@ -461,7 +461,7 @@ private fun HeroArt(
                 contentScale = if (isBackdrop) ContentScale.Crop else ContentScale.Fit,
                 modifier = Modifier.matchParentSize(),
             )
-            // 下半部压暗给白字兜底；**颜色是页面主色不是黑** —— 压完正好和底下的背景同色
+            // 下半部压暗给白字回退；**颜色是页面主色不是黑** —— 压完正好和底下的背景同色
             Box(
                 modifier = Modifier
                     .matchParentSize()

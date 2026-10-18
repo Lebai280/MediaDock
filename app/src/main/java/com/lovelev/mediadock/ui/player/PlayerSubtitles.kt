@@ -70,8 +70,8 @@ internal fun mountSubtitle(controller: MediaController?, local: LocalSubtitle) {
         .filterNot { it.uri == configuration.uri }
     val updated = current.buildUpon().setSubtitleConfigurations(existing + configuration).build()
 
-    // ⚠️ 不能用 `setMediaItem(单个)`：Media3 的语义是**把整个播放列表换成这一条**，
-    // 队列会被缩成 1 条，自动下一集直接失效（坑 72）。要保留队列，只替换当前这一条。
+    // 不能用 `setMediaItem(单个)`：Media3 的语义是**把整个播放列表换成这一条**，
+    // 队列会被缩成 1 条，自动下一集直接失效（问题 72）。要保留队列，只替换当前这一条。
     val items = (0 until c.mediaItemCount).map { i ->
         if (i == index) updated else c.getMediaItemAt(i)
     }
@@ -217,7 +217,7 @@ internal fun SubtitleSearchDialog(
                                             episode = parsed.episode,
                                             languages = languages,
                                         )
-                                        if (results.isEmpty()) notice = "没找到，换个片名试试"
+                                        if (results.isEmpty()) notice = "未找到匹配字幕"
                                         AppLog.d("player", "subtitle search '$keyword' -> ${results.size}")
                                     } catch (e: CancellationException) {
                                         throw e

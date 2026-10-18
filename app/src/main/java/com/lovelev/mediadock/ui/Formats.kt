@@ -2,7 +2,7 @@ package com.lovelev.mediadock.ui
 
 import java.util.Locale
 
-/** 界面上重复用到的格式化。放一处，别每个页面各写一份。 */
+/** 界面上重复用到的格式化。放一处，避免在多个页面重复实现。 */
 
 fun formatSize(bytes: Long?): String {
     if (bytes == null || bytes < 0) return ""

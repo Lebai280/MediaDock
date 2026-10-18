@@ -1,7 +1,7 @@
 package com.lovelev.mediadock.data
 
 /** 哪些扩展名算视频、哪些算字幕，以及「这个字幕是不是配这个视频」。
- *  扫描器、浏览页、播放页都要用同一份判断，别各写一遍。 */
+ *  扫描器、浏览页、播放页都要用同一份判断，不得重复实现。 */
 object MediaTypes {
 
     private val VIDEO_EXTENSIONS = setOf(

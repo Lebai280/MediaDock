@@ -87,7 +87,7 @@ class SecureCredentialStore(private val context: Context) {
         context.credentialDataStore.edit { it[keyLocalTree] = uri.trim() }
     }
 
-    /** 只清本地媒体目录 —— 和「退出登录」是两回事，别顺手把 WebDAV 凭据也清了。 */
+    /** 只清本地媒体目录 —— 与「退出登录」语义不同，不得同时清除 WebDAV 凭据。 */
     suspend fun clearLocalTree() {
         context.credentialDataStore.edit { it.remove(keyLocalTree) }
     }

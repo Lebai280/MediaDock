@@ -320,7 +320,7 @@ internal fun PlayerControls(
                 }
                 Spacer(Modifier.width(14.dp))
 
-                // 时长还没读出来（刚起播那一两秒）显示 --:-- ，别显示 00:00 让人以为片子是空的
+                // 时长还没读出来（刚起播那一两秒）显示 --:-- ，不得显示 00:00，避免误判为空片
                 Text(
                     text = "${formatClock(position)} / " +
                         if (duration > 0L) formatClock(duration) else "--:--",

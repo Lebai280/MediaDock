@@ -13,7 +13,7 @@ import okhttp3.Request
  * 整页看上去是那张海报一路延伸下来，而不是图片下面另起一块背景。
  *
  * 为什么不复用 Coil 已经加载好的那张：那层的 bitmap 拿不到（各实现的图像类型不同），
- * 而这里单独下一张 w92（几 KB）比跟 Coil 内部较劲省事。失败返回 null，界面走兜底，
+ * 而这里单独下一张 w92（几 KB）比跟 Coil 内部较劲省事。失败返回 null，界面走回退，
  * 拿不到颜色不影响任何功能。
  */
 internal object PosterTint {
@@ -30,7 +30,7 @@ internal object PosterTint {
                     resp.body.bytes()
                 }
             } catch (e: CancellationException) {
-                throw e   // 取消要原样抛出，别当成业务失败吞掉
+                throw e   // 取消要原样抛出，不得作为业务失败吞掉
             } catch (e: Exception) {
                 return@withContext null
             }
@@ -38,7 +38,7 @@ internal object PosterTint {
             val bitmap = try {
                 BitmapFactory.decodeByteArray(bytes, 0, bytes.size) ?: return@withContext null
             } catch (e: CancellationException) {
-                throw e   // 取消要原样抛出，别当成业务失败吞掉
+                throw e   // 取消要原样抛出，不得作为业务失败吞掉
             } catch (e: Exception) {
                 return@withContext null
             }

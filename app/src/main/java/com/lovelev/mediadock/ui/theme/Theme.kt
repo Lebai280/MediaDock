@@ -18,7 +18,7 @@ import androidx.compose.ui.unit.dp
  * 所以两个角色分开：
  *  - `primary`：亮柠檬绿，给填充按钮、进度条这类**色块**用，配 `onPrimary` 深色字。
  *  - `tertiary`：深一档的橄榄绿，给**文字**用（设置页的分组标题、详情页当前集高亮）。
- * 颜色改完记得跑一下对比度（见 WORKLOG 里那段脚本），别只看好不好看。
+ * 颜色改完记得跑一下对比度（见 WORKLOG 里那段脚本），不得仅凭视觉判断。
  */
 private val Lime = Color(0xFFC4E04F)
 private val LimeInk = Color(0xFF1A1C10)

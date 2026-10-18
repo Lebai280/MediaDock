@@ -14,7 +14,7 @@ import java.io.IOException
 
 /**
  * TMDB 凭据。TMDB 认两种，两种都收 —— 用户从申请页拿到的是「API Read Access Token」
- * （JWT）和「API Key」（32 位十六进制）两个值，粘哪个都能用，别让人猜。
+ * （JWT）和「API Key」（32 位十六进制）两个值，两种形式均支持，避免用户猜测。
  */
 data class TmdbSecret(val value: String) {
     /** JWT 长这样：`xxx.yyy.zzz`；api_key 是没有点的 32 位十六进制。 */
@@ -66,7 +66,7 @@ data class TmdbMatch(
 
 class TmdbException(message: String, cause: Throwable? = null) : Exception(message, cause)
 
-/** 凭据不对：整轮刮削都别再试了。 */
+/** 凭据不对：整轮刮削不得继续重试。 */
 class TmdbAuthException(message: String) : Exception(message)
 
 class TmdbClient(private val client: OkHttpClient) {
@@ -138,7 +138,7 @@ class TmdbClient(private val client: OkHttpClient) {
             val dto = try {
                 JSON.decodeFromString<DetailResponse>(body)
             } catch (e: CancellationException) {
-                throw e   // 取消要原样抛出，别当成业务失败吞掉
+                throw e   // 取消要原样抛出，不得作为业务失败吞掉
             } catch (e: Exception) {
                 throw TmdbException("TMDB 详情无法解析：${e.message}", e)
             }
@@ -178,16 +178,16 @@ class TmdbClient(private val client: OkHttpClient) {
         try {
             JSON.decodeFromString<SearchResponse>(body).results
         } catch (e: CancellationException) {
-            throw e   // 取消要原样抛出，别当成业务失败吞掉
+            throw e   // 取消要原样抛出，不得作为业务失败吞掉
         } catch (e: Exception) {
             throw TmdbException("TMDB 响应无法解析：${e.message}", e)
         }
     }
 
     /**
-     * **这里的 429 是可以重试的** —— 它是 TMDB 的限流，不是账号锁定。
-     * 跟 WebDAV 那条「401/429 绝不重试」的硬约束是两回事，别把两者搞混：
-     * 那边的重试会连累别人，这边按 `Retry-After` 退避正好是对服务器友善的做法。
+     * **此处的 429 允许重试**：它是 TMDB 限流，不是账号锁定。
+     * 与 WebDAV 的「401/429 不得重试」约束语义不同，不得混淆：
+     * WebDAV 重试会影响其他客户端；TMDB 按 `Retry-After` 退避符合服务端限流要求。
      */
     /** 组一个 GET 请求（带凭据）。 */
     private fun requestFor(path: String, params: Map<String, String>, secret: TmdbSecret): Request {
@@ -219,7 +219,7 @@ class TmdbClient(private val client: OkHttpClient) {
                             throw TmdbException("TMDB 一直限流，稍后再试")
                         }
                         attempt++
-                        // 按服务器说的等，但别被一个离谱的值卡死
+                        // 按服务器说的等，但避免因异常值长时间阻塞
                         delay(wait.coerceIn(1L, MAX_BACKOFF) * 1000)
                     }
                     else -> throw TmdbException("TMDB 返回 HTTP ${resp.code}")
@@ -248,7 +248,7 @@ class TmdbClient(private val client: OkHttpClient) {
         private const val MAX_BACKOFF = 30L
         private const val MAX_RATE_RETRIES = 2
 
-        /** 演员表最多带这么多条，够铺一条横滑了，别把详情页撑爆。 */
+        /** 演员表最多带这么多条，够铺一条横滑了，避免详情页数据量过大。 */
         private const val CAST_LIMIT = 20
 
         /** 图片地址：只存 path，宽度按用处拼。 */

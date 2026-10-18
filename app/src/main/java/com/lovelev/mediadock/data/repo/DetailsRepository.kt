@@ -33,8 +33,8 @@ sealed interface DetailFillState {
 
     /**
      * [filled] 是**真拉到的**条数，[failed] 是失败的条数。
-     * ⚠️ 别拿「处理过的总数」当成功数往界面上报 —— 网络不通时每条都会失败，
-     * 报「已补齐 63 条」就是假信息（真机上踩过）。
+     * 不得将「处理过的总数」作为成功数上报 —— 网络不通时每条都会失败，
+     * 报「已补齐 63 条」就是假信息（真机验证中出现过）。
      */
     data class Done(val filled: Int, val failed: Int) : DetailFillState
 
@@ -114,7 +114,7 @@ class DetailsRepository(
             var done = 0
             var filled = 0
             try {
-                // 4 个一批：和刮削同一套节奏，别把 TMDB 打爆
+                // 4 个一批：和刮削同一套节奏，避免对 TMDB 造成突发压力
                 for (batch in pending.chunked(FILL_CONCURRENCY)) {
                     if (!isActive) return@launch
                     val results = coroutineScope {
@@ -137,7 +137,7 @@ class DetailsRepository(
                     done += batch.size
 
                     // 一整轮下来一条都没成、已经试过一批了 → 多半是网络/代理不通（或 DNS 被污染）。
-                    // 早点停并明确报错，别把 63 条挨个失败完再报「已补齐」。
+                    // 早点停并明确报错，不得逐条失败后才报告「已补齐」。
                     if (filled == 0 && done >= FAIL_ABORT_THRESHOLD) {
                         throw TmdbException("连不上 TMDB —— 检查手机的网络 / 代理")
                     }
@@ -209,7 +209,7 @@ class DetailsRepository(
     private companion object {
         const val FILL_CONCURRENCY = 4
 
-        /** 试够这么多条还一条没成，就当网络不通、中止（别把整库挨个失败完）。 */
+        /** 试够这么多条还一条没成，就当网络不通、中止（避免整库逐条失败）。 */
         const val FAIL_ABORT_THRESHOLD = 8
     }
 }

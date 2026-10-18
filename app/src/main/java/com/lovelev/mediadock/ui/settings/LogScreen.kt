@@ -55,7 +55,7 @@ fun LogScreen(onBack: () -> Unit, modifier: Modifier = Modifier) {
 
     suspend fun reload() {
         val body = withContext(Dispatchers.IO) { AppLog.read() }
-        text = body.ifBlank { "还没有日志。" }
+        text = body.ifBlank { "暂无日志。" }
         sizeLabel = formatSize(AppLog.fileSizeBytes())
     }
 
@@ -77,7 +77,7 @@ fun LogScreen(onBack: () -> Unit, modifier: Modifier = Modifier) {
                     }) { Text("复制") }
                     TextButton(onClick = {
                         AppLog.clear()
-                        // 清完立刻重读，别让界面留着旧内容
+                        // 清完立刻重读，避免界面保留旧内容
                         scope.launch { reload() }
                     }) { Text("清空") }
                 },

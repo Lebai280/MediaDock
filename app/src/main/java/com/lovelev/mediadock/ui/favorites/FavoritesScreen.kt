@@ -24,7 +24,7 @@ fun FavoritesScreen(
 
     if (items.isEmpty()) {
         Box(modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-            Text("还没有收藏", style = MaterialTheme.typography.bodyMedium)
+            Text("暂无收藏", style = MaterialTheme.typography.bodyMedium)
         }
         return
     }

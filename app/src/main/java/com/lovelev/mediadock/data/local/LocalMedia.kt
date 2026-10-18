@@ -4,7 +4,7 @@ package com.lovelev.mediadock.data.local
  * 本地媒体在库里的路径编码。
  *
  * 媒体库的 `path` 列同时装三种来源，靠前缀/协议区分 —— **刻意不新增数据库列**：
- * 那要写一次迁移（而迁移是这个项目最容易出事的地方，见 WORKLOG 坑 39/45），
+ * 那要写一次迁移（而迁移是这个项目风险最高的环节，见 WORKLOG 问题 39/45），
  * 而这里纯粹是个字符串约定，写错也只是扫描结果不对，碰不到用户数据。
  *
  * | 来源 | 存进 `path` 的形式 | 播放时怎么变成地址 |
@@ -13,7 +13,7 @@ package com.lovelev.mediadock.data.local
  * | SAF 选的文件夹 | `local/<相对目录树根的路径>` | 用「树 URI + 相对路径」现拼 |
  * | 系统媒体库 | `content://media/...` 原样 | 直接就是地址 |
  *
- * ⚠️ **SAF 那条为什么存相对路径而不是 URI**：SAF 的 document URI 依赖那次授权拿到的树，
+ * **SAF 那条为什么存相对路径而不是 URI**：SAF 的 document URI 依赖那次授权拿到的树，
  * 而 `content://media/...` 这种是系统给的稳定 id、跨重启不变。所以一个要现拼、一个直接存。
  */
 object LocalMedia {

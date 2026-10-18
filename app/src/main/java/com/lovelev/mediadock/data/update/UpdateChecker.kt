@@ -30,7 +30,7 @@ sealed interface UpdateResult {
 
     data class Available(val manifest: UpdateManifest) : UpdateResult
 
-    /** [noManifest] = 站点上还没放版本文件（404），和「连不上」分开说 —— 原因不一样，别混成一句。 */
+    /** [noManifest] = 站点尚未提供版本文件（404），和「连不上」分开说 —— 原因不同，不得合并为同一提示。 */
     data class Failed(val message: String, val noManifest: Boolean) : UpdateResult
 }
 

@@ -69,7 +69,7 @@ class ShareConfigTest {
     }
 
     @Test
-    fun `光有链接没有密码 不算配置（剪贴板里随便一个链接别乱填）`() {
+    fun `光有链接没有密码 不算配置（不得自动填入任意链接）`() {
         assertNull(ShareConfig.parse("https://www.example.com/some/page"))
         assertNull(ShareConfig.parse("看看这个 https://a.com/dav 挺好"))
     }

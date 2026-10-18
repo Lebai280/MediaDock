@@ -40,7 +40,7 @@ fun AddSourceScreen(
     val blocked = (vm.state as? TestState.Failure)?.retryBlocked == true
     val context = LocalContext.current
 
-    // **自动识别、自动填入**：进这个页面时看一眼剪贴板，像分享配置就直接填好。
+    // **自动识别、自动填入**：进这个页面时读取剪贴板，像分享配置就直接填好。
     // 认不出来什么都不做（不会乱动用户的输入）。
     LaunchedEffect(Unit) {
         vm.applyShared(clipboardText(context))
@@ -55,18 +55,16 @@ fun AddSourceScreen(
     ) {
         Text("添加 WebDAV 数据源", style = MaterialTheme.typography.headlineSmall)
 
-        // 分享配置的提示 + 手动粘贴入口（自动识别没赶上时可以再点一下）
+        // 分享配置的提示 + 手动粘贴入口（自动识别没赶上时可再次点击）
         Row(verticalAlignment = Alignment.CenterVertically) {
-            Text(
-                text = vm.sharedHint ?: "朋友发来的配置可以直接粘贴进来",
-                style = MaterialTheme.typography.bodySmall,
-                color = if (vm.sharedHint != null) {
-                    MaterialTheme.colorScheme.tertiary
-                } else {
-                    MaterialTheme.colorScheme.onSurfaceVariant
-                },
-                modifier = Modifier.weight(1f),
-            )
+            vm.sharedHint?.let { hint ->
+                Text(
+                    text = hint,
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.tertiary,
+                    modifier = Modifier.weight(1f),
+                )
+            } ?: Spacer(Modifier.weight(1f))
             TextButton(onClick = { vm.pasteShared(clipboardText(context)) }) {
                 Text("粘贴分享配置")
             }
@@ -76,7 +74,7 @@ fun AddSourceScreen(
             value = vm.url,
             onValueChange = vm::editUrl,
             label = { Text("服务器地址") },
-            placeholder = { Text("https://你的服务器地址/dav") },
+            placeholder = { Text("https://example.com/dav") },
             singleLine = true,
             modifier = Modifier.fillMaxWidth(),
         )
@@ -103,7 +101,7 @@ fun AddSourceScreen(
             value = vm.rootPath,
             onValueChange = vm::editRootPath,
             label = { Text("根路径（可选）") },
-            placeholder = { Text("留空则用地址里的路径") },
+            placeholder = { Text("默认使用地址中的路径") },
             singleLine = true,
             modifier = Modifier.fillMaxWidth(),
         )

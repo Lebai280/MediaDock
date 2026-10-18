@@ -141,7 +141,7 @@ fun PlaylistsScreen(
         AlertDialog(
             onDismissRequest = { pendingDelete = null },
             title = { Text("删除片单") },
-            text = { Text("片单将被删除，媒体文件不受影响。") },
+            text = { Text("删除片单，媒体文件不受影响。") },
             confirmButton = {
                 TextButton(onClick = {
                     pendingDelete = null

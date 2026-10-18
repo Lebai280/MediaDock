@@ -25,7 +25,7 @@ data class LocalFile(
 /**
  * 遍历用户选中的那棵 SAF 目录树，挑出视频文件。
  *
- * ⚠️ **别改回 `DocumentFile`。**
+ * **别改回 `DocumentFile`。**
  * `DocumentFile.listFiles()` 返回的对象，每个属性访问（`isDirectory` / `name` / `length()` /
  * `lastModified()`）**都是一次独立的 ContentResolver 查询** —— 一个目录 100 个文件就是
  * 约 400 次 IPC。初始版本就是这么写的，用户实测「扫描很久」。
@@ -115,8 +115,8 @@ class LocalScanner(private val context: Context) {
     }
 
     /**
-     * @param readable false = 那棵树打不开了（授权被撤销、目录被删）。
-     *   和「扫到 0 个文件」是两回事，界面要分开说。
+     * @param readable false = 目录树无法访问（授权被撤销或目录被删除）。
+     *   与「扫描到 0 个文件」语义不同，界面应分别提示。
      */
     data class ScanOutcome(
         val files: List<LocalFile>,

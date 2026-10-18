@@ -37,6 +37,7 @@ import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
@@ -52,7 +53,7 @@ import kotlinx.coroutines.launch
 
 /** 需要二次确认的不可逆操作。 */
 private enum class Confirmable(val title: String, val detail: String) {
-    ClearLibrary("清空媒体库", "媒体库将清空，需要重新扫描。进度与收藏保留。"),
+    ClearLibrary("清空媒体库", "将清空媒体库并需要重新扫描；进度与收藏保留。"),
     Logout("退出登录", "将清除数据源登录信息。"),
 }
 
@@ -78,8 +79,7 @@ fun SettingsScreen(
     val host = vm.sourceHost
     val itemCount by vm.itemCount.collectAsState()
 
-    // 选一个本地文件夹（SAF 目录树）。**这一步没法自动化验** ——
-    // 系统选择器吃不下 adb 注入的点击（WORKLOG 坑 56），得用户自己点。
+    // 该步骤无法自动化验证：系统选择器不接受 adb 注入点击（WORKLOG 问题 56），需要用户手动操作。
     val pickLocalFolder = rememberLauncherForActivityResult(
         ActivityResultContracts.OpenDocumentTree(),
     ) { uri -> uri?.let(vm::onLocalFolderPicked) }
@@ -119,8 +119,8 @@ fun SettingsScreen(
                 )
             }
             HorizontalDivider()
-            // 本地媒体。**推荐走系统媒体库** —— 一次权限弹窗就够，不用用户去一层层找文件夹，
-            // 而且整库一次查询就回来了（SAF 逐目录遍历慢得多）。「指定文件夹」留给媒体库看不到的场景。
+            // 本地媒体。**推荐使用系统媒体库**：仅需一次权限授权，整库通过一次查询返回；
+            // SAF 逐目录遍历较慢。「指定文件夹」用于系统媒体库无法覆盖的场景。
             Text(
                 text = "扫描系统媒体库",
                 style = MaterialTheme.typography.bodyLarge,
@@ -173,7 +173,7 @@ fun SettingsScreen(
                 )
             }
             HorizontalDivider()
-            // 分享给朋友：把 地址/账号/密码 拼成一段文本复制走，朋友在「添加数据源」页会自动填入
+            // 分享配置：将地址、账号与密码拼接为一段文本并复制，其他设备可在「添加数据源」页自动填入。
             Text(
                 text = "分享给朋友",
                 style = MaterialTheme.typography.bodyLarge,
@@ -214,6 +214,7 @@ fun SettingsScreen(
                     label = { Text("TMDB 凭据") },
                     placeholder = { Text("API Read Access Token 或 API Key") },
                     singleLine = true,
+                    visualTransformation = PasswordVisualTransformation(),
                     modifier = Modifier.fillMaxWidth(),
                 )
                 Spacer(Modifier.height(12.dp))
@@ -235,6 +236,7 @@ fun SettingsScreen(
                     onValueChange = vm::editSubtitleKey,
                     label = { Text("OpenSubtitles API Key") },
                     singleLine = true,
+                    visualTransformation = PasswordVisualTransformation(),
                     modifier = Modifier.fillMaxWidth(),
                 )
                 Spacer(Modifier.height(10.dp))
@@ -251,6 +253,7 @@ fun SettingsScreen(
                     onValueChange = vm::editSubtitlePass,
                     label = { Text("密码") },
                     singleLine = true,
+                    visualTransformation = PasswordVisualTransformation(),
                     modifier = Modifier.fillMaxWidth(),
                 )
                 Spacer(Modifier.height(12.dp))
@@ -352,7 +355,7 @@ fun SettingsScreen(
             )
 
             HorizontalDivider()
-            // 申请 TMDB key 时承诺过要在应用里显示署名，这里就是那一处 —— 别删
+            // 申请 TMDB key 时承诺过要在应用里显示署名，这里就是那一处 —— 不得删除
             Text(
                 text = "This product uses the TMDB API but is not endorsed or certified by TMDB.",
                 style = MaterialTheme.typography.bodySmall,
@@ -485,7 +488,7 @@ private fun DestructiveRow(label: String, onClick: () -> Unit) {
     )
 }
 
-/** 把分享文本放进剪贴板（用平台 API，别用已废弃的 Compose 剪贴板包装）。 */
+/** 把分享文本放进剪贴板（用平台 API，不得使用已废弃的 Compose 剪贴板包装）。 */
 internal fun copyToClipboard(context: Context, text: String) {
     val manager = context.getSystemService(Context.CLIPBOARD_SERVICE) as? ClipboardManager ?: return
     manager.setPrimaryClip(ClipData.newPlainText("MediaDock 数据源", text))

@@ -23,7 +23,7 @@ import kotlinx.coroutines.withContext
  *    不用像 SAF 那样存「树 + 相对路径」再现拼。
  *
  * 代价：**只看得见系统媒体扫描器已索引的文件**。少数情况会漏（`nomedia` 目录、
- * 被用户从媒体库里排除的文件夹、极新的文件还没被扫到）。那时用「指定文件夹」兜底。
+ * 被用户从媒体库里排除的文件夹、极新的文件还没被扫到）。那时用「指定文件夹」回退。
  */
 class MediaStoreScanner(private val context: Context) {
 

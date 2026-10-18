@@ -9,7 +9,7 @@ data class ParsedTitle(
 )
 
 /**
- * 文件名解析。规则是照着**用户库里真实的命名**定的，别凭想象改：
+ * 文件名解析。规则是照着**用户库里真实的命名**定的，不得凭推测修改：
  *
  * ```
  * 河西走廊.HeXi.Corridor.2015.EP01.4K.X264.AAC.Mandarin.CHS.HQC.mp4
@@ -99,7 +99,7 @@ object TitleParser {
      * 2. 文件名里能抠出的中文段
      * 3. 目录名里能抠出的中文段（文件只有英文名时靠这条）
      * 4. 文件名洗掉标签后的英文部分
-     * 5. 兜底：文件名的第一个词（放不下也别让检索词为空）
+     * 5. 回退：文件名的第一个词（无法提取时也不得使检索词为空）
      */
     private fun pickTitle(fileStem: String, folderStem: String?): String {
         bracketedCjk(fileStem)?.let { return it }

@@ -37,17 +37,17 @@ internal fun MediaController.holdsQueue(signature: String): Boolean {
     return (0 until mediaItemCount).joinToString("\u0000") { getMediaItemAt(it).mediaId } == signature
 }
 
-/** 把 ExoPlayer 的错误翻成能照着做事的一句话。 */
+/** 将 ExoPlayer 错误转换为可操作的用户提示。 */
 internal fun describePlaybackError(error: PlaybackException): String {
-    // 状态码未必就在最外层的 cause 上，顺着因果链找一层
+    // 状态码未必位于最外层 cause，沿因果链逐层查找
     val httpCode = generateSequence(error.cause) { it.cause }
         .take(10)
         .filterIsInstance<HttpDataSource.InvalidResponseCodeException>()
         .firstOrNull()
         ?.responseCode
     return when (httpCode) {
-        401 -> "账号或密码不正确，请回数据源页重新登录"
-        429 -> "服务器已暂时锁定登录，请稍后再试 —— 不要反复重试"
+        401 -> "账号或密码不正确，请返回数据源页重新登录"
+        429 -> "服务器已暂时锁定登录，请稍后重试；请勿反复尝试"
         404 -> "文件不存在或路径已失效"
         null -> "播放失败：${error.message ?: "未知错误"}"
         else -> "播放失败：服务器返回 HTTP $httpCode"

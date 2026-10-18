@@ -75,15 +75,15 @@ internal object ShareConfig {
     /**
      * 从分享文本里取 TMDB 密钥（可选，取不到返回 null）。
      *
-     * ⚠️ **只在 [parse] 认得这段文本时才该用它的结果** —— 否则剪贴板里随便一段带「tmdb」字样的
+     * **只在 [parse] 认得这段文本时才该用它的结果** —— 否则剪贴板里任意包含「tmdb」字样的
      * 文本就会把密钥写进设置。
      */
     fun parseTmdb(text: String): String? =
         LABELED_TMDB.find(text)?.groupValues?.get(1)?.trim()?.takeIf { it.isNotBlank() }
 
     /**
-     * 认出一段分享文本。**地址和密码都得有**才算 —— 剪贴板里随便一个链接不该被当成配置。
-     * 认不出来返回 null（界面就别动用户的输入）。
+     * 认出一段分享文本。**地址和密码都得有**才算 —— 剪贴板中的任意链接不得被当作配置。
+     * 认不出来返回 null（界面不得修改用户输入）。
      */
     fun parse(text: String): StoredSource? {
         if (text.isBlank()) return null

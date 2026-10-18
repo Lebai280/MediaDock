@@ -98,15 +98,15 @@ fun PlayerScreen(vm: PlayerViewModel, modifier: Modifier = Modifier) {
 /**
  * 播放画面 + **自绘控件层**（不用 PlayerView 的原生控件）。
  *
- * ## 触摸分发（这一页最要紧的一条，别再改坏）
+ * ## 触摸分发（本页关键约束，修改时必须保持）
  *
  * 结构：铺满的**父 `Box`** 上挂**一个** `pointerInput`（手写手势循环，同时管「点一下显示/隐藏」
  * 和左右半屏上下滑调亮度/音量），**按钮、进度条是它的子节点**。Compose 里子节点先于父拿到事件，
  * 所以点按钮、拖进度条不会被父抢走，只有点空白才落到父上。
  *
- * 两个坑（都是踩过的，别重犯）：
- *  1. **别把「点击切换」层和按钮做成兄弟节点** —— 点击层压在上面会把触摸全截胡（上一版就是）。
- *  2. **别在同一个节点挂两个并行 `pointerInput`**（一个 `detectTapGestures`、一个
+ * 两个问题（均已处理，不得重复）：
+ *  1. **不得将「点击切换」层与按钮设为兄弟节点**：点击层位于上层会拦截全部触摸事件（上一版本即为此问题）。
+ *  2. **不得在同一节点挂载两个并行 `pointerInput`**（一个 `detectTapGestures`、一个
  *     `detectVerticalDragGestures`）—— 前者会把事件流吞掉大半，拖拽只吃到末尾一小段，
  *     表现就是「又抖又不灵敏」。所以这里把手势合并成一个循环自己写。
  */
@@ -169,7 +169,7 @@ private fun PlayerSurface(
 
     DisposableEffect(controller) {
         val c = controller ?: return@DisposableEffect onDispose { }
-        // ⚠️ 先主动读一次当前轨道。`onTracksChanged` **只在轨道变化时**回调 ——
+        // 先主动读一次当前轨道。`onTracksChanged` **只在轨道变化时**回调 ——
         // 如果监听器挂上去时播放器早就 prepare 完了（续播、旋转屏、从迷你条进来都会这样），
         // 那个回调永远不会补发，tracks 就一直是 null：音轨菜单和字幕菜单会整块消失。
         tracks = c.currentTracks
@@ -301,7 +301,7 @@ private fun PlayerSurface(
                             if (!dragging && abs(travelledY) > viewConfiguration.touchSlop) dragging = true
 
                             if (dragging && !locked) {
-                                // ⚠️ 用**累计**位移算：每次事件的增量只有一点点，直接拿去加起始值
+                                // 用**累计**位移算：每次事件的增量只有一点点，直接拿去加起始值
                                 // 只会原地抖、几乎不变化（上一版就是这么坏的）。
                                 val fraction =
                                     -travelledY / size.height * SWIPE_FULL_RANGE_PER_SCREEN
@@ -360,7 +360,7 @@ private fun PlayerSurface(
             // 锁定后其余控件一律不画（手势也在上面按 locked 关掉了）
             if (locked) return@Box
 
-            // 控件淡入淡出，别硬切（用户要求动画优雅一些）
+            // 控件淡入淡出，不得硬切（产品要求动画平滑）
             AnimatedVisibility(
                 visible = controlsVisible,
                 enter = fadeIn(tween(180)),

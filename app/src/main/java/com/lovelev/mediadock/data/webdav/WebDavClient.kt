@@ -28,7 +28,7 @@ class WebDavClient(private val client: OkHttpClient) {
      *
      * @param collection 要列举的集合。
      * @param root 数据源根集合。返回条目里的 path 一律相对**它**（不是相对 [collection]），
-     *   这样才能原样喂回 [WebDavUrl.child] 重建地址 —— 列举子目录时两者不同，别传错。
+     *   这样才能原样喂回 [WebDavUrl.child] 重建地址 —— 列举子目录时两者不同，不得传错。
      */
     suspend fun propfind(
         collection: HttpUrl,
@@ -64,7 +64,7 @@ class WebDavClient(private val client: OkHttpClient) {
                     } catch (e: WebDavException) {
                         throw e
                     } catch (e: CancellationException) {
-                        throw e   // 取消要原样抛出，别当成业务失败吞掉
+                        throw e   // 取消要原样抛出，不得作为业务失败吞掉
                     } catch (e: Exception) {
                         throw WebDavException.Malformed(e.message ?: e::class.java.simpleName)
                     }

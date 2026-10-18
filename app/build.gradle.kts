@@ -52,7 +52,7 @@ android {
         release {
             if (hasReleaseKey) signingConfig = signingConfigs.getByName("release")
             // R8：体积与启动都明显受益。Room / kotlinx-serialization / Media3 的 consumer
-            // 规则已经足够；开之前必须真机跑一遍播放、刮削、字幕与详情（见 WORKLOG 坑 74）。
+            // 规则已经足够；开之前必须真机跑一遍播放、刮削、字幕与详情（见 WORKLOG 问题 74）。
             isMinifyEnabled = true
             isShrinkResources = true
             proguardFiles(

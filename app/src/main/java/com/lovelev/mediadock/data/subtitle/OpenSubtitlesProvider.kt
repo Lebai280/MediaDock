@@ -28,8 +28,8 @@ data class OpenSubtitlesCredentials(
  * - 站点有下载额度：超了回 406 / 429 —— 当「额度」处理，**不重试**。
  * - token 过期（下载 401）时**重新登录一次**再试一遍（只一次，不做无脑重试）。
  *
- * ⚠️ 这套是照公开文档的形状写的，解析用 `ignoreUnknownKeys` 宽容处理。**本机没有 key，跑不通真实请求**，
- * 所以字段名以站点为准：站点哪天改了形状，改下面这几个 DTO 就行，别动上面的逻辑。
+ * 这套是照公开文档的形状写的，解析用 `ignoreUnknownKeys` 宽容处理。**本机没有 key，跑不通真实请求**，
+ * 所以字段名以站点为准：站点哪天改了形状，改下面这几个 DTO 就行，不得修改上层逻辑。
  */
 class OpenSubtitlesProvider(
     private val client: OkHttpClient,
@@ -77,7 +77,7 @@ class OpenSubtitlesProvider(
         val parsed = try {
             JSON.decodeFromString<SearchResponse>(body)
         } catch (e: CancellationException) {
-            throw e   // 取消要原样抛出，别当成业务失败吞掉
+            throw e   // 取消要原样抛出，不得作为业务失败吞掉
         } catch (e: Exception) {
             throw SubtitleException("OpenSubtitles 的响应看不懂：${e.message}", e)
         }
@@ -125,7 +125,7 @@ class OpenSubtitlesProvider(
         val parsed = try {
             JSON.decodeFromString<LoginResponse>(body)
         } catch (e: CancellationException) {
-            throw e   // 取消要原样抛出，别当成业务失败吞掉
+            throw e   // 取消要原样抛出，不得作为业务失败吞掉
         } catch (e: Exception) {
             throw SubtitleException("OpenSubtitles 登录响应看不懂：${e.message}", e)
         }
@@ -137,7 +137,7 @@ class OpenSubtitlesProvider(
         return try {
             JSON.decodeFromString<DownloadResponse>(body)
         } catch (e: CancellationException) {
-            throw e   // 取消要原样抛出，别当成业务失败吞掉
+            throw e   // 取消要原样抛出，不得作为业务失败吞掉
         } catch (e: Exception) {
             throw SubtitleException("OpenSubtitles 的下载响应看不懂：${e.message}", e)
         }
@@ -163,7 +163,7 @@ class OpenSubtitlesProvider(
                     out.toByteArray()
                 }
             } catch (e: CancellationException) {
-                throw e   // 取消要原样抛出，别当成业务失败吞掉
+                throw e   // 取消要原样抛出，不得作为业务失败吞掉
             } catch (e: Exception) {
                 throw SubtitleException("字幕解压失败：${e.message}", e)
             }

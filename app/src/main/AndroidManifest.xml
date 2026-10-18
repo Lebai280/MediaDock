@@ -41,7 +41,7 @@
         <!--
           exported="false"：只有本 App 需要连它（界面用显式 ComponentName 绑，
           同 UID 不受 exported 限制）。不导出 = 别的东西连不上这个媒体会话。
-          若真机上点播放毫无反应/报连不上，第一件事就是把这里改成 true（见 WORKLOG 坑 11）。
+          若真机上播放无响应或报告无法连接，第一件事就是把这里改成 true（见 WORKLOG 问题 11）。
         -->
         <service
             android:name=".player.PlaybackService"

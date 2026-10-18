@@ -92,16 +92,16 @@ class DetailViewModel(private val container: AppContainer) : ViewModel() {
 
     /**
      * 海报底部的主色调 —— 详情页下半部分的背景用它接出去（见 PosterTint）。
-     * null = 取不到色（没图 / 没网 / 解码失败），界面走兜底渐变，不影响功能。
+     * null = 取不到色（没图 / 没网 / 解码失败），界面走回退渐变，不影响功能。
      */
     var heroTint by mutableStateOf<Color?>(null)
         private set
 
-    // ⚠️ init 必须放在它引用的属性**之后** —— Kotlin 按声明顺序初始化，
+    // init 必须放在它引用的属性**之后** —— Kotlin 按声明顺序初始化，
     // 之前把 init 写在了 entries 前面，运行起来就是 NullPointerException。
     init {
         viewModelScope.launch {
-            // 等条目到位（StateFlow 的初值是空列表，别直接 first()）
+            // 等条目到位（StateFlow 的初值是空列表，不得直接调用 first()）
             val item = entries.first { it.isNotEmpty() }.first()
 
             // 背景主色：取海报底部一条的均值（w92 只有几 KB），拿不到就算了

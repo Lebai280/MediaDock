@@ -7,7 +7,7 @@ import com.lovelev.mediadock.data.local.TitleDetail
  * 首页的一条分类行。
  *
  * @param total 这一类**总共有多少条**（[items] 是截断后的展示用列表）——
- *   标题上显示的是 [total]，不是 [items].size，别把截断当成真实数量。
+ *   标题上显示的是 [total]，不是 [items].size，不得将截断值作为真实数量。
  */
 data class GenreRow(
     val genre: String,
@@ -34,7 +34,7 @@ internal const val MIN_PER_GENRE = 3
  * 从「已缓存的详情」里按类型切出首页的分类行。**纯逻辑，有单测**（`GenreRowsTest`）。
  *
  * 注意：类型来自 `title_details`，那张表是懒加载的（打开详情页才拉 / 「补齐影片信息」补）——
- * **没补过就出不来分类行**，这是预期行为，不是 bug（见 WORKLOG 坑 57）。
+ * **没补过就出不来分类行**，这是预期行为，不是缺陷（见 WORKLOG 问题 57）。
  */
 internal fun genreRows(
     items: List<MediaItemEntity>,
