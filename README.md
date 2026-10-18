@@ -34,6 +34,9 @@ E:/code/tools/android-sdk/platform-tools/adb.exe install -r \
 
 也可将 APK 复制到设备后安装。
 
+> debug 构建的包名为 `com.lovelev.mediadock.debug`，release 仍为 `com.lovelev.mediadock`；
+> instrumentation 测试不会覆盖真机上的 release 安装。
+
 ## 本机开发环境
 
 | 组件 | 路径 |

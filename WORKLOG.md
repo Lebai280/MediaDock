@@ -1892,17 +1892,40 @@ APK sha256 `fbdbcc80…4bf8fe`；`version.json` 已指向 0.5.1；真机从 0.5.
 
 **备注**：本次未改变业务逻辑与数据结构；`ARCHITECTURE.md` 中的数据模型修订仍为设计草案，需按 Phase 0a 单独发版实施。
 
+### 2026-10-18 · S1：v8→v9 迁移与兼容 VIEW 验证
+
+**背景**：按架构第 15 节的启动门槛，在 0a 前先验证 v8→v9 的 SQL 迁移、兼容 VIEW 与 Room 读取路径。
+
+**变更**：
+- 开启 `exportSchema = true`，生成并提交 `app/schemas/com.lovelev.mediadock.data.local.MediaDatabase/8.json`；移除 `.gitignore` 对 `app/schemas/` 的忽略。
+- 新增 `tools/spikes/s1/s1_migration_spike.py`：用 v8 schema 构造夹具，原型 v9 迁移（UUID + `logical_key`、movie/episode versions、`file_segments`、分表进度、兼容 VIEW），逐键校验。
+- 新增 androidTest `CompatibilityViewTest`：验证 Room `@DatabaseView` 可读取兼容 VIEW 并支持 `IN (:paths)`；新增 androidTest 依赖、`kspAndroidTest` 与 debug 包名后缀 `.debug`（避免 instrumentation 覆盖 release）。
+- release 包名、签名与数据不受影响。
+
+**验证**：
+- S1 SQL spike 全部通过：VIEW 6 行与 legacy 逐列一致；`IN(path)` 正常；works 4、episodes 2、media_files 6、movie_versions 4、episode_versions 2；进度 2+1；收藏/片单按作品去重为 2；改名/详情/分集元数据映射正确。
+- `connectedDebugAndroidTest` 在 SM-G998U1（Android 15）通过：Room `@DatabaseView` 读取 VIEW 正常。
+- release 仍为 0.5.7 / versionCode 20，数据未动；98 条单测通过；release 构建通过。
+- 设备上的 debug/test 包位于 secondary user 151，shell 无权限卸载；不影响 release。
+
+**备注**：
+- S1 只验证迁移与 VIEW；v9 正式 schema/迁移仍待 0a 实施。
+- `@DatabaseView` 方案成立；0a 需把旧 `MediaItemEntity` 的读路径切到视图 POJO，写路径改新表。
+- 下一步：S2 中文 FTS、S3 DLNA/SMB 选型、S4 FFmpeg 16KB/HDR。
+
 ---
 
 ## 8. 待办
 
 ### 8.1 近期任务
 
-1. **第二季验证**：扫描完成后打开「葬送的芙莉莲」详情页，确认「共 38 集（库中 38 集）」
-   与「第 2 季」标签，S02 应显示 29–38 集。
-2. **刮削重试**：确认手机代理可用后，在「我的 → 刮削」手动重试 90 条失败项。
+1. **第二季验证**：已完成（2026-10-18）——「葬送的芙莉莲」38 集（库中 38），第 2 季 29–38 正常。
+2. **刮削重试**：确认手机代理可用后，在「我的 → 刮削」手动重试失败项（当前约 86 条）。
 3. **片单完整链路**：详情页 → 加入片单 → 选择或新建片单 → 从片单播放。
-4. **运维记录**：OpenList `movie1`–`movie8` 的 `base_path` 已改为 `/夸克/影视`；
+4. **S2**：中文 FTS 20k 基准（FTS4+search_text / FTS5 trigram）。
+5. **S3**：DLNA / SMB 客户端选型与最小 demo。
+6. **S4**：FFmpeg 16KB + HDR/DV/Atmos 真机能力验证。
+7. **运维记录**：OpenList `movie1`–`movie8` 的 `base_path` 已改为 `/夸克/影视`；
    修改数据库后需重启 OpenList 才生效。
 
 ### 8.2 功能路线图（按优先级）

@@ -32,7 +32,7 @@ import androidx.sqlite.db.SupportSQLiteDatabase
         PlaylistItem::class,
     ],
     version = MediaDatabase.VERSION,
-    exportSchema = false,
+    exportSchema = true,
 )
 abstract class MediaDatabase : RoomDatabase() {
     abstract fun mediaDao(): MediaDao

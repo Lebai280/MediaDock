@@ -22,7 +22,6 @@ captures/
 Thumbs.db
 
 # Project
-app/schemas/
 
 # Claude Code 本机设置（个人权限白名单，不进仓库）
 .claude/settings.local.json

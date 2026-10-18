@@ -33,6 +33,7 @@ android {
         targetSdk = 36
         versionCode = 20
         versionName = "0.5.7"
+        testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
     }
 
     signingConfigs {
@@ -49,6 +50,11 @@ android {
     }
 
     buildTypes {
+        debug {
+            // 与正式签名包并存，避免 instrumentation 测试覆盖真机上的 release 安装。
+            applicationIdSuffix = ".debug"
+            versionNameSuffix = "-debug"
+        }
         release {
             if (hasReleaseKey) signingConfig = signingConfigs.getByName("release")
             // R8：体积与启动都明显受益。Room / kotlinx-serialization / Media3 的 consumer
@@ -79,6 +85,11 @@ kotlin {
     }
 }
 
+ksp {
+    // Room schema 导出：v8→v9 迁移测试与评审的基线。
+    arg("room.schemaLocation", "$projectDir/schemas")
+}
+
 dependencies {
     implementation(libs.androidx.core.ktx)
     implementation(libs.androidx.activity.compose)
@@ -105,6 +116,7 @@ dependencies {
     implementation(libs.room.runtime)
     implementation(libs.room.ktx)
     ksp(libs.room.compiler)
+    kspAndroidTest(libs.room.compiler)
 
     implementation(libs.okhttp)
     implementation(libs.coil.compose)
@@ -113,4 +125,7 @@ dependencies {
 
     // 文件名解析是纯逻辑，能在本机 JVM 上跑测试 —— 别把它的验证推给真机
     testImplementation(libs.junit)
+
+    androidTestImplementation(libs.androidx.test.ext.junit)
+    androidTestImplementation(libs.androidx.test.runner)
 }

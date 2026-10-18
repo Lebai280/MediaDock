@@ -1514,6 +1514,10 @@ scrape_tasks(
 | S3 | DLNA / SMB 客户端评估（维护性、许可证、16KB、API） | 选定库与最小可运行 demo |
 | S4 | FFmpeg 16KB page size + HDR/DV/Atmos 真机能力（S21 + 一台 DV/TV） | 可播放/降级矩阵与包体/许可证结论 |
 
+**S1 结果（2026-10-18）**：SQL 迁移 spike 全部通过（VIEW 与 legacy 逐列一致、用户数据映射/去重正确）；
+Room `@DatabaseView` 在 SM-G998U1 真机通过（含 `IN (:paths)`）。详见 WORKLOG 同名条目。
+
+
 ### 15.10 启动门槛
 
 1. 提交当前 54 个文件为基线（文档第二版 + 注释/文案）；确认 98 单测 + release。
