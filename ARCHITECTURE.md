@@ -790,7 +790,8 @@ media_fts USING FTS4(title, aliases, people, tokenize=unicode61)
 | WorkManager 前台限制 | 长扫描被杀 | `dataSync` 前台类型 + 通知 + 可续跑 |
 | 中文搜索分词 | 搜不到 | 专门的 search_text / trigram 方案，基准测试 |
 | 多模块过度拆分 | 构建/维护成本 | 控制在 8–12 个模块 |
-| FFmpeg 包体/许可证 | APK 变大、合规风险 | 后置，评估 LGPL/GPL 与体积 |
+| FFmpeg 包体/许可证 | APK 变大、合规风险 | S4 实测：nextlib GPL-3.0，arm64 +7.5 MiB；官方扩展仅音频、需自建（LGPL）。视频软解暂不引入 |
+| TrueHD / DTS 无解码器 | 播放静音且无提示 | 轨道 `isSupported=false` 时 UI 明确提示「无音频解码器」；必要时接音频软解 |
 | HDR / DV 设备碎片化 | 黑屏、偏色、错误 HDR | 能力探测 + 解码器实际初始化 + 明确降级 |
 | 投屏无 GMS | Cast 不可用 | DLNA 为主，Cast 可选 |
 | DLNA 无鉴权 / 本地代理 | 局域网可访问代理流 | 仅可信 LAN、随机会话路径、结束即停、用户确认 |
@@ -1038,6 +1039,7 @@ data class LibraryFilter(
 | ADR-023 | 开工前修 B1–B6 + 4 个 spike | 降低迁移与返工风险 | 0a 延后，先完成 S1–S4 |
 | ADR-024 | 中文搜索用 FTS4 + `search_text` | 目标机不支持 FTS5 trigram；FTS4 p95 3.44 ms | 查询构造需把 CJK 转为空格短语；索引随标题/演员重建 |
 | ADR-025 | SMB 用 SMBJ；DLNA 自研 SSDP/SOAP + 本地 HTTP 代理 | jUPnP Android 模块缺 Jetty；SMBJ Apache 2.0；DLNA 不依赖 GMS | 需自建代理与 SOAP；只在可信 LAN 使用 |
+| ADR-026 | FFmpeg 视频软解暂不引入；HDR 承诺 HDR10/HLG/HDR10+，不承诺 DV | 官方 Media3 扩展仅音频；nextlib 为 GPL-3.0 且 +7.5 MiB/arm64；S21 无 DV 解码器；TrueHD/DTS 无解码器 | 若需覆盖 RMVB 等格式，需自建 LGPL 视频解码器或接受 GPL；UI 必须提示无解码器 |
 
 > 新增决策时在表格末尾追加，并在 WORKLOG 记录背景与影响。
 
@@ -1544,12 +1546,36 @@ DB 约 5.7 MB。**选定 FTS4 + `search_text`**，详见 WORKLOG 与 ADR-024。
 （无 DLNA 渲染器或网络隔离），真机投屏需在有电视的环境补验。
 选定：**SMBJ + 自研 DLNA 控制器 + 本地 HTTP 代理**。
 
+**S4 结果（2026-10-18）**：SM-G998U1（Android 15 / SDK 35）实测；片源由
+`tools/spikes/s4/generate_samples.sh` 生成，测试见 `PlaybackCapabilitiesSpikeTest`。
+
+| 维度 | 实测 | 结论 |
+|---|---|---|
+| 显示 HDR | HDR10、HLG、HDR10+；无 Dolby Vision | 可承诺 HDR10/HLG/HDR10+，不承诺 DV |
+| HEVC | `c2.qti.hevc.decoder` 硬件：Main/Main10/Main10HDR10/Main10HDR10Plus | 直出路径可用 |
+| VP9 | 硬件 Profile0/Profile2/Profile2HDR/Profile2HDR10Plus | 直出路径可用 |
+| AV1 | 仅软解（`c2.android.av1-dav1d.decoder`），Main8/Main10/HDR10/HDR10+ | 720p 可播；4K 软解代价待测 |
+| 4K60 HDR10 | HEVC 硬解，前 2 s 0 丢帧 | 可播 |
+| 音频 | AC-3 6ch、E-AC-3 8ch、E-AC-3 JOC 16ch（Atmos 声明） | AC-3/E-AC-3 可播 |
+| TrueHD / DTS | 无解码器，轨道 `isSupported=false`，状态 READY 但静音且无错误 | 需 UI 明确提示 |
+| HDR 元数据 | `Format.colorInfo` 正确给出 BT2020/ST2084/HLG；`hdrStaticInfo` 始终为空（MP4 与 MKV 相同） | 不能依赖它判断 HDR10+ 静态元数据 |
+| DV | 无 DV 解码器、无显示支持；P5/P8 未实测（无片源/设备） | 不承诺；P8 预期回落 HEVC 基础层 |
+
+- **FFmpeg**：`nextlib-media3ext:1.11.1-0.16.0` 的 arm64 `.so` 合计 **7.51 MiB**，
+  `LOAD` 段 `p_align=0x4000`（**16 KB 合规**），但许可证为 **GPL-3.0**。
+  官方 Media3 `decoder_ffmpeg` **只提供音频渲染器**，且未发布 Maven 构件，需自行构建
+  （扩展代码 Apache-2.0 + FFmpeg LGPL；构建脚本未带 16 KB 链接参数，需 NDK r28+ 或补
+  `-Wl,-z,max-page-size=16384`）。
+- 当前 release APK **3.27 MiB**：`.so` 的 `p_align=0x4000` 且 `zipalign -P 16` 通过，已满足 16 KB。
+- 结论：**FFmpeg 视频软解后置**（ADR-026）；HDR 承诺 HDR10/HLG/HDR10+，不承诺 DV；
+  Atmos 仅记为“设备声明支持”，不承诺直通；TrueHD/DTS 需在播放页提示无解码器。
+
 
 ### 15.10 启动门槛
 
 1. 提交当前 54 个文件为基线（文档第二版 + 注释/文案）；确认 98 单测 + release。
 2. 按 15.2–15.7 修订 schema 与迁移计划，冻结 v9 设计。
-3. 完成 S1–S4，记录结果与 ADR。
+3. S1–S4 已完成（2026-10-18），结果见 15.9 与 ADR-024–026。
 4. 确认 SLO/DoD/CI 门禁。
 5. 开始 0a：只做数据层 + 兼容 VIEW，不混重构。
 6. 0a 真机验证通过后，进入 0b / Phase 1。
@@ -1557,5 +1583,5 @@ DB 约 5.7 MB。**选定 FTS4 + `search_text`**，详见 WORKLOG 与 ADR-024。
 ### 15.11 仍需确认
 
 - 是否同意先提交当前 54 个文件为基线。
-- S3 后选择 DLNA/SMB 库；S2 后确定 FTS 方案；S4 后确定 HDR/DV 承诺。
+- S2 已确定 FTS 方案、S3 已选定 DLNA/SMB 库、S4 已确定 HDR/DV 承诺（ADR-024 / ADR-025 / ADR-026）。
 - SLO 目标是否按 15.8 执行。

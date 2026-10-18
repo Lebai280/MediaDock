@@ -1963,6 +1963,37 @@ APK sha256 `fbdbcc80…4bf8fe`；`version.json` 已指向 0.5.1；真机从 0.5.
 - DLNA 无鉴权：仅可信局域网、用户确认、不暴露凭据。
 - 下一步：S4 FFmpeg 16KB + HDR/DV/Atmos 真机能力。
 
+### 2026-10-18 · S4：FFmpeg 16KB / HDR / DV / Atmos 真机能力
+
+**背景**：S4 需确定高规格播放的承诺范围，并评估 FFmpeg 软解的 16 KB、包体与许可证。
+
+**变更**：
+- 新增 `PlaybackCapabilitiesSpikeTest`：显示 HDR 类型、视频/音频解码器 profile、逐样本实播。
+- 新增 `tools/spikes/s4/generate_samples.sh` 与 androidTest 样本
+  （HDR10 MP4/MKV、HLG、AV1 10-bit、4K60 HDR10、E-AC-3 5.1、TrueHD 5.1、DTS 5.1）。
+- ARCHITECTURE 增加 S4 矩阵、ADR-026 与风险项；路线图调整 FFmpeg 软解优先级。
+
+**验证（SM-G998U1 / Android 15 / SDK 35）**：
+- 显示：`hdrTypes=[HDR10,HLG,HDR10_PLUS]`，**无 Dolby Vision**。
+- 视频：`c2.qti.hevc.decoder` 硬解 Main10/Main10HDR10/Main10HDR10Plus；VP9 硬解
+  Profile2HDR/Profile2HDR10Plus；AV1 仅软解 `c2.android.av1-dav1d.decoder`；
+  4K60 HDR10 前 2 s 0 丢帧。
+- 音频：AC-3 6ch、E-AC-3 8ch、E-AC-3 JOC 16ch 可解；**TrueHD、DTS 轨道
+  `isSupported=false`**，播放状态 READY 但静音且无错误。
+- HDR 元数据：`Format.colorInfo` 给出 BT2020/ST2084/HLG；`hdrStaticInfo` 在 MP4 与 MKV
+  中均为空，不能用于判断 HDR10+。
+- FFmpeg：`nextlib-media3ext:1.11.1-0.16.0` 的 arm64 `.so` 合计 7.51 MiB，
+  `LOAD p_align=0x4000`（16 KB 合规）；POM 许可证 **GPL-3.0**。官方 Media3
+  `decoder_ffmpeg` **仅音频**、未发布 Maven 构件，需自建（LGPL）。
+- 当前 release APK 3.27 MiB：`.so p_align=0x4000` 且 `zipalign -P 16` 通过。
+- 98 条单测与 release 构建通过；`PlaybackCapabilitiesSpikeTest` 3 项全部通过。
+
+**备注**：
+- 结论：HDR 承诺 HDR10/HLG/HDR10+，不承诺 DV 与 Atmos 直通；FFmpeg 视频软解后置（ADR-026）。
+- 新增待办：播放页对 `isSupported=false` 的音频轨提示「无音频解码器」，避免静音无感。
+- DV P5/P8 未实测（无片源/设备）；P8 预期回落 HEVC 基础层，P5 预期不可播。
+- S1–S4 全部完成；下一步按 15.10 进入 0a（数据层 + 兼容 VIEW）。
+
 ---
 
 ## 8. 待办
@@ -1975,14 +2006,16 @@ APK sha256 `fbdbcc80…4bf8fe`；`version.json` 已指向 0.5.1；真机从 0.5.
 4. **S2**：已完成（2026-10-18）——目标机不支持 FTS5；FTS4 20k 条 p95 3.44 ms，选定 FTS4 + `search_text`。
 5. **S3**：已完成评估（2026-10-18）——SMBJ 选定；DLNA 自研，jUPnP 因 Jetty 不采用；
    真机投屏与 SMB 实网连接待有设备/共享后补验。
-6. **S4**：FFmpeg 16KB + HDR/DV/Atmos 真机能力验证。
+6. **S4**：已完成（2026-10-18）——S21 Ultra 支持 HDR10/HLG/HDR10+，无 DV；TrueHD/DTS 无解码器；
+   nextlib 为 GPL-3.0 且 +7.5 MiB/arm64，FFmpeg 视频软解后置（ADR-026）。
 7. **运维记录**：OpenList `movie1`–`movie8` 的 `base_path` 已改为 `/夸克/影视`；
    修改数据库后需重启 OpenList 才生效。
 
 ### 8.2 功能路线图（按优先级）
 
-1. **播放格式兼容**：引入 FFmpeg 软解回退（ExoPlayer 失败时回退），覆盖 RMVB / AVI /
-   部分 10-bit 等当前无法播放的格式。
+1. **播放格式兼容**：FFmpeg 视频软解经 S4 评估后**后置**——官方 Media3 扩展仅音频，
+   nextlib 为 GPL-3.0（+7.5 MiB/arm64）。若确需 RMVB 等格式，需自建 LGPL 视频解码器
+   或接受 GPL；当前优先补「无音频解码器」提示。
 2. **多数据源并存**：当前仅支持单个 WebDAV 数据源与本地媒体；支持同时挂载多个数据源，
    并在媒体库中合并展示。
 3. **刮削深度**：分集标题与剧照已完成；后续可补预告片、演员页、季海报。
