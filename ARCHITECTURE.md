@@ -780,3 +780,132 @@ data class LibraryFilter(
 - 新增/修改 ADR 时同步更新相关章节；废弃决策保留编号并标注状态。
 - 任何与安全、凭据、401/429、迁移相关的改动，必须先对照本文件再动手。
 
+---
+
+## 13. 质量属性评估与改进清单
+
+> 目标：不只“功能能跑”，而是在可靠性、性能、安全、兼容、可维护、可测试、可部署、可伸缩等维度
+> 达到 10TB / 长期维护的要求。本节同时覆盖**已完成功能的改善项**和**后续功能的约束**。
+
+### 13.1 质量属性矩阵
+
+| 属性 | 现状 | 主要差距 | 改进方向 | 验收 |
+|---|---|---|---|---|
+| 功能性 | 浏览/播放/媒体库/刮削/字幕/收藏/片单基本完整 | 多源、HDR 高规格、投屏、同步、画中画、跳过片头尾 | 按 Phase 2–4 | 功能对照表逐项通过 |
+| 可靠性 | 401 防线、真迁移、进度持久化 | 全局源封锁、任务续跑、迁移测试、备份恢复 | SourceGate + 持久任务 + 迁移测试 | 断网/401/进程死亡后行为可预期 |
+| 易用性 | 界面已按参考重做、二次确认 | 命名问题提示、错误文案、空态、无障碍、中文搜索 | 统一文案 + 引导 + 搜索优化 | 关键流程无需猜 |
+| 性能 | 媒体链路调优、R8、扫描有界 | 全量列表/内存分组、主线程日志、无分页 | Paging/FTS + 异步日志 + 20k 压测 | 预算表达标 |
+| 安全性 | Keystore 凭据、日志脱敏、主机限定的鉴权头 | 明文流量、分享明文凭据、备份规则、供应链 | 按主机白名单 + 二次确认 + 备份排除 | 威胁清单逐项关闭 |
+| 兼容性 | minSdk 26 / targetSdk 36 / arm64 | Android 14 部分媒体访问、HDR/DV/音频碎片化、预测返回 | 权限适配 + 能力探测 + 设备矩阵 | 设备矩阵通过 |
+| 可扩展性 | 字幕源接口、手写容器 | 数据源适配、元数据源、feature 模块 | `MediaSource` / `MetadataProvider` 接口 | 新源不改核心 |
+| 可维护性 | 注释与文档好、分层清楚 | 上帝仓库、UI 直接拿容器、状态不一致 | 拆仓库 + VM 统一 + 模块化 | 单文件 <500 行、无跨层依赖 |
+| 可测试性 | 98 条纯逻辑单测 | 仓库/DB/UI/WorkManager 测试缺失 | 假服务端 + MigrationTestHelper + work-testing | 关键状态机有测试 |
+| 可移植性 | 纯 Android、E 盘构建 | 开发环境绑定本机路径、无 Linux 开发说明 | 文档化环境 + CI 校验 | 新机器可按文档构建 |
+| 可部署性 | CI 签字包 + tag Release | 无 lint 门禁、无迁移门禁、无回滚演练 | CI 加 lint/迁移/性能门禁 | 发布可重复、可回滚 |
+| 可伸缩性 | 单源、全量模型 | 10TB/多源/20k 列表 | Phase 0–2 | 20k 合成库达标 |
+| 可观测性 | 落盘日志、崩溃捕获 | 结构化指标、播放诊断、任务进度 | 统一诊断面板 + 指标 | 问题可定位到层 |
+| 内聚/耦合 | 数据层职责较清楚 | `LibraryRepository` 低内聚、UI 耦合容器、全局状态 | 见 13.5 | 依赖规则自动检查 |
+| 数据生命周期 | 缓存与用户数据分开、迁移链 | 导出/备份、完整性检查、损坏恢复 | 见 13.2 / 3.19 | 迁移/恢复演练通过 |
+
+### 13.2 现有代码改进清单（P0）
+
+| 项 | 位置 / 原因 | 动作 | 验收 |
+|---|---|---|---|
+| 全局源封锁 | `BrowseViewModel` / `LibraryRepository` / `SourceViewModel` / `PlayerViewModel` 各有 flag；字幕探针会吞 401 | 建 `SourceHealthRepository` + `SourceGate`；所有网络入口统一检查；typed error | 任一入口 401/429 → 全源停；单测覆盖；无重试 |
+| 迁移可验证 | `exportSchema=false`、`app/schemas/` 被 gitignore、只有链连续性测试 | 导出 v8 schema；`MigrationTestHelper`；v9 回填测试；真实库副本 | 迁移前后行数/内容一致；失败可回滚 |
+| 凭据与备份 | `allowBackup=true`；分享一键输出明文密码/TMDB key | `dataExtractionRules` 排除凭据；分享二次确认、默认不含 TMDB key；解密失败强制重登（已做） | 恢复后不会发空密码；分享有确认 |
+| 用户数据导出 | 换机/迁移只能靠数据库文件 | 导出/导入进度、收藏、片单、改名（JSON） | 换机可恢复 |
+| 任务持久化 | 扫描/刮削是内存 job | WorkManager + `scan_runs` / `scrape_tasks` + 续跑 | 进程死亡后续跑 |
+| 主线程 IO | `AppLog.write` 在亮度/音量手势循环里同步落盘 | 异步队列 + 节流；StrictMode 检查 | 手势无卡顿 |
+| Android 14 媒体权限 | 只声明 `READ_MEDIA_VIDEO` | 补 `READ_MEDIA_VISUAL_USER_SELECTED` + 部分授权 UI | Android 14/15 可扫本地 |
+| 明文流量 | `network_security_config` 全局放行 | 至少对 `http://` 明确警告；后续按主机白名单 | 用户知情；公网默认 HTTPS |
+| 数据小坑 | `PlaylistRepository.delete` 无事务；`SourceViewModel.test` 允许空密码；`DetailViewModel.init` 的 `first{}` 可能永久挂起 | 事务、非空校验、加超时/条件 | 对应单测或代码审查 |
+| 401 字幕探针 | `PlayerViewModel.findSubtitles` catch 所有异常返回空 | 走 `SourceGate`；401/429 标记封锁并提示 | 不再静默吞 401 |
+
+### 13.3 现有代码改进清单（P1）
+
+| 项 | 位置 / 原因 | 动作 | 验收 |
+|---|---|---|---|
+| 拆 `LibraryRepository` | 约 650 行：扫描/刮削/状态机/映射 | `MediaScanner`（WebDAV/本地/MediaStore）、`MetadataScraper`、`LibraryQueryRepository` | 单类 <300 行；职责单一 |
+| UI 状态统一 | Mine/Search/Playlist/History 直接拿 `AppContainer` | 全部 ViewModel + UiState；composable 不碰容器 | 无 `AppContainer` 出现在 `ui/` |
+| 全量列表 | `observeAll()` + 内存 `groupWall` / 搜索 | `works` 表 + Paging 3 + SQL 筛选 + FTS | 20k 列表不卡 |
+| 错误模型 | 字符串 message + `catch(Exception)` | typed error + 统一映射 + `CancellationException` 规则 | UI 不再解析字符串 |
+| 模块化 | 单 `:app` | `:core:*` + `:feature:*`（8–10 个） | 依赖方向单向 |
+| Lint / 依赖 / 文档 | 34 个 lint error（多为 Media3 UnstableApi）；未用依赖；proguard 注释过时 | `@OptIn`、删依赖、修文档、lint 进 CI | lint 无新增错误 |
+| 轮询/功耗 | 播放页 200ms、迷你条 1s 常驻 | 只在可见/播放时轮询；后台停 | 待机电量可接受 |
+| 备份/完整性 | 无导出、无完整性检查 | 见 P0；设置页调试入口 | 可自检 |
+| 供应链 | 依赖版本集中，但无自动更新/校验 | 定期升级；CI 校验；密钥只在 secrets | 可重复构建 |
+
+### 13.4 现有代码改进清单（P2）
+
+| 项 | 内容 |
+|---|---|
+| 中文搜索 | FTS4 + `search_text` 或 FTS5 trigram；拼音首字母；20k 基准 |
+| 多源/合并 | `sources`、`MediaSource`、`work_versions`、播放失败切换 |
+| 高规格播放 | 3A–3D：能力探测、HDR 直出、降级/软解、PiP/投屏/字幕样式 |
+| 同步 | `SyncProvider` + WebDAV JSON；冲突规则 |
+| 易用性 | 空态、错误文案、初始化引导、命名问题提示、无障碍、i18n |
+| 性能 | Baseline Profile、Macrobenchmark、20k 压测、图片缓存策略 |
+| 部署 | CI 加 lint/迁移门禁；发布清单；回滚演练；构建变体（dev/prod） |
+| 可移植 | 新机器构建文档；Windows/Linux 双环境校验；路径不写死 |
+| 测试 | 假 WebDAV/TMDB、Room 内存库、WorkManager、少量 Compose UI |
+| TV/投屏 | 仅在决策确认后立项 |
+
+### 13.5 内聚与耦合专项
+
+**目标依赖规则**：
+
+```text
+:core:model   ← 所有模块（纯 Kotlin，不依赖 Android）
+:core:database / :core:network / :core:datastore ← :core:model
+:core:data    ← 上述 core 模块
+:feature:*    ← :core:data / :core:model
+:app          ← 所有 feature + core
+feature 之间禁止互相依赖；跨页导航由 :app 负责。
+```
+
+**当前问题与治理顺序**：
+
+1. `LibraryRepository` 低内聚：先抽 `MediaScanner` 接口与实现（WebDAV/本地/MediaStore），再抽 `MetadataScraper`，最后留查询仓库。
+2. UI 耦合容器：先给 4 个直接拿 `AppContainer` 的页面补 ViewModel，再把容器参数从 composable 移除。
+3. 全局可变状态：`PlaybackSelection` / `DetailSelection` → `SavedStateHandle` 或持久化 `PlaybackRequest`。
+4. 数据边界：仓库对外返回 domain model，不把 Room 实体直接抛给 UI；实体变化不触发无谓重组。
+5. 错误边界：网络层抛 typed error，仓库翻译成用户可见状态，UI 只渲染。
+6. 重复逻辑：搜索/分组/解析保持纯函数单测；不要在两个页面各写一份过滤。
+
+**判断标准**：
+
+- 一个类只对一类变化负责；单文件超过 ~500 行必须拆。
+- 跨层调用只走接口；feature 不知道数据库/网络实现。
+- 新增一个数据源/字幕源/元数据源时，不改核心 UI。
+
+### 13.6 质量门禁（Definition of Done）
+
+任何改动合入前：
+
+1. 编译 + 单测通过；纯逻辑改动同步补单测。
+2. 涉及数据库：schema 导出、迁移测试、真实库副本验证；禁止 destructive 升级。
+3. 涉及网络/凭据：不得新增 401/429 自动重试；日志不含凭据；分享/备份有确认。
+4. 涉及 UI/播放：真机验证（文字说明看什么 + 日志证据；不要求用户截图）。
+5. 不引入全量加载、全表扫描、主线程 IO；性能敏感改动跑 20k 基线。
+6. lint 无新增错误；未使用依赖不进入主干。
+7. WORKLOG 记录「背景 / 变更 / 验证 / 备注」；架构决策更新本文件。
+
+### 13.7 待决策（需要和你讨论）
+
+| 编号 | 决策 | 选项 | 建议 | 影响 |
+|---|---|---|---|---|
+| D1 | TV / 投屏 | 仅手机+投屏 / 加 TV / 暂不做 | 先投屏，TV 单独立项 | TV 需要独立 UI 与焦点模型 |
+| D2 | 多端同步 | 不做 / WebDAV JSON / 自建 API | 先不做，预留 `SyncProvider` | 决定是否需要后端 |
+| D3 | 数据源 | WebDAV+本地 / 加 SMB / 加 Emby/Jellyfin | 先 WebDAV+本地，接口预留 | 多源复杂度 |
+| D4 | 身份迁移 | 双读双写一个版本 / 一次性切换 / 先加字段延后切换 | 双读双写（稳） | 发布风险与工期 |
+| D5 | 中文搜索 | FTS4+search_text / FTS5 trigram / 内存索引 | 先基准测试，倾向 FTS4+search_text | 搜索体验与实现成本 |
+| D6 | DI | 手写容器 / Hilt | 现阶段手写，模块化后再评估 | 构建时间与测试便利 |
+| D7 | HDR/DV 承诺 | 能力探测+降级 / 承诺全设备 | 能力探测，不承诺 DV | 用户预期与兼容性 |
+| D8 | 崩溃上报 | 仅本地 / 可选远端 | 仅本地（隐私优先），后续可选 | 运维与隐私 |
+| D9 | 数据库加密 | 不加密 / SQLCipher | 不加密（凭据已单独加密） | 性能与复杂度 |
+| D10 | minSdk / targetSdk | 保持 26 / 提高 minSdk / 尽快上 37 | 保持 26；targetSdk 稳定后升 37 | 设备覆盖与适配成本 |
+| D11 | 多用户/儿童模式 | 不做 / 做 | 暂不做 | 数据模型 `user_id` 已预留 |
+| D12 | 开发环境 | 仅 Windows E 盘 / 文档化跨平台 | 文档化 + CI 校验 | 可移植性 |
+
+
