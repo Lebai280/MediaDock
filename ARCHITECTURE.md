@@ -17,6 +17,8 @@
 - 建议顺序：**先把这四块地基做完，再加高级功能**；否则每加一个功能都会返工。
 - 高规格播放（HDR10 / HDR10+ / HLG / DV / 10-bit / Atmos / 高刷）按 **Phase 3 的 3A–3D** 推进：
   先能力探测与诊断，再直出，再降级/软解，最后投屏与体验项。
+- 已定方向（2026-10-18）：手机 + 投屏、TV 单列；暂不做多端同步（预留接口）；
+  多源包含 WebDAV / 本地 / SMB / Emby / Jellyfin；身份迁移一次性切换 + 迁移守卫。
 - SQLite 不是瓶颈：5k–20k 条视频对 Room 很轻松；瓶颈是扫描请求数、TMDB 配额、海报渲染和状态管理。
 
 ---
@@ -31,14 +33,17 @@
 - 库规模按 **5,000–20,000 个视频文件、1,000–5,000 个作品**估算。
 - 不引入自建后端，除非选择“多端同步”。
 
-### 1.2 需要先定的产品决策
+### 1.2 已定决策（2026-10-18）
 
-| 决策 | 选项 | 建议 | 影响 |
-|---|---|---|---|
-| TV / 投屏 | 仅手机平板 / 加投屏 / 加 TV | 先做投屏，TV 单独立项 | TV 会影响 UI 架构与焦点模型 |
-| 多端同步 | 不做 / 自建轻量同步 / 云账号 | 先预留 `SyncProvider`，不做账号 | 决定是否需要后端 |
-| 数据源种类 | WebDAV + 本地 / 加 SMB / 加 Emby/Jellyfin | 先 WebDAV + 本地，接口预留 | 多源是最大架构分叉 |
-| DI | 手写容器 / Hilt | 现阶段保留手写容器 | 模块化后再评估 Hilt |
+| 决策 | 结论 | 影响 |
+|---|---|---|
+| TV / 投屏 | **先做手机 + 投屏；TV 单列为 Phase 4** | 当前 UI 不按 TV 重构；投屏在 Phase 3 |
+| 多端同步 | **暂不做，预留 `SyncProvider`** | 不引入后端；先做本地导出/导入 |
+| 数据源 | **WebDAV + 本地 + SMB + Emby/Jellyfin 都要** | Phase 2 同时支持四类源；复杂度最高 |
+| 身份迁移 | **一次性切换 + 迁移守卫** | 工期短；必须有自动备份、校验与回滚 |
+| DI | 手写容器，暂不引入 Hilt | 模块化后再评估 |
+
+> 其余待定项见 13.7（D5–D12）。
 
 ---
 
@@ -116,7 +121,9 @@ flowchart TD
 | 分页 | Paging 3 + Room PagingSource | 海报墙按 `works` 分页 |
 | 搜索 | Room FTS4（或 FTS5 trigram） | 中文分词需专门处理 |
 | 播放软解 | Media3 FFmpeg decoder | RMVB/AVI/10-bit 兜底；注意包体与许可证 |
-| 投屏 | Media3 Cast | 后置 |
+| SMB | SMBJ 或 jcifs-ng（评估后二选一） | SMB2/3；自定义 DataSource 流式播放 |
+| Emby / Jellyfin | REST API（OkHttp） | 直接播放/转码；元数据以服务端为准 |
+| 投屏 | Media3 Cast | Phase 3 |
 | 依赖注入 | 暂时手写容器 | 模块化后按需评估 Hilt |
 | 测试 | room-testing / work-testing / 假服务器 | 迁移、仓库、任务 |
 
@@ -146,7 +153,8 @@ sources(
 media_files(
   id TEXT PK,                 -- 物理文件 UUID
   source_id TEXT,             -- FK sources
-  remote_key TEXT,            -- WebDAV 相对路径 / content URI
+  remote_key TEXT,            -- WebDAV 相对路径 / content URI / SMB 路径
+  provider_item_id TEXT,      -- Emby/Jellyfin item id（其它源为空）
   logical_id TEXT,            -- 未匹配时为 file:<sourceId>:<remoteKey>
   name TEXT, size_bytes INTEGER, mtime TEXT, etag TEXT,
   scan_run_id INTEGER, missing_at INTEGER,
@@ -157,7 +165,9 @@ works(
   id TEXT PK,                 -- tmdb:movie:<id> / tmdb:tv:<id> / file:...
   tmdb_id INTEGER, type TEXT, title TEXT, year INTEGER,
   poster_path TEXT, backdrop_path TEXT, overview TEXT, rating REAL,
-  total_seasons INTEGER, total_episodes INTEGER, updated_at INTEGER
+  total_seasons INTEGER, total_episodes INTEGER, updated_at INTEGER,
+  metadata_source TEXT,       -- TMDB / EMBY / JELLYFIN
+  external_ids_json TEXT      -- 其它服务端 ID（Imdb/Tvdb/Emby 等）
 )
 
 episodes(
@@ -304,6 +314,8 @@ device_capabilities(
 - **音频**：AAC / AC3 / EAC3 / TrueHD / DTS；直通依赖 HDMI / eARC 与功放；手机端按能力下混。
 - **视频编码**：HEVC Main10 / AV1 / VP9；硬解优先，FFmpeg 兜底。
 - **容器**：MP4 / MKV；MKV 的 PGS / 多音轨要按轨道处理。
+- **Emby / Jellyfin 转码**：优先 Direct Play；转码会丢失 HDR/Atmos，必须在 UI 标明
+  “转码中，画质/音质可能降级”；能力协商以客户端能力为准。
 
 #### 3.7.6 测试矩阵
 
@@ -313,11 +325,22 @@ device_capabilities(
 
 ### 3.8 多数据源
 
-- **注册**：`sources` 表 + 添加/编辑/停用界面；每个 source 独立凭据（Keystore 加密）、根路径、优先级、限速。
-- **类型**：先 WebDAV（OpenList）与本地；`MediaSource` 接口预留 SMB / Emby / Jellyfin。
+**范围（已定）**：WebDAV（OpenList，可多账号）、本地（SAF / MediaStore）、SMB、Emby / Jellyfin，全部在 Phase 2 支持。
+
+- **注册**：`sources` 表 + 添加/编辑/停用界面；每个 source 独立凭据（Keystore 加密）、根路径、优先级、限速、健康状态。
+- **WebDAV**：沿用现有客户端；多账号各建一个 source；401/429 全局封锁。
+- **本地**：SAF / MediaStore；离线可播。
+- **SMB**：主机 + 共享 + 凭据；SMB2/3 客户端（SMBJ / jcifs-ng 评估后定）；自定义 `DataSource` 支持 Range 流式播放；认证失败映射为 `AuthError`，不重试风暴。
+- **Emby / Jellyfin**：
+  - 服务器地址 + API Key / 用户凭据；条目列表、元数据、播放地址来自服务端。
+  - `ProviderIds` 里的 TMDB ID 用于与其它源合并；没有 TMDB ID 时用服务端 item id 作临时身份。
+  - 播放优先 **Direct Play**；转码会丢失 HDR/Atmos，必须在 UI 标明“转码中，画质/音质可能降级”。
+  - 服务端已有元数据，**不重复 TMDB 刮削**；`works.metadata_source` 标记来源。
+  - 可选把进度回写服务端（后置），本地进度始终为准。
 - **合并**：同一作品/集按 `logicalId` 合并；`work_versions` 保留每个来源的文件；播放器按优先级选源，失败切换。
-- **去重**：同一文件出现在多个 source（例如同一 OpenList 的多账号）：优先按 `tmdbId + season/episode + size` 识别；无法识别时保留为独立版本，不强行合并。
+- **去重**：优先按 `tmdbId + season/episode + size` 识别；无法识别时保留为独立版本，不强行合并。
 - **OpenList 多账号**：每个账号建一个 source，共享逻辑库；不要假设所有账号的根路径一致。
+- **源健康**：每源独立 `SourceHealth`；一个源 401/429 不影响其它源。
 
 ### 3.9 同步（可选）
 
@@ -483,19 +506,29 @@ device_capabilities(
 
 - 新增表：`sources`、`works`、`episodes`、`work_versions`、`work_genres`、`people`、`work_cast`、`scan_runs`、`directory_cache`、`scan_queue`、`scrape_tasks`。
 - 现有表加列/改造：
-  - `media_items`：加 `source_id`、`logical_id`（保留 `path` 作为 fallback）；
-  - `playback_progress` / `favorites` / `playlist_items` / `title_overrides`：加 `logical_id`（保留原 path 列，双读/双写一个版本周期）。
+  - `media_items`：加 `source_id`、`logical_id`（保留 `path` 作为只读备份）；
+  - `playback_progress` / `favorites` / `playlist_items` / `title_overrides`：加 `logical_id`（旧 path 列保留但不再写入）。
 - 回填：
   - 默认 source：现有 WebDAV 数据源；本地媒体单独 `LOCAL` source；
   - `logical_id`：有 `tmdbId` + 集数 → `tmdb:tv:<id>:s<S>:e<E>`；有 `tmdbId` + 无集数 → `tmdb:movie:<id>`；否则 `file:<sourceId>:<path>`；
   - 用户数据按 path 映射到 logical_id；同一逻辑条目多个文件时选最早/最完整的一个作为主记录。
-- 回滚：v9 保留旧列；如果发现问题，v10 才移除旧列。迁移前让用户备份数据库（或 App 内导出）。
+- **一次性切换**（已定）：v9 迁移完成后，App 直接读写新结构；旧列/旧表保留到 v10 作为人工回滚备份，不再参与读写。
+- **迁移守卫（必须实现）**：
+  1. 迁移前自动备份数据库（含 WAL 检查点）到应用目录，并导出用户数据 JSON；
+  2. 在事务中完成建表 + 回填 + 切换；
+  3. 校验行数/关键计数（媒体条目、进度、收藏、片单、改名、详情）与迁移前一致；
+  4. 任一校验失败 → 回滚事务、恢复备份、阻止进入主界面并提示错误；
+  5. 迁移成功也保留备份，直到用户确认新版本稳定。
+- **发布要求**：v9 是高风险版本，必须先跑真实 v8 库副本 + 回滚演练，再发版；版本说明中明确“升级前会自动备份”。
 
 ### 4.3 迁移验证
 
-- 用真实 v8 库副本跑迁移，核对：视频数、进度条数、收藏数、片单数、改名数、详情数、总集数。
-- 迁移后用 UI 抽查 10 个作品：进度、收藏、版本、季集。
-- 只有迁移测试 + 真机抽查都通过，才允许进入下一阶段。
+- **CI**：`MigrationTestHelper` 覆盖 v8→v9；再加一条“真实 v8 库副本”的集成测试（脱敏 fixture）。
+- **迁移前**：自动备份 + 导出用户数据；记录行数与校验和。
+- **迁移后**：核对视频数、进度条数、收藏数、片单数、改名数、详情数、总集数；逐项与备份一致。
+- **回滚演练**：人为制造校验失败，确认能恢复备份并阻止进入主界面。
+- **真机抽查**：10 个作品（进度、收藏、版本、季集）全部正常。
+- 只有以上全部通过，才允许进入下一阶段。
 
 ---
 
@@ -521,9 +554,10 @@ device_capabilities(
 ### Phase 2 — 多数据源
 
 - `sources` 管理界面；每源凭据/优先级/健康状态。
-- `MediaSource` 实现：WebDAV、本地；预留 SMB / Emby / Jellyfin。
-- 多源合并、版本切换、播放失败切换。
-- 验收：两个 WebDAV 源 + 本地同时挂载；同一作品合并；源被封锁时其他源不受影响。
+- `MediaSource` 实现：**WebDAV、本地、SMB、Emby、Jellyfin**（已定）。
+- 多源合并、版本切换、播放失败切换；Emby/Jellyfin 优先 Direct Play。
+- 验收：WebDAV（可多账号）+ 本地 + SMB + Emby/Jellyfin 至少各挂一个；同一作品合并；
+  一个源被封锁/不可用不影响其它源；转码时明确提示 HDR/Atmos 可能降级。
 
 ### Phase 3 — 高规格播放
 
@@ -555,9 +589,9 @@ device_capabilities(
 | 1 | E1.3 Works/分页 | `works` 查询 + Paging 3 | 20k 海报墙不卡 |
 | 1 | E1.4 搜索/筛选 | FTS + SQL 过滤 + 排序 | 中文搜索可用 |
 | 1 | E1.5 压测 | 20k 合成数据 | 内存/帧率达标 |
-| 2 | E2.1 MediaSource | WebDAV / 本地实现 | 多源可同时挂载 |
+| 2 | E2.1 MediaSource | WebDAV / 本地 / SMB / Emby / Jellyfin 实现 | 四类源可同时挂载 |
 | 2 | E2.2 源管理 UI | 添加/编辑/停用/健康 | 凭据隔离、401 不串源 |
-| 2 | E2.3 合并/版本 | `work_versions` + 失败切换 | 同作品多源合并 |
+| 2 | E2.3 合并/版本 | `work_versions` + 失败切换 + Direct Play | 同作品多源合并；转码有提示 |
 | 3 | E3.1 能力模型 | `DeviceCapabilities` + `StreamInfo` + 诊断 | 规格徽标正确 |
 | 3 | E3.2 HDR 直出 | HDR10/HDR10+/HLG + 刷新率 + 音频 | 真机直出/直通 |
 | 3 | E3.3 降级/软解 | 色调映射 + DV 基础层 + FFmpeg | 不支持时明确降级 |
@@ -580,6 +614,9 @@ device_capabilities(
 | 多模块过度拆分 | 构建/维护成本 | 控制在 8–10 个模块 |
 | FFmpeg 包体/许可证 | APK 变大、合规风险 | 后置，评估 LGPL/GPL 与体积 |
 | HDR / DV 设备碎片化 | 黑屏、偏色、错误 HDR | 能力探测 + 解码器实际初始化 + 明确降级 |
+| SMB 客户端维护 | 认证/流式播放不稳定 | 选成熟库（SMBJ/jcifs-ng），封装 `MediaSource`，可替换 |
+| Emby/Jellyfin 转码 | HDR/Atmos 被降级 | 优先 Direct Play；转码明确提示；能力协商 |
+| 一次性迁移失败 | 用户数据错位/丢失 | 自动备份 + 事务 + 行数校验 + 回滚演练 |
 | 4K 软件色调映射 | 卡顿、发热、掉帧 | 硬件优先，软解时提示并允许降级 |
 | 音频直通设备差异 | 无声、只剩立体声 | 探测输出能力 + 下混兜底 + UI 标明 |
 | PGS / 图形字幕 | 字幕不显示 | 能力检测 + 提示，必要时接 FFmpeg |
@@ -593,6 +630,8 @@ device_capabilities(
 | 功能 | 现状 | 目标阶段 |
 |---|---|---|
 | WebDAV / NAS 媒体库 | 有（单源） | Phase 2 多源 |
+| SMB | 无 | Phase 2 |
+| Emby / Jellyfin | 无 | Phase 2（Direct Play 优先） |
 | 本地媒体 | 有（SAF / MediaStore） | 保留 |
 | TMDB 刮削 | 有（同步、内存任务） | Phase 1 持久队列 |
 | 分类 / 筛选 / 搜索 | 有（内存全量） | Phase 1 SQL + 分页 |
@@ -611,8 +650,8 @@ device_capabilities(
 | 画中画 | 无 | Phase 3 |
 | 投屏 | 无 | Phase 3 |
 | 跳过片头/片尾 | 无 | Phase 3 |
-| 多端同步 | 无 | Phase 4（可选） |
-| TV 端 | 明确不做 | Phase 4（如改决策） |
+| 多端同步 | 无 | 暂不做，预留 `SyncProvider` |
+| TV 端 | 暂不做 | 单列 Phase 4（已定） |
 | 分享给朋友 | 有（明文凭据） | 保留，加确认 |
 
 ---
@@ -638,8 +677,10 @@ data class Source(
 // core:network
 interface MediaSource {
     val id: SourceId
+    val type: SourceType
     suspend fun list(parentKey: String): List<RemoteEntry>
     suspend fun probe(): SourceHealth
+    suspend fun resolvePlayback(fileId: String): PlaybackVariant
 }
 
 // core:data
@@ -756,6 +797,10 @@ data class LibraryFilter(
 | ADR-008 | 401/429 全局封锁，任何入口不重试 | OpenList 按 IP 锁定的硬约束 | 需要统一 SourceGate |
 | ADR-009 | 升级方向只做真迁移，绝不 destructive | 用户数据不可恢复 | 迁移测试是发布门槛 |
 | ADR-010 | 不做“目录即剧集”的粗暴分组 | 合集目录会误合并 | 只按集数 + 季根分组 |
+| ADR-011 | 先手机 + 投屏，TV 单列 Phase 4 | 控制当前 UI 复杂度 | TV 需独立 feature 与焦点模型 |
+| ADR-012 | 暂不做多端同步，预留 `SyncProvider` | 避免后端运维 | 先做导出/导入 |
+| ADR-013 | 多源包含 WebDAV / 本地 / SMB / Emby / Jellyfin | 用户已确认“都要” | Phase 2 复杂度与测试面最大 |
+| ADR-014 | 身份迁移一次性切换 + 迁移守卫 | 用户选择工期优先 | 必须自动备份、校验、回滚演练 |
 
 > 新增决策时在表格末尾追加，并在 WORKLOG 记录背景与影响。
 
@@ -812,7 +857,7 @@ data class LibraryFilter(
 | 项 | 位置 / 原因 | 动作 | 验收 |
 |---|---|---|---|
 | 全局源封锁 | `BrowseViewModel` / `LibraryRepository` / `SourceViewModel` / `PlayerViewModel` 各有 flag；字幕探针会吞 401 | 建 `SourceHealthRepository` + `SourceGate`；所有网络入口统一检查；typed error | 任一入口 401/429 → 全源停；单测覆盖；无重试 |
-| 迁移可验证 | `exportSchema=false`、`app/schemas/` 被 gitignore、只有链连续性测试 | 导出 v8 schema；`MigrationTestHelper`；v9 回填测试；真实库副本 | 迁移前后行数/内容一致；失败可回滚 |
+| 迁移可验证（一次性切换） | `exportSchema=false`、`app/schemas/` 被 gitignore、只有链连续性测试 | 导出 v8 schema；`MigrationTestHelper`；自动备份 + 事务 + 行数校验 + 回滚演练 | 迁移前后一致；失败恢复备份并阻止启动 |
 | 凭据与备份 | `allowBackup=true`；分享一键输出明文密码/TMDB key | `dataExtractionRules` 排除凭据；分享二次确认、默认不含 TMDB key；解密失败强制重登（已做） | 恢复后不会发空密码；分享有确认 |
 | 用户数据导出 | 换机/迁移只能靠数据库文件 | 导出/导入进度、收藏、片单、改名（JSON） | 换机可恢复 |
 | 任务持久化 | 扫描/刮削是内存 job | WorkManager + `scan_runs` / `scrape_tasks` + 续跑 | 进程死亡后续跑 |
@@ -893,12 +938,14 @@ feature 之间禁止互相依赖；跨页导航由 :app 负责。
 
 ### 13.7 待决策（需要和你讨论）
 
+**已定（2026-10-18）**：
+- D1 TV/投屏：先手机 + 投屏；TV 单列 Phase 4。
+- D2 多端同步：暂不做，预留 `SyncProvider`。
+- D3 数据源：WebDAV + 本地 + SMB + Emby/Jellyfin 都要。
+- D4 身份迁移：一次性切换 + 自动备份/校验/回滚守卫。
+
 | 编号 | 决策 | 选项 | 建议 | 影响 |
 |---|---|---|---|---|
-| D1 | TV / 投屏 | 仅手机+投屏 / 加 TV / 暂不做 | 先投屏，TV 单独立项 | TV 需要独立 UI 与焦点模型 |
-| D2 | 多端同步 | 不做 / WebDAV JSON / 自建 API | 先不做，预留 `SyncProvider` | 决定是否需要后端 |
-| D3 | 数据源 | WebDAV+本地 / 加 SMB / 加 Emby/Jellyfin | 先 WebDAV+本地，接口预留 | 多源复杂度 |
-| D4 | 身份迁移 | 双读双写一个版本 / 一次性切换 / 先加字段延后切换 | 双读双写（稳） | 发布风险与工期 |
 | D5 | 中文搜索 | FTS4+search_text / FTS5 trigram / 内存索引 | 先基准测试，倾向 FTS4+search_text | 搜索体验与实现成本 |
 | D6 | DI | 手写容器 / Hilt | 现阶段手写，模块化后再评估 | 构建时间与测试便利 |
 | D7 | HDR/DV 承诺 | 能力探测+降级 / 承诺全设备 | 能力探测，不承诺 DV | 用户预期与兼容性 |

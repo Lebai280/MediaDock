@@ -1876,6 +1876,9 @@ APK sha256 `fbdbcc80…4bf8fe`；`version.json` 已指向 0.5.1；真机从 0.5.
 
 **备注**
 
+- 用户于 2026-10-18 拍板：先手机 + 投屏、TV 单列 Phase 4；多端同步暂不做但预留 `SyncProvider`；
+  数据源 WebDAV + 本地 + SMB + Emby/Jellyfin 全部要；身份迁移采用**一次性切换**，
+  以自动备份、行数校验和回滚守卫控制风险。
 - HDR/DV/音频直通的具体实现排在 Phase 3，前置是 Phase 0–2 的稳定身份、多源与增量扫描。
 - 高规格播放的验收依赖真机与片源矩阵（见 ARCHITECTURE.md 3.7.6），不以编译通过代替。
 
