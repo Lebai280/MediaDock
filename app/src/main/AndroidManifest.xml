@@ -10,6 +10,8 @@
         android:name="android.permission.READ_EXTERNAL_STORAGE"
         android:maxSdkVersion="32" />
     <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
+    <!-- DLNA/SSDP 发现需要持有组播锁；只在投屏时申请。 -->
+    <uses-permission android:name="android.permission.CHANGE_WIFI_MULTICAST_STATE" />
     <!-- 后台播放：服务要以 mediaPlayback 类型转前台，API 34+ 还要类型专属权限；
          API 33+ 的通知权限是运行时申请（见 PlayerScreen） -->
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />

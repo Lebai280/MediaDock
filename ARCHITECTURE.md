@@ -140,7 +140,7 @@ flowchart TD
 | 播放软解 | Media3 FFmpeg decoder | RMVB/AVI/10-bit 回退；注意包体与许可证 |
 | SMB | SMBJ 或 jcifs-ng（评估后二选一） | SMB2/3；自定义 DataSource 流式播放 |
 | Emby / Jellyfin | REST API（OkHttp） | 直接播放/转码；元数据以服务端为准 |
-| 投屏 | Media3 Cast | Phase 3 |
+| 投屏 | DLNA（自研 SSDP/SOAP + 本地 HTTP 代理）；Cast 可选 | Phase 3；jUPnP 因 Jetty 依赖不采用（S3） |
 | 依赖注入 | 暂时手写容器 | 模块化后按需评估 Hilt |
 | 测试 | room-testing / work-testing / 假服务器 | 迁移、仓库、任务 |
 
@@ -400,7 +400,14 @@ media_fts USING FTS4(title, aliases, people, tokenize=unicode61)
   - 默认音轨按用户语言偏好，其次原语言；选择结果持久化。
 - **视频编码**：HEVC Main10 / AV1 / VP9；硬解优先，FFmpeg 回退。
 - **容器**：MP4 / MKV；MKV 的 PGS / 多音轨要按轨道处理。
-- **投屏**：国产设备通常无 GMS，Media3 Cast 不可用；**DLNA 为主路径**，Cast 可选。投屏前用 `RendererCapabilities` 重新计算 PlaybackPlan（接收端 HDR/音频/分辨率），移交失败回本地播放。
+- **投屏**：国产设备通常无 GMS，Media3 Cast 不可用；**DLNA 为主路径**，Cast 可选。
+  - DLNA 控制器自研：SSDP 发现 + SOAP（AVTransport / RenderingControl）；不使用 jUPnP
+    （Android 模块依赖未声明的 Jetty，兼容线老旧）。
+  - **本地 HTTP 代理**：WebDAV / SMB / 本地文件无法被电视直接读取（Basic 认证 / 非 HTTP），
+    手机需起一个带 Range 的临时 HTTP 服务，只暴露当前会话、随机路径、结束即停。
+  - Emby / Jellyfin 优先 Direct Play URL；确认电视可访问且不转码；转码提示 HDR/Atmos 降级。
+  - 投屏前用 `RendererCapabilities` 重新计算 PlaybackPlan；移交失败回本地。
+  - DLNA 无鉴权：只在可信局域网、需用户确认、不暴露凭据。
 - **Emby / Jellyfin 转码**：优先 Direct Play；转码会丢失 HDR/Atmos，必须在 UI 标明
   “转码中，画质/音质可能降级”；能力协商以客户端能力为准。
 
@@ -786,6 +793,9 @@ media_fts USING FTS4(title, aliases, people, tokenize=unicode61)
 | FFmpeg 包体/许可证 | APK 变大、合规风险 | 后置，评估 LGPL/GPL 与体积 |
 | HDR / DV 设备碎片化 | 黑屏、偏色、错误 HDR | 能力探测 + 解码器实际初始化 + 明确降级 |
 | 投屏无 GMS | Cast 不可用 | DLNA 为主，Cast 可选 |
+| DLNA 无鉴权 / 本地代理 | 局域网可访问代理流 | 仅可信 LAN、随机会话路径、结束即停、用户确认 |
+| jUPnP/Jetty 依赖 | Android 启动失败/包体增大 | 自研 SSDP/SOAP，不引入 Jetty |
+| SMB 实网未验 | 认证/流式播放问题 | 需要用户提供 SMB 测试共享后补验 |
 | 明文主机白名单 | 静态配置无法覆盖用户主机 | OkHttp 主机批准清单 + 明确警告 |
 | 字幕无持久模型 | 改名后字幕丢失 | `subtitles` 表 + 重新关联 |
 | SMB 客户端维护 | 认证/流式播放不稳定 | 选成熟库（SMBJ/jcifs-ng），封装 `MediaSource`，可替换 |
@@ -1027,6 +1037,7 @@ data class LibraryFilter(
 | ADR-022 | 多集/版本/进度用完整模型 | 避免边界推断错误 | `movie_versions` / `episode_versions` / `file_segments` / 分表进度 |
 | ADR-023 | 开工前修 B1–B6 + 4 个 spike | 降低迁移与返工风险 | 0a 延后，先完成 S1–S4 |
 | ADR-024 | 中文搜索用 FTS4 + `search_text` | 目标机不支持 FTS5 trigram；FTS4 p95 3.44 ms | 查询构造需把 CJK 转为空格短语；索引随标题/演员重建 |
+| ADR-025 | SMB 用 SMBJ；DLNA 自研 SSDP/SOAP + 本地 HTTP 代理 | jUPnP Android 模块缺 Jetty；SMBJ Apache 2.0；DLNA 不依赖 GMS | 需自建代理与 SOAP；只在可信 LAN 使用 |
 
 > 新增决策时在表格末尾追加，并在 WORKLOG 记录背景与影响。
 
@@ -1261,6 +1272,7 @@ feature 之间禁止互相依赖；跨页导航由 :app 负责。
 - **更新完整性**：APK 签名由系统校验；`version.json` 走 HTTPS；可选 SHA-256；不静默安装。
 - **供应链**：Gradle 依赖校验/锁定、CI secrets 最小权限、签名构建、定期升级；R8 keep 规则复核。
 - **许可证**：TMDB / OpenSubtitles 署名；FFmpeg LGPL/GPL 义务；Media3/AndroidX 许可证页。
+  SMBJ 为 Apache 2.0；jUPnP（CDDL-1.0）已评估但不采用；自研 DLNA 控制器无额外许可证。
 - **Android 15 兼容**：FFmpeg 等原生库必须支持 **16KB page size**；ABI 拆分/App Bundle；包体预算。
 - **发布**：迁移门禁、灰度/分阶段、回滚演练、版本说明、可选崩溃监控（默认关闭）。
 
@@ -1525,6 +1537,12 @@ Room `@DatabaseView` 在 SM-G998U1 真机通过（含 `IN (:paths)`）。详见 
 **S2 结果（2026-10-18）**：目标机 SQLite **不支持 FTS5 trigram**（`no such module: fts5`）；
 FTS4（CJK 逐字空格 + 短语查询）20k 条 p50 1.20 ms / p95 3.44 ms；LIKE 基线 p50 7.85 ms / p95 8.11 ms；
 DB 约 5.7 MB。**选定 FTS4 + `search_text`**，详见 WORKLOG 与 ADR-024。
+
+**S3 结果（2026-10-18）**：jUPnP 3.0.5 因 Android 模块未声明 Jetty
+（`NoClassDefFoundError: org.eclipse.jetty.server.Server`）不采用；SMBJ 0.15.0（Apache 2.0）
+在 Android 可构造；原始 SSDP + 组播锁运行正常，但当前 Wi-Fi 返回 0 个设备
+（无 DLNA 渲染器或网络隔离），真机投屏需在有电视的环境补验。
+选定：**SMBJ + 自研 DLNA 控制器 + 本地 HTTP 代理**。
 
 
 ### 15.10 启动门槛

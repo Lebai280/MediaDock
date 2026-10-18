@@ -1938,6 +1938,31 @@ APK sha256 `fbdbcc80…4bf8fe`；`version.json` 已指向 0.5.1；真机从 0.5.
 - 2 字中文查询可用（FTS5 trigram 需 ≥3 字，且目标机不支持）。
 - 下一步：S3 DLNA/SMB 选型、S4 FFmpeg 16KB/HDR。
 
+### 2026-10-18 · S3：DLNA / SMB 客户端评估
+
+**背景**：S3 需为投屏与 SMB 数据源选定客户端库，并验证 Android 可运行性。
+
+**变更**：
+- 评估 jUPnP 3.0.5（CDDL-1.0）与 SMBJ 0.15.0（Apache 2.0）。
+- 新增 `NetworkClientsSpikeTest`：原始 SSDP M-SEARCH + 组播锁发现；SMBJ 客户端构造。
+- 主 manifest 增加 `CHANGE_WIFI_MULTICAST_STATE`（投屏发现需要）；jUPnP 依赖未保留。
+
+**验证（SM-G998U1 / Android 15）**：
+- **jUPnP 不采用**：Android 模块启动时 `NoClassDefFoundError: org.eclipse.jetty.server.Server`；
+  其 Jetty 依赖未随包声明，兼容线为 `javax.servlet` 的旧 Jetty。
+- **SMBJ 可构造**：`SMBClient()` 在 Android 上正常；真实共享连接待用户提供测试 SMB 共享。
+- **SSDP**：原始 M-SEARCH 在持有组播锁时正常执行；当前 Wi-Fi（10.64.23.0/24）返回 **0 个设备**，
+  可能无 DLNA 渲染器或网络隔离；真机投屏需在有电视的环境补验。
+- 全部 androidTest 通过。
+
+**备注**：
+- 选定：SMB 用 **SMBJ**；DLNA 用 **自研 SSDP/SOAP 控制器 + 本地 HTTP 代理**。
+- WebDAV / SMB / 本地文件不能被电视直接读取（Basic 认证/非 HTTP）；投屏时手机需起临时
+  Range HTTP 代理，只暴露当前会话、随机路径、结束即停。
+- Emby/Jellyfin 优先 Direct Play URL；转码时提示 HDR/Atmos 降级。
+- DLNA 无鉴权：仅可信局域网、用户确认、不暴露凭据。
+- 下一步：S4 FFmpeg 16KB + HDR/DV/Atmos 真机能力。
+
 ---
 
 ## 8. 待办
@@ -1948,7 +1973,8 @@ APK sha256 `fbdbcc80…4bf8fe`；`version.json` 已指向 0.5.1；真机从 0.5.
 2. **刮削重试**：确认手机代理可用后，在「我的 → 刮削」手动重试失败项（当前约 86 条）。
 3. **片单完整链路**：详情页 → 加入片单 → 选择或新建片单 → 从片单播放。
 4. **S2**：已完成（2026-10-18）——目标机不支持 FTS5；FTS4 20k 条 p95 3.44 ms，选定 FTS4 + `search_text`。
-5. **S3**：DLNA / SMB 客户端选型与最小 demo。
+5. **S3**：已完成评估（2026-10-18）——SMBJ 选定；DLNA 自研，jUPnP 因 Jetty 不采用；
+   真机投屏与 SMB 实网连接待有设备/共享后补验。
 6. **S4**：FFmpeg 16KB + HDR/DV/Atmos 真机能力验证。
 7. **运维记录**：OpenList `movie1`–`movie8` 的 `base_path` 已改为 `/夸克/影视`；
    修改数据库后需重启 OpenList 才生效。

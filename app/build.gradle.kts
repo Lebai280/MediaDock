@@ -128,4 +128,6 @@ dependencies {
 
     androidTestImplementation(libs.androidx.test.ext.junit)
     androidTestImplementation(libs.androidx.test.runner)
+    // S3 spike dependency (SMB); DLNA uses an in-house SSDP/SOAP controller.
+    androidTestImplementation(libs.smbj)
 }
