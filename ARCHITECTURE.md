@@ -346,6 +346,125 @@ device_capabilities(
   - 关键 UI：少量 Compose UI 测试（可选）；
   - 压力：生成 20k 条合成数据，测扫描写入、分页、搜索、内存。
 
+### 3.12 状态管理与 UI 架构
+
+- **单向数据流**：ViewModel 暴露 `StateFlow<UiState>`；界面只发事件（筛选、点击、重试），不直接改仓库。
+- **UiState**：每个页面一个不可变状态（`Loading / Empty / Content / Error`）；错误是状态的一部分，不用全局弹窗兜底。
+- **分页 + 筛选**：`PagingData<WorkCard>` + 筛选条件；筛选变化用 `flatMapLatest` 重建 Pager；筛选/排序状态进 `SavedStateHandle`，进程被杀可恢复。
+- **导航**：单 Activity + NavHost；路由用类型化定义（或集中常量）；深度链接预留 `mediadock://play/<logicalId>`、`mediadock://detail/<logicalId>`。
+- **跨页选择**：播放/详情请求放 `SavedStateHandle` 或持久化的 `PlaybackRequest`，不再用应用级可变单例；进程死亡后可恢复。
+- **Compose 性能**：稳定 key、`@Immutable` UI 模型、`derivedStateOf`、只加载可见页图片；不要把 Room 实体直接当 UI 模型（字段变化会触发重组）。
+- **TV（如做）**：单独 `:feature:tv`，DPAD 焦点、焦点恢复、overscan、无触摸假设；不要让手机 UI 兼顾 TV。
+- **无障碍 / 国际化**：contentDescription、对比度 ≥ 4.5:1、TalkBack、RTL（已有 `supportsRtl`）；中文/英文资源分离。
+
+### 3.13 错误模型与源健康
+
+**统一错误类型**（不要让 UI 解析字符串）：
+
+| 类型 | 来源 | 行为 |
+|---|---|---|
+| `AuthError(401)` | WebDAV / TMDB / 字幕 | 源进入 `BLOCKED`；不重试；引导重新登录/填凭据 |
+| `RateLimited(429)` | WebDAV | 源进入 `BLOCKED`；不重试；提示等待或联系管理员 |
+| `RateLimited(429)` | TMDB / 字幕 | 按 `Retry-After` 退避；配额问题不无限重试 |
+| `NotFound(404)` | WebDAV | 标记文件/目录缺失；不重试 |
+| `NetworkError` | 全部 | 连接层有限重试 + 退避；用户可见 |
+| `ParseError` | XML / JSON / 容器 | 记录并跳过该条；不重试 |
+| `StorageError` | Room / 文件 | 明确报错；**绝不静默清库** |
+| `Cancelled` | 协程 | 原样抛出，不显示为业务失败 |
+| `PlaybackError` | 解码/容器 | 按 `PlaybackPlan` 回退；网络错误不触发 401 重试 |
+
+- **`SourceHealth` 状态机**：`HEALTHY / DEGRADED / BLOCKED / AUTH_REQUIRED`，持久化在 `sources.health`；所有请求前先过 `SourceGate`。
+- **401/429 是全局闸门**：任何一个入口（浏览、扫描、详情、字幕、播放）收到都置 `BLOCKED`，所有入口停止自动请求；只有用户重新登录或明确恢复才解除。
+- **离线**：展示 Room 缓存；网络操作禁用并说明原因；本地媒体仍可播；进度先落本地，恢复网络后同步。
+- **测试**：每个客户端都有“401/429 只发一次请求”的单测；新增入口必须遵守。
+
+### 3.14 缓存与离线
+
+| 层 | 内容 | 预算 / 策略 |
+|---|---|---|
+| Room | 媒体条目、作品、详情、进度、任务 | < 200 MB；WAL；定期 `ANALYZE` |
+| Coil 磁盘 | 海报 / 背景 / 剧照 | 默认 512 MB，可配置；LRU |
+| `media_stream_info` | 编码/HDR/音轨探测结果 | 很小；按文件版本失效 |
+| 字幕 | 下载/本地字幕 | `filesDir/subtitles`；清理旧文件 |
+| 日志 | 运行日志 | 512 KB 滚动一份 |
+| 视频 | 不缓存整片 | 10TB 远端；可选热点小缓存（后置） |
+
+- **TTL**：TMDB 作品/分集元数据 30–90 天；海报长期缓存；目录缓存按扫描；流信息按 `size/mtime/etag`。
+- **失效**：文件变化、源根路径变化、TMDB 版本升级、用户手动“清缓存/重新刮削”。
+- **离线体验**：可浏览已缓存海报墙、可看本地媒体；远端播放/扫描/刮削明确提示离线；进度与收藏本地照常写。
+
+### 3.15 媒体识别与特殊结构
+
+- **识别规则**以 WORKLOG 第 6 节为准：集数（`SxxExx` / `EPxx` / `1x03` / 末尾裸数字 / 季目录内开头 `NN.`）、季目录（`S01` / `Season 1` / `第1季`）、片名优先级。
+- **特别篇 / OVA / 花絮**：统一放 `season = 0`，显示“特别篇”，**不并入正片集数**；是否合并由用户手动决定。
+- **动漫编号**：支持“按季 1..N”和“全剧绝对集数（29–38）”两种；有季目录时以目录为准；无法判断时允许手动指定编号方式。
+- **多版本**：同一 `logicalId` 多个文件进 `work_versions`；按分辨率/HDR/码率/音轨排序；用户可固定版本。
+- **多碟 / 分段**：同一集多个文件时合并为一个逻辑集，播放时按顺序拼接（后期）；先按版本处理。
+- **合集（Collection）**：TMDB collection 是“系列电影”的分组，不等于电视剧；用独立 `collection_id`，不要混进剧集。
+- **重复文件**：同 `tmdbId + season/episode` 视为版本；不重复创建用户数据。
+- **未识别**：给临时 `file:` 身份，显示“未识别”；手动匹配后做进度/收藏迁移。
+- **命名问题政策**：凡是命名/目录结构导致的识别问题，明确告诉用户“这是名字问题”、给出当前规则与推荐写法，由用户改名；不写只对某个名字生效的特判。
+
+### 3.16 搜索与索引
+
+- **查询管线**：输入防抖 250ms → 归一化（大小写、全半角、去首尾空格）→ FTS/LIKE → 筛选 → 排序 → 分页。
+- **中文搜索**：SQLite 默认分词不适合中文。方案：维护 `search_text`（标题/别名/演员/类型，CJK 字符间加空格）+ FTS4 `unicode61` 前缀匹配；或 FTS5 trigram；用 20k 条做基准后定。
+- **筛选维度**：类型、年份、国家、类型标签、演员、来源、未看、4K/HDR（来自 `media_stream_info`）。
+- **索引**：
+  - `works(type, year, rating, updated_at)`
+  - `work_genres(genre, work_id)`
+  - `work_cast(person_id, work_id)`
+  - `media_files(source_id, remote_key)` 唯一
+  - `progress(logical_id, user_id)`
+  - `scrape_tasks(state, next_attempt_at)`
+- **排序**：SQL 侧完成；中文标题排序维护 `sort_title`（拼音或笔画），不要用数据库默认排序。
+- **性能**：FTS 索引 + 分页 + 限制返回；禁止全表 `LIKE '%x%'` 扫描 20k 条。
+
+### 3.17 后台任务与调度
+
+| 任务 | 载体 | 约束 | 前台 |
+|---|---|---|---|
+| 扫描 | WorkManager，唯一名 `scan:<sourceId>` | 网络；单源串行 | `dataSync` |
+| 刮削 | WorkManager，`scrape` | 网络；配额/退避 | 可选 |
+| 补齐详情 | WorkManager，低优先级 | 网络 | 否 |
+| 流信息探测 | WorkManager，低优先级 | 网络；按需 | 否 |
+| 同步 | WorkManager，`sync` | 网络 | 否 |
+| 缓存清理 | WorkManager，周期 | 无 | 否 |
+
+- **前台服务**：Android 14+ 长任务用 `dataSync` 类型 + 权限 + 通知；任务进度写入 Room，UI 观察。
+- **优先级**：用户主动触发的用 expedited；后台维护低优先级；同一 source 的扫描/刮削不并发。
+- **取消**：每阶段检查 `isActive`；取消不写半份结果；取消不抛业务错误。
+- **进程死亡**：任务状态持久化；重启后按 `scan_runs` / `scrape_tasks` 续跑。
+- **Doze / 电池**：不自建精确闹钟；依赖 WorkManager；长任务可暂停。
+- **测试**：`work-testing` 覆盖约束、重试、取消、续跑。
+
+### 3.18 性能与容量预算
+
+| 项 | 预算 / 估算 | 说明 |
+|---|---|---|
+| DB 大小 | < 200 MB | 20k 文件 + 5k 作品 + FTS |
+| 图片缓存 | 默认 512 MB | 可配置；LRU |
+| 应用内存 | < 300 MB | 分页窗口；不加载全库 |
+| 冷启动 | < 2 s | 不读全库；懒初始化；Baseline Profile |
+| 首次扫描 | 5k 目录 × 50–100 ms ≈ 5–8 min | 顺序 PROPFIND；可续跑 |
+| 增量扫描 | < 首次的 10% | 目录缓存 + 只处理变化 |
+| 刮削 20k 条 | 理想 20–60 min，实际数小时 | 4 并发 + 配额；可暂停 |
+| 4K HDR 播放 | 50–100 Mbps | 依赖源站带宽与缓冲 |
+| UI 帧率 | 60 / 120 fps | 主线程无磁盘 IO；图片按尺寸加载 |
+
+- 用 Macrobenchmark / Baseline Profile / Perfetto / StrictMode 监控；20k 合成数据是性能验收基线。
+- 任何“全量加载 / 全表扫描 / 主线程 IO”都视为性能缺陷，不允许进主干。
+
+### 3.19 数据库运维与数据质量
+
+- **基础设置**：WAL、`synchronous=NORMAL`、`busy_timeout`；大批删除后 `VACUUM` 或 `auto_vacuum=INCREMENTAL`；定期 `ANALYZE`。
+- **FTS 维护**：schema 变更后重建；提供“重建索引”调试入口。
+- **备份 / 导出**：迁移前自动备份数据库；后续提供“导出用户数据（进度/收藏/片单/改名）”，便于换机。
+- **完整性检查**：`PRAGMA integrity_check` / `foreign_key_check`；设置页调试入口显示表数量、大小、孤立记录数。
+- **数据质量任务**：孤立文件、重复条目、缺失文件、过期元数据、坏片单；只报告 + 可修复，不自动删用户数据。
+- **损坏恢复**：打开库失败时明确报错并保留原文件；绝不 destructive 清库。
+- **迁移前后**：记录版本、行数、校验和；迁移失败可回滚到备份。
+
 ---
 
 ## 4. 数据迁移策略
@@ -420,6 +539,31 @@ device_capabilities(
 - `SyncProvider` + WebDAV JSON（或 VPS API）；多设备进度/收藏/片单。
 - TV 端：单独 feature + 焦点/遥控器适配（若确认要做）。
 - 验收：两台设备进度互相同步；冲突规则可解释。
+
+### 5.1 Epic 拆解
+
+| 阶段 | Epic | 交付 | 验收 |
+|---|---|---|---|
+| 0 | E0.1 Schema 导出 | `exportSchema` + `8.json` + MigrationTestHelper | 迁移测试脚手架能跑 |
+| 0 | E0.2 核心模块 | `:core:model/database/network/data` 骨架 | 依赖方向单向，构建通过 |
+| 0 | E0.3 v9 表与回填 | sources / works / episodes / logicalId | v8 数据完整迁移 |
+| 0 | E0.4 仓库拆分 | Scanner / Scraper / QueryRepository | 现有行为不变 |
+| 0 | E0.5 UI 状态统一 | 页面 ViewModel + UiState | composable 不再拿 AppContainer |
+| 0 | E0.6 迁移验证 | 真实库副本 + 回滚演练 | 数据零丢失 |
+| 1 | E1.1 增量扫描 | 目录缓存 + WorkManager + 续跑 | 20k 扫描可中断续跑 |
+| 1 | E1.2 持久刮削 | `scrape_tasks` + Worker + 预算 | 可暂停/恢复/限速 |
+| 1 | E1.3 Works/分页 | `works` 查询 + Paging 3 | 20k 海报墙不卡 |
+| 1 | E1.4 搜索/筛选 | FTS + SQL 过滤 + 排序 | 中文搜索可用 |
+| 1 | E1.5 压测 | 20k 合成数据 | 内存/帧率达标 |
+| 2 | E2.1 MediaSource | WebDAV / 本地实现 | 多源可同时挂载 |
+| 2 | E2.2 源管理 UI | 添加/编辑/停用/健康 | 凭据隔离、401 不串源 |
+| 2 | E2.3 合并/版本 | `work_versions` + 失败切换 | 同作品多源合并 |
+| 3 | E3.1 能力模型 | `DeviceCapabilities` + `StreamInfo` + 诊断 | 规格徽标正确 |
+| 3 | E3.2 HDR 直出 | HDR10/HDR10+/HLG + 刷新率 + 音频 | 真机直出/直通 |
+| 3 | E3.3 降级/软解 | 色调映射 + DV 基础层 + FFmpeg | 不支持时明确降级 |
+| 3 | E3.4 体验 | PiP / 投屏 / 字幕样式 / 跳过 | 真机通过 |
+| 4 | E4.1 同步 | SyncProvider + WebDAV JSON | 双设备进度一致 |
+| 4 | E4.2 TV（可选） | TV feature + 焦点 | 遥控器可用 |
 
 ---
 
@@ -595,3 +739,44 @@ data class LibraryFilter(
 7. 全部通过后再进入 Phase 1。
 
 > 约束不变：401/429 不重试、真迁移、版本单一来源、改完真机验证。
+
+---
+
+## 10. 决策记录（ADR）
+
+| 编号 | 决策 | 理由 | 后果 |
+|---|---|---|---|
+| ADR-001 | 保持单 Activity + Compose，不重写跨端 | 团队规模与 Media3 生态 | TV 需单独 feature |
+| ADR-002 | 用户数据引用 `logicalId`，物理文件用 `fileId` | 改名/移动/多源不丢进度 | 需要 v9 迁移与身份合并 |
+| ADR-003 | 模块控制在 8–10 个，暂用手写 DI | 降低构建与认知成本 | 模块边界靠约定与评审 |
+| ADR-004 | Room 是唯一媒体库数据源，列表用 Paging 3 | 20k 级不能全量加载 | 需要 `works` 查询与 SQL 过滤 |
+| ADR-005 | 扫描/刮削用 WorkManager + 持久队列 | 长任务要可续跑、可取消 | 需要 FGS 类型与通知 |
+| ADR-006 | Media3 + 能力探测，HDR 按设备直出/降级 | 设备碎片化，不能假设全支持 | DV 不承诺全设备 |
+| ADR-007 | 不引入后端，除非确认多端同步 | 个人项目避免运维负担 | 同步先做 WebDAV JSON |
+| ADR-008 | 401/429 全局封锁，任何入口不重试 | OpenList 按 IP 锁定的硬约束 | 需要统一 SourceGate |
+| ADR-009 | 升级方向只做真迁移，绝不 destructive | 用户数据不可恢复 | 迁移测试是发布门槛 |
+| ADR-010 | 不做“目录即剧集”的粗暴分组 | 合集目录会误合并 | 只按集数 + 季根分组 |
+
+> 新增决策时在表格末尾追加，并在 WORKLOG 记录背景与影响。
+
+---
+
+## 11. 非目标
+
+- 不做内容托管、内容分发、DRM、广告、社交功能。
+- 不自建账号体系/云端后端（除非多端同步成为明确需求）。
+- 不缓存整部视频（10TB 远端）；只做可选热点缓存。
+- 不做 TV 端，直到产品决策明确（当前锁定不做）。
+- 不做每帧 4K 软件色调映射；硬件优先，软解必须提示性能代价。
+- 不做没有迁移测试的数据库变更。
+- 不做只对某个具体文件名生效的解析特判；命名问题按通用规则 + 用户改名解决。
+- 不用“全量加载 / 全表扫描 / 主线程 IO”换开发速度。
+
+---
+
+## 12. 文档维护
+
+- 本文件记录**长期架构与决策**；具体实现进展、坑、验证结果写 `WORKLOG.md`。
+- 新增/修改 ADR 时同步更新相关章节；废弃决策保留编号并标注状态。
+- 任何与安全、凭据、401/429、迁移相关的改动，必须先对照本文件再动手。
+
