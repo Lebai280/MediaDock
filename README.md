@@ -3,6 +3,7 @@
 Android 影音播放器：连接 WebDAV（OpenList / AList）浏览并播放视频，带海报墙媒体库（TMDB 刮削）。
 
 > **接手这个项目请先读 [WORKLOG.md](WORKLOG.md)** —— 那里有完整的现状、硬约束、代码地图、路线图和坑清单。
+> 长期架构与 10TB / 多数据源改造计划见 [ARCHITECTURE.md](ARCHITECTURE.md)。
 > 本文件只放最短的上手信息。
 
 ## 构建
