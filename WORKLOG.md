@@ -1911,6 +1911,9 @@ APK sha256 `fbdbcc80…4bf8fe`；`version.json` 已指向 0.5.1；真机从 0.5.
 **备注**：
 - S1 只验证迁移与 VIEW；v9 正式 schema/迁移仍待 0a 实施。
 - `@DatabaseView` 方案成立；0a 需把旧 `MediaItemEntity` 的读路径切到视图 POJO，写路径改新表。
+- S1 发现：兼容 VIEW 需要 `works.scrape_state` / `scraped_at`；`title_details` 的
+  `release_date` / `runtime_minutes` / `country` / `genres` / `cast` 需落在 `works`
+  或独立 `work_details`；0a schema 必须补齐。
 - 下一步：S2 中文 FTS、S3 DLNA/SMB 选型、S4 FFmpeg 16KB/HDR。
 
 ---

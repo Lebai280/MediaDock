@@ -1411,10 +1411,13 @@ title_overrides(work_id TEXT, title TEXT, year INTEGER, PRIMARY KEY(work_id))
 
 **规则**：
 
-- 未匹配文件：创建临时 `works` / `episodes` 行（UUID），`logical_key = file:<sourceId>:<key>`；匹配后只更新 `logical_key`，用户数据不动。
-- 合并到已存在作品：执行 `MergeContents` 事务——迁移 `movie_versions` / `episode_versions` / `file_segments` / 进度 / 收藏 / 片单 / 改名；冲突规则同 3.3.1；写入审计报告；旧 UUID 标记 tombstone，不物理删除。
+- 未匹配文件：创建临时 `works` / `episodes` 行（UUID），`logical_key = file:<sourceId>:<key>`；匹配后只更新 `logical_key`，用户数据不动。- 合并到已存在作品：执行 `MergeContents` 事务——迁移 `movie_versions` / `episode_versions` / `file_segments` / 进度 / 收藏 / 片单 / 改名；冲突规则同 3.3.1；写入审计报告；旧 UUID 标记 tombstone，不物理删除。
 - 不再存在“改 logical_id 级联所有外键”的路径；所有用户数据只引用 UUID。
 - `LogicalKeyCodec` 只生成/解析 key；`ContentId` 类型用于接口。
+
+> **S1 发现（2026-10-18）**：兼容 VIEW 需要 `works.scrape_state` / `scraped_at`；
+> `title_details` 的 `release_date` / `runtime_minutes` / `country` / `genres` / `cast`
+> 可放在 `works` 或独立 `work_details` 表。S1 原型已使用这些列，0a schema 必须补齐。
 
 ### 15.3 B2：多集、版本与进度（覆盖 3.3.2 / 3.15）
 
