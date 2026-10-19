@@ -72,8 +72,8 @@ compileSdk 37.2 / targetSdk 36 / minSdk 26
 
 8 个功能阶段（构建链、数据源、浏览、播放、媒体库、TMDB 刮削、播放体验、字幕与设置）已完成，并通过真机逐屏验证；界面按 VidHub 版式与产品配色完成改造。
 
-当前版本 `0.7.0`（versionCode 22）：Phase 0a 数据层（v9、兼容 VIEW、真机迁移与回滚演练）与
-Phase 0b 网络/数据模块拆分。应用内「设置 → 关于 → 检查更新」可用。
+当前版本 `0.8.0`（versionCode 23）：Phase 0a 数据层、Phase 0b 网络/数据模块、Phase 1 E1.1
+增量扫描（WorkManager + 目录缓存 + 断点续跑）。应用内「设置 → 关于 → 检查更新」可用。
 
 > 构建 release 变体需要签名材料：密码配置在 `local.properties`（已 gitignore），密钥库位于仓库之外。缺少签名材料时仅可构建 debug 变体。签名材料丢失后无法继续发布同一应用的更新。
 

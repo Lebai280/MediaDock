@@ -65,6 +65,7 @@ class MediaLibraryStore(private val db: MediaDatabase) {
         sourceId: SourceId,
         files: List<ScannedFile>,
         missingPrefix: String? = null,
+        scanRunId: Long? = null,
     ) = db.withTransaction {
         val now = System.currentTimeMillis()
         if (missingPrefix != null) {
@@ -72,40 +73,78 @@ class MediaLibraryStore(private val db: MediaDatabase) {
         } else {
             w.markMissingBySource(sourceId.value, now)
         }
-        for (file in files) {
-            val remoteKey = normalizeRemoteKey(file.path)
-            val existing = w.fileByKey(sourceId.value, remoteKey)
-            val fileId = existing?.id ?: ContentIds.file(sourceId, remoteKey)
-            val sameSize = existing == null ||
-                existing.sizeBytes == null ||
-                file.sizeBytes == null ||
-                existing.sizeBytes == file.sizeBytes
-            val resolved = if (existing != null && sameSize) resolveForFileLocked(existing) else null
-            if (resolved == null) {
-                w.deleteMovieVersionsForFile(fileId)
-                w.deleteEpisodeVersionsForFile(fileId)
-                w.deleteSegmentsForFile(fileId)
-                createContentLocked(sourceId, fileId, file)
+        files.forEach { applyScannedFileLocked(sourceId, it, scanRunId) }
+    }
+
+    /**
+     * 目录级差异写入（增量扫描用）：只处理一个目录的直接文件，
+     * 缺文件标 missing；不触碰其他目录与用户数据。
+     */
+    suspend fun applyDirectoryListing(
+        sourceId: SourceId,
+        directoryKey: String,
+        files: List<ScannedFile>,
+        scanRunId: Long? = null,
+    ) = db.withTransaction {
+        val now = System.currentTimeMillis()
+        files.forEach { applyScannedFileLocked(sourceId, it, scanRunId) }
+
+        val prefix = if (directoryKey.isEmpty()) "" else "$directoryKey/"
+        val upper = "$prefix￿"
+        val present = files.map { normalizeRemoteKey(it.path) }.toHashSet()
+        // 只取直接子文件：removing prefix 后不能再有斜杠，且不在本次目录列表中。
+        val absentIds = w.filesInKeyRange(sourceId.value, prefix, upper)
+            .filter { file ->
+                val relative = file.remoteKey.removePrefix(prefix)
+                relative.isNotEmpty() && '/' !in relative && file.remoteKey !in present
             }
-            w.upsertFile(
-                MediaFileEntity(
-                    id = fileId,
-                    sourceId = sourceId.value,
-                    remoteKey = remoteKey,
-                    legacyPath = file.path,
-                    mediaKind = "main",
-                    name = file.name,
-                    sizeBytes = file.sizeBytes,
-                    mtime = file.mtime,
-                    missingAt = null,
-                    parsedTitle = file.title,
-                    parsedYear = file.year,
-                    parsedSeason = file.season,
-                    parsedEpisode = file.episode,
-                    legacyCompat = 0,
-                ),
-            )
+            .map { it.id }
+        if (absentIds.isNotEmpty()) w.markMissingByIds(absentIds, now)
+    }
+
+    /** FULL 扫描收尾：本轮未访问到的文件标缺失。 */
+    suspend fun finishFullScan(sourceId: SourceId, runId: Long) = db.withTransaction {
+        w.markMissingNotInRun(sourceId.value, runId, System.currentTimeMillis())
+    }
+
+    private suspend fun applyScannedFileLocked(
+        sourceId: SourceId,
+        file: ScannedFile,
+        scanRunId: Long?,
+    ) {
+        val remoteKey = normalizeRemoteKey(file.path)
+        val existing = w.fileByKey(sourceId.value, remoteKey)
+        val fileId = existing?.id ?: ContentIds.file(sourceId, remoteKey)
+        val sameSize = existing == null ||
+            existing.sizeBytes == null ||
+            file.sizeBytes == null ||
+            existing.sizeBytes == file.sizeBytes
+        val resolved = if (existing != null && sameSize) resolveForFileLocked(existing) else null
+        if (resolved == null) {
+            w.deleteMovieVersionsForFile(fileId)
+            w.deleteEpisodeVersionsForFile(fileId)
+            w.deleteSegmentsForFile(fileId)
+            createContentLocked(sourceId, fileId, file)
         }
+        w.upsertFile(
+            MediaFileEntity(
+                id = fileId,
+                sourceId = sourceId.value,
+                remoteKey = remoteKey,
+                legacyPath = file.path,
+                mediaKind = "main",
+                name = file.name,
+                sizeBytes = file.sizeBytes,
+                mtime = file.mtime,
+                scanRunId = scanRunId,
+                missingAt = null,
+                parsedTitle = file.title,
+                parsedYear = file.year,
+                parsedSeason = file.season,
+                parsedEpisode = file.episode,
+                legacyCompat = 0,
+            ),
+        )
     }
 
     private suspend fun createContentLocked(

@@ -1,0 +1,1333 @@
+{
+  "formatVersion": 1,
+  "database": {
+    "version": 10,
+    "identityHash": "f8f47077a15d26e3604d3d742bd93cdd",
+    "entities": [
+      {
+        "tableName": "sources",
+        "createSql": "CREATE TABLE IF NOT EXISTS `${TABLE_NAME}` (`id` TEXT NOT NULL, `type` TEXT NOT NULL, `name` TEXT NOT NULL, `base_url` TEXT, `root_path` TEXT, `credential_ref` TEXT, `enabled` INTEGER NOT NULL, `priority` INTEGER NOT NULL, `created_at` INTEGER NOT NULL, `last_scan_at` INTEGER, `health` TEXT, `root_generation` INTEGER NOT NULL, PRIMARY KEY(`id`))",
+        "fields": [
+          {
+            "fieldPath": "id",
+            "columnName": "id",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "type",
+            "columnName": "type",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "name",
+            "columnName": "name",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "baseUrl",
+            "columnName": "base_url",
+            "affinity": "TEXT"
+          },
+          {
+            "fieldPath": "rootPath",
+            "columnName": "root_path",
+            "affinity": "TEXT"
+          },
+          {
+            "fieldPath": "credentialRef",
+            "columnName": "credential_ref",
+            "affinity": "TEXT"
+          },
+          {
+            "fieldPath": "enabled",
+            "columnName": "enabled",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "priority",
+            "columnName": "priority",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "createdAt",
+            "columnName": "created_at",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "lastScanAt",
+            "columnName": "last_scan_at",
+            "affinity": "INTEGER"
+          },
+          {
+            "fieldPath": "health",
+            "columnName": "health",
+            "affinity": "TEXT"
+          },
+          {
+            "fieldPath": "rootGeneration",
+            "columnName": "root_generation",
+            "affinity": "INTEGER",
+            "notNull": true
+          }
+        ],
+        "primaryKey": {
+          "autoGenerate": false,
+          "columnNames": [
+            "id"
+          ]
+        }
+      },
+      {
+        "tableName": "media_files",
+        "createSql": "CREATE TABLE IF NOT EXISTS `${TABLE_NAME}` (`id` TEXT NOT NULL, `source_id` TEXT NOT NULL, `remote_key` TEXT NOT NULL, `legacy_path` TEXT, `provider_item_id` TEXT, `media_kind` TEXT NOT NULL, `name` TEXT NOT NULL, `size_bytes` INTEGER, `mtime` TEXT, `etag` TEXT, `scan_run_id` INTEGER, `missing_at` INTEGER, `parsed_title` TEXT, `parsed_year` INTEGER, `parsed_season` INTEGER, `parsed_episode` INTEGER, `legacy_compat` INTEGER NOT NULL, PRIMARY KEY(`id`))",
+        "fields": [
+          {
+            "fieldPath": "id",
+            "columnName": "id",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "sourceId",
+            "columnName": "source_id",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "remoteKey",
+            "columnName": "remote_key",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "legacyPath",
+            "columnName": "legacy_path",
+            "affinity": "TEXT"
+          },
+          {
+            "fieldPath": "providerItemId",
+            "columnName": "provider_item_id",
+            "affinity": "TEXT"
+          },
+          {
+            "fieldPath": "mediaKind",
+            "columnName": "media_kind",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "name",
+            "columnName": "name",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "sizeBytes",
+            "columnName": "size_bytes",
+            "affinity": "INTEGER"
+          },
+          {
+            "fieldPath": "mtime",
+            "columnName": "mtime",
+            "affinity": "TEXT"
+          },
+          {
+            "fieldPath": "etag",
+            "columnName": "etag",
+            "affinity": "TEXT"
+          },
+          {
+            "fieldPath": "scanRunId",
+            "columnName": "scan_run_id",
+            "affinity": "INTEGER"
+          },
+          {
+            "fieldPath": "missingAt",
+            "columnName": "missing_at",
+            "affinity": "INTEGER"
+          },
+          {
+            "fieldPath": "parsedTitle",
+            "columnName": "parsed_title",
+            "affinity": "TEXT"
+          },
+          {
+            "fieldPath": "parsedYear",
+            "columnName": "parsed_year",
+            "affinity": "INTEGER"
+          },
+          {
+            "fieldPath": "parsedSeason",
+            "columnName": "parsed_season",
+            "affinity": "INTEGER"
+          },
+          {
+            "fieldPath": "parsedEpisode",
+            "columnName": "parsed_episode",
+            "affinity": "INTEGER"
+          },
+          {
+            "fieldPath": "legacyCompat",
+            "columnName": "legacy_compat",
+            "affinity": "INTEGER",
+            "notNull": true
+          }
+        ],
+        "primaryKey": {
+          "autoGenerate": false,
+          "columnNames": [
+            "id"
+          ]
+        },
+        "indices": [
+          {
+            "name": "index_media_files_source_id_remote_key",
+            "unique": true,
+            "columnNames": [
+              "source_id",
+              "remote_key"
+            ],
+            "orders": [],
+            "createSql": "CREATE UNIQUE INDEX IF NOT EXISTS `index_media_files_source_id_remote_key` ON `${TABLE_NAME}` (`source_id`, `remote_key`)"
+          }
+        ]
+      },
+      {
+        "tableName": "works",
+        "createSql": "CREATE TABLE IF NOT EXISTS `${TABLE_NAME}` (`id` TEXT NOT NULL, `logical_key` TEXT NOT NULL, `tmdb_id` INTEGER, `type` TEXT NOT NULL, `title` TEXT NOT NULL, `sort_title` TEXT, `year` INTEGER, `poster_path` TEXT, `backdrop_path` TEXT, `overview` TEXT, `rating` REAL, `total_seasons` INTEGER, `total_episodes` INTEGER, `collection_id` TEXT, `metadata_source` TEXT, `external_ids_json` TEXT, `added_at` INTEGER NOT NULL, `latest_file_mtime` INTEGER, `updated_at` INTEGER, `scrape_state` TEXT NOT NULL, `scraped_at` INTEGER, PRIMARY KEY(`id`))",
+        "fields": [
+          {
+            "fieldPath": "id",
+            "columnName": "id",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "logicalKey",
+            "columnName": "logical_key",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "tmdbId",
+            "columnName": "tmdb_id",
+            "affinity": "INTEGER"
+          },
+          {
+            "fieldPath": "type",
+            "columnName": "type",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "title",
+            "columnName": "title",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "sortTitle",
+            "columnName": "sort_title",
+            "affinity": "TEXT"
+          },
+          {
+            "fieldPath": "year",
+            "columnName": "year",
+            "affinity": "INTEGER"
+          },
+          {
+            "fieldPath": "posterPath",
+            "columnName": "poster_path",
+            "affinity": "TEXT"
+          },
+          {
+            "fieldPath": "backdropPath",
+            "columnName": "backdrop_path",
+            "affinity": "TEXT"
+          },
+          {
+            "fieldPath": "overview",
+            "columnName": "overview",
+            "affinity": "TEXT"
+          },
+          {
+            "fieldPath": "rating",
+            "columnName": "rating",
+            "affinity": "REAL"
+          },
+          {
+            "fieldPath": "totalSeasons",
+            "columnName": "total_seasons",
+            "affinity": "INTEGER"
+          },
+          {
+            "fieldPath": "totalEpisodes",
+            "columnName": "total_episodes",
+            "affinity": "INTEGER"
+          },
+          {
+            "fieldPath": "collectionId",
+            "columnName": "collection_id",
+            "affinity": "TEXT"
+          },
+          {
+            "fieldPath": "metadataSource",
+            "columnName": "metadata_source",
+            "affinity": "TEXT"
+          },
+          {
+            "fieldPath": "externalIdsJson",
+            "columnName": "external_ids_json",
+            "affinity": "TEXT"
+          },
+          {
+            "fieldPath": "addedAt",
+            "columnName": "added_at",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "latestFileMtime",
+            "columnName": "latest_file_mtime",
+            "affinity": "INTEGER"
+          },
+          {
+            "fieldPath": "updatedAt",
+            "columnName": "updated_at",
+            "affinity": "INTEGER"
+          },
+          {
+            "fieldPath": "scrapeState",
+            "columnName": "scrape_state",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "scrapedAt",
+            "columnName": "scraped_at",
+            "affinity": "INTEGER"
+          }
+        ],
+        "primaryKey": {
+          "autoGenerate": false,
+          "columnNames": [
+            "id"
+          ]
+        },
+        "indices": [
+          {
+            "name": "index_works_logical_key",
+            "unique": true,
+            "columnNames": [
+              "logical_key"
+            ],
+            "orders": [],
+            "createSql": "CREATE UNIQUE INDEX IF NOT EXISTS `index_works_logical_key` ON `${TABLE_NAME}` (`logical_key`)"
+          }
+        ]
+      },
+      {
+        "tableName": "episodes",
+        "createSql": "CREATE TABLE IF NOT EXISTS `${TABLE_NAME}` (`id` TEXT NOT NULL, `logical_key` TEXT NOT NULL, `work_id` TEXT NOT NULL, `season` INTEGER NOT NULL, `episode` INTEGER NOT NULL, `title` TEXT, `still_path` TEXT, `runtime` INTEGER, `air_date` TEXT, PRIMARY KEY(`id`))",
+        "fields": [
+          {
+            "fieldPath": "id",
+            "columnName": "id",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "logicalKey",
+            "columnName": "logical_key",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "workId",
+            "columnName": "work_id",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "season",
+            "columnName": "season",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "episode",
+            "columnName": "episode",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "title",
+            "columnName": "title",
+            "affinity": "TEXT"
+          },
+          {
+            "fieldPath": "stillPath",
+            "columnName": "still_path",
+            "affinity": "TEXT"
+          },
+          {
+            "fieldPath": "runtime",
+            "columnName": "runtime",
+            "affinity": "INTEGER"
+          },
+          {
+            "fieldPath": "airDate",
+            "columnName": "air_date",
+            "affinity": "TEXT"
+          }
+        ],
+        "primaryKey": {
+          "autoGenerate": false,
+          "columnNames": [
+            "id"
+          ]
+        },
+        "indices": [
+          {
+            "name": "index_episodes_logical_key",
+            "unique": true,
+            "columnNames": [
+              "logical_key"
+            ],
+            "orders": [],
+            "createSql": "CREATE UNIQUE INDEX IF NOT EXISTS `index_episodes_logical_key` ON `${TABLE_NAME}` (`logical_key`)"
+          },
+          {
+            "name": "index_episodes_work_id_season_episode",
+            "unique": true,
+            "columnNames": [
+              "work_id",
+              "season",
+              "episode"
+            ],
+            "orders": [],
+            "createSql": "CREATE UNIQUE INDEX IF NOT EXISTS `index_episodes_work_id_season_episode` ON `${TABLE_NAME}` (`work_id`, `season`, `episode`)"
+          }
+        ]
+      },
+      {
+        "tableName": "movie_versions",
+        "createSql": "CREATE TABLE IF NOT EXISTS `${TABLE_NAME}` (`work_id` TEXT NOT NULL, `file_id` TEXT NOT NULL, `source_id` TEXT NOT NULL, `quality_label` TEXT, `size_bytes` INTEGER, `pinned` INTEGER NOT NULL, PRIMARY KEY(`work_id`, `file_id`))",
+        "fields": [
+          {
+            "fieldPath": "workId",
+            "columnName": "work_id",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "fileId",
+            "columnName": "file_id",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "sourceId",
+            "columnName": "source_id",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "qualityLabel",
+            "columnName": "quality_label",
+            "affinity": "TEXT"
+          },
+          {
+            "fieldPath": "sizeBytes",
+            "columnName": "size_bytes",
+            "affinity": "INTEGER"
+          },
+          {
+            "fieldPath": "pinned",
+            "columnName": "pinned",
+            "affinity": "INTEGER",
+            "notNull": true
+          }
+        ],
+        "primaryKey": {
+          "autoGenerate": false,
+          "columnNames": [
+            "work_id",
+            "file_id"
+          ]
+        }
+      },
+      {
+        "tableName": "episode_versions",
+        "createSql": "CREATE TABLE IF NOT EXISTS `${TABLE_NAME}` (`episode_id` TEXT NOT NULL, `file_id` TEXT NOT NULL, `source_id` TEXT NOT NULL, `quality_label` TEXT, `size_bytes` INTEGER, `pinned` INTEGER NOT NULL, PRIMARY KEY(`episode_id`, `file_id`))",
+        "fields": [
+          {
+            "fieldPath": "episodeId",
+            "columnName": "episode_id",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "fileId",
+            "columnName": "file_id",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "sourceId",
+            "columnName": "source_id",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "qualityLabel",
+            "columnName": "quality_label",
+            "affinity": "TEXT"
+          },
+          {
+            "fieldPath": "sizeBytes",
+            "columnName": "size_bytes",
+            "affinity": "INTEGER"
+          },
+          {
+            "fieldPath": "pinned",
+            "columnName": "pinned",
+            "affinity": "INTEGER",
+            "notNull": true
+          }
+        ],
+        "primaryKey": {
+          "autoGenerate": false,
+          "columnNames": [
+            "episode_id",
+            "file_id"
+          ]
+        }
+      },
+      {
+        "tableName": "file_segments",
+        "createSql": "CREATE TABLE IF NOT EXISTS `${TABLE_NAME}` (`file_id` TEXT NOT NULL, `episode_id` TEXT NOT NULL, `segment_index` INTEGER NOT NULL, `start_ms` INTEGER, `end_ms` INTEGER, PRIMARY KEY(`file_id`, `segment_index`))",
+        "fields": [
+          {
+            "fieldPath": "fileId",
+            "columnName": "file_id",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "episodeId",
+            "columnName": "episode_id",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "segmentIndex",
+            "columnName": "segment_index",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "startMs",
+            "columnName": "start_ms",
+            "affinity": "INTEGER"
+          },
+          {
+            "fieldPath": "endMs",
+            "columnName": "end_ms",
+            "affinity": "INTEGER"
+          }
+        ],
+        "primaryKey": {
+          "autoGenerate": false,
+          "columnNames": [
+            "file_id",
+            "segment_index"
+          ]
+        }
+      },
+      {
+        "tableName": "movie_progress",
+        "createSql": "CREATE TABLE IF NOT EXISTS `${TABLE_NAME}` (`work_id` TEXT NOT NULL, `user_id` TEXT NOT NULL, `position_ms` INTEGER NOT NULL, `duration_ms` INTEGER NOT NULL, `completed` INTEGER NOT NULL, `updated_at` INTEGER NOT NULL, PRIMARY KEY(`work_id`, `user_id`))",
+        "fields": [
+          {
+            "fieldPath": "workId",
+            "columnName": "work_id",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "userId",
+            "columnName": "user_id",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "positionMs",
+            "columnName": "position_ms",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "durationMs",
+            "columnName": "duration_ms",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "completed",
+            "columnName": "completed",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "updatedAt",
+            "columnName": "updated_at",
+            "affinity": "INTEGER",
+            "notNull": true
+          }
+        ],
+        "primaryKey": {
+          "autoGenerate": false,
+          "columnNames": [
+            "work_id",
+            "user_id"
+          ]
+        }
+      },
+      {
+        "tableName": "episode_progress",
+        "createSql": "CREATE TABLE IF NOT EXISTS `${TABLE_NAME}` (`episode_id` TEXT NOT NULL, `user_id` TEXT NOT NULL, `position_ms` INTEGER NOT NULL, `duration_ms` INTEGER NOT NULL, `completed` INTEGER NOT NULL, `updated_at` INTEGER NOT NULL, PRIMARY KEY(`episode_id`, `user_id`))",
+        "fields": [
+          {
+            "fieldPath": "episodeId",
+            "columnName": "episode_id",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "userId",
+            "columnName": "user_id",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "positionMs",
+            "columnName": "position_ms",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "durationMs",
+            "columnName": "duration_ms",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "completed",
+            "columnName": "completed",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "updatedAt",
+            "columnName": "updated_at",
+            "affinity": "INTEGER",
+            "notNull": true
+          }
+        ],
+        "primaryKey": {
+          "autoGenerate": false,
+          "columnNames": [
+            "episode_id",
+            "user_id"
+          ]
+        }
+      },
+      {
+        "tableName": "file_progress",
+        "createSql": "CREATE TABLE IF NOT EXISTS `${TABLE_NAME}` (`file_id` TEXT NOT NULL, `user_id` TEXT NOT NULL, `position_ms` INTEGER NOT NULL, `duration_ms` INTEGER NOT NULL, `updated_at` INTEGER NOT NULL, PRIMARY KEY(`file_id`, `user_id`))",
+        "fields": [
+          {
+            "fieldPath": "fileId",
+            "columnName": "file_id",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "userId",
+            "columnName": "user_id",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "positionMs",
+            "columnName": "position_ms",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "durationMs",
+            "columnName": "duration_ms",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "updatedAt",
+            "columnName": "updated_at",
+            "affinity": "INTEGER",
+            "notNull": true
+          }
+        ],
+        "primaryKey": {
+          "autoGenerate": false,
+          "columnNames": [
+            "file_id",
+            "user_id"
+          ]
+        }
+      },
+      {
+        "tableName": "favorites",
+        "createSql": "CREATE TABLE IF NOT EXISTS `${TABLE_NAME}` (`work_id` TEXT NOT NULL, `user_id` TEXT NOT NULL, `added_at` INTEGER NOT NULL, PRIMARY KEY(`work_id`, `user_id`))",
+        "fields": [
+          {
+            "fieldPath": "workId",
+            "columnName": "work_id",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "userId",
+            "columnName": "user_id",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "addedAt",
+            "columnName": "added_at",
+            "affinity": "INTEGER",
+            "notNull": true
+          }
+        ],
+        "primaryKey": {
+          "autoGenerate": false,
+          "columnNames": [
+            "work_id",
+            "user_id"
+          ]
+        }
+      },
+      {
+        "tableName": "playlists",
+        "createSql": "CREATE TABLE IF NOT EXISTS `${TABLE_NAME}` (`id` INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL, `user_id` TEXT NOT NULL, `name` TEXT NOT NULL, `created_at` INTEGER NOT NULL)",
+        "fields": [
+          {
+            "fieldPath": "id",
+            "columnName": "id",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "userId",
+            "columnName": "user_id",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "name",
+            "columnName": "name",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "createdAt",
+            "columnName": "created_at",
+            "affinity": "INTEGER",
+            "notNull": true
+          }
+        ],
+        "primaryKey": {
+          "autoGenerate": true,
+          "columnNames": [
+            "id"
+          ]
+        }
+      },
+      {
+        "tableName": "playlist_items",
+        "createSql": "CREATE TABLE IF NOT EXISTS `${TABLE_NAME}` (`playlist_id` INTEGER NOT NULL, `work_id` TEXT NOT NULL, `added_at` INTEGER NOT NULL, PRIMARY KEY(`playlist_id`, `work_id`))",
+        "fields": [
+          {
+            "fieldPath": "playlistId",
+            "columnName": "playlist_id",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "workId",
+            "columnName": "work_id",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "addedAt",
+            "columnName": "added_at",
+            "affinity": "INTEGER",
+            "notNull": true
+          }
+        ],
+        "primaryKey": {
+          "autoGenerate": false,
+          "columnNames": [
+            "playlist_id",
+            "work_id"
+          ]
+        }
+      },
+      {
+        "tableName": "title_overrides",
+        "createSql": "CREATE TABLE IF NOT EXISTS `${TABLE_NAME}` (`work_id` TEXT NOT NULL, `title` TEXT NOT NULL, `year` INTEGER, PRIMARY KEY(`work_id`))",
+        "fields": [
+          {
+            "fieldPath": "workId",
+            "columnName": "work_id",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "title",
+            "columnName": "title",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "year",
+            "columnName": "year",
+            "affinity": "INTEGER"
+          }
+        ],
+        "primaryKey": {
+          "autoGenerate": false,
+          "columnNames": [
+            "work_id"
+          ]
+        }
+      },
+      {
+        "tableName": "work_details",
+        "createSql": "CREATE TABLE IF NOT EXISTS `${TABLE_NAME}` (`work_id` TEXT NOT NULL, `tmdb_id` INTEGER NOT NULL, `release_date` TEXT, `runtime_minutes` INTEGER, `genres` TEXT NOT NULL, `country` TEXT, `cast_json` TEXT NOT NULL, `fetched_at` INTEGER NOT NULL, `total_episodes` INTEGER, `total_seasons` INTEGER, PRIMARY KEY(`work_id`))",
+        "fields": [
+          {
+            "fieldPath": "workId",
+            "columnName": "work_id",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "tmdbId",
+            "columnName": "tmdb_id",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "releaseDate",
+            "columnName": "release_date",
+            "affinity": "TEXT"
+          },
+          {
+            "fieldPath": "runtimeMinutes",
+            "columnName": "runtime_minutes",
+            "affinity": "INTEGER"
+          },
+          {
+            "fieldPath": "genres",
+            "columnName": "genres",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "country",
+            "columnName": "country",
+            "affinity": "TEXT"
+          },
+          {
+            "fieldPath": "castJson",
+            "columnName": "cast_json",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "fetchedAt",
+            "columnName": "fetched_at",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "totalEpisodes",
+            "columnName": "total_episodes",
+            "affinity": "INTEGER"
+          },
+          {
+            "fieldPath": "totalSeasons",
+            "columnName": "total_seasons",
+            "affinity": "INTEGER"
+          }
+        ],
+        "primaryKey": {
+          "autoGenerate": false,
+          "columnNames": [
+            "work_id"
+          ]
+        }
+      },
+      {
+        "tableName": "content_tombstones",
+        "createSql": "CREATE TABLE IF NOT EXISTS `${TABLE_NAME}` (`id` TEXT NOT NULL, `merged_into` TEXT NOT NULL, `created_at` INTEGER NOT NULL, PRIMARY KEY(`id`))",
+        "fields": [
+          {
+            "fieldPath": "id",
+            "columnName": "id",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "mergedInto",
+            "columnName": "merged_into",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "createdAt",
+            "columnName": "created_at",
+            "affinity": "INTEGER",
+            "notNull": true
+          }
+        ],
+        "primaryKey": {
+          "autoGenerate": false,
+          "columnNames": [
+            "id"
+          ]
+        }
+      },
+      {
+        "tableName": "subtitles",
+        "createSql": "CREATE TABLE IF NOT EXISTS `${TABLE_NAME}` (`id` TEXT NOT NULL, `logical_id` TEXT, `file_id` TEXT, `language` TEXT, `source` TEXT, `path` TEXT, `format` TEXT, `encoding` TEXT, `downloaded_at` INTEGER, PRIMARY KEY(`id`))",
+        "fields": [
+          {
+            "fieldPath": "id",
+            "columnName": "id",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "logicalId",
+            "columnName": "logical_id",
+            "affinity": "TEXT"
+          },
+          {
+            "fieldPath": "fileId",
+            "columnName": "file_id",
+            "affinity": "TEXT"
+          },
+          {
+            "fieldPath": "language",
+            "columnName": "language",
+            "affinity": "TEXT"
+          },
+          {
+            "fieldPath": "source",
+            "columnName": "source",
+            "affinity": "TEXT"
+          },
+          {
+            "fieldPath": "path",
+            "columnName": "path",
+            "affinity": "TEXT"
+          },
+          {
+            "fieldPath": "format",
+            "columnName": "format",
+            "affinity": "TEXT"
+          },
+          {
+            "fieldPath": "encoding",
+            "columnName": "encoding",
+            "affinity": "TEXT"
+          },
+          {
+            "fieldPath": "downloadedAt",
+            "columnName": "downloaded_at",
+            "affinity": "INTEGER"
+          }
+        ],
+        "primaryKey": {
+          "autoGenerate": false,
+          "columnNames": [
+            "id"
+          ]
+        }
+      },
+      {
+        "tableName": "provider_health",
+        "createSql": "CREATE TABLE IF NOT EXISTS `${TABLE_NAME}` (`provider` TEXT NOT NULL, `state` TEXT NOT NULL, `last_error` TEXT, `updated_at` INTEGER NOT NULL, PRIMARY KEY(`provider`))",
+        "fields": [
+          {
+            "fieldPath": "provider",
+            "columnName": "provider",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "state",
+            "columnName": "state",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "lastError",
+            "columnName": "last_error",
+            "affinity": "TEXT"
+          },
+          {
+            "fieldPath": "updatedAt",
+            "columnName": "updated_at",
+            "affinity": "INTEGER",
+            "notNull": true
+          }
+        ],
+        "primaryKey": {
+          "autoGenerate": false,
+          "columnNames": [
+            "provider"
+          ]
+        }
+      },
+      {
+        "tableName": "scrape_tasks",
+        "createSql": "CREATE TABLE IF NOT EXISTS `${TABLE_NAME}` (`id` TEXT NOT NULL, `content_id` TEXT NOT NULL, `content_kind` TEXT NOT NULL, `provider` TEXT NOT NULL, `task_kind` TEXT NOT NULL, `state` TEXT NOT NULL, `attempts` INTEGER NOT NULL, `next_attempt_at` INTEGER, `priority` INTEGER NOT NULL, `last_error` TEXT, `updated_at` INTEGER NOT NULL, PRIMARY KEY(`id`))",
+        "fields": [
+          {
+            "fieldPath": "id",
+            "columnName": "id",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "contentId",
+            "columnName": "content_id",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "contentKind",
+            "columnName": "content_kind",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "provider",
+            "columnName": "provider",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "taskKind",
+            "columnName": "task_kind",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "state",
+            "columnName": "state",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "attempts",
+            "columnName": "attempts",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "nextAttemptAt",
+            "columnName": "next_attempt_at",
+            "affinity": "INTEGER"
+          },
+          {
+            "fieldPath": "priority",
+            "columnName": "priority",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "lastError",
+            "columnName": "last_error",
+            "affinity": "TEXT"
+          },
+          {
+            "fieldPath": "updatedAt",
+            "columnName": "updated_at",
+            "affinity": "INTEGER",
+            "notNull": true
+          }
+        ],
+        "primaryKey": {
+          "autoGenerate": false,
+          "columnNames": [
+            "id"
+          ]
+        }
+      },
+      {
+        "tableName": "episode_meta",
+        "createSql": "CREATE TABLE IF NOT EXISTS `${TABLE_NAME}` (`tmdbId` INTEGER NOT NULL, `season` INTEGER NOT NULL, `episode` INTEGER NOT NULL, `name` TEXT NOT NULL, `stillPath` TEXT, `runtimeMinutes` INTEGER, `fetchedAt` INTEGER NOT NULL, PRIMARY KEY(`tmdbId`, `season`, `episode`))",
+        "fields": [
+          {
+            "fieldPath": "tmdbId",
+            "columnName": "tmdbId",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "season",
+            "columnName": "season",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "episode",
+            "columnName": "episode",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "name",
+            "columnName": "name",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "stillPath",
+            "columnName": "stillPath",
+            "affinity": "TEXT"
+          },
+          {
+            "fieldPath": "runtimeMinutes",
+            "columnName": "runtimeMinutes",
+            "affinity": "INTEGER"
+          },
+          {
+            "fieldPath": "fetchedAt",
+            "columnName": "fetchedAt",
+            "affinity": "INTEGER",
+            "notNull": true
+          }
+        ],
+        "primaryKey": {
+          "autoGenerate": false,
+          "columnNames": [
+            "tmdbId",
+            "season",
+            "episode"
+          ]
+        }
+      },
+      {
+        "tableName": "scan_runs",
+        "createSql": "CREATE TABLE IF NOT EXISTS `${TABLE_NAME}` (`id` INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL, `source_id` TEXT NOT NULL, `mode` TEXT NOT NULL, `status` TEXT NOT NULL, `started_at` INTEGER NOT NULL, `finished_at` INTEGER, `dirs` INTEGER NOT NULL, `files` INTEGER NOT NULL, `error` TEXT)",
+        "fields": [
+          {
+            "fieldPath": "id",
+            "columnName": "id",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "sourceId",
+            "columnName": "source_id",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "mode",
+            "columnName": "mode",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "status",
+            "columnName": "status",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "startedAt",
+            "columnName": "started_at",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "finishedAt",
+            "columnName": "finished_at",
+            "affinity": "INTEGER"
+          },
+          {
+            "fieldPath": "dirs",
+            "columnName": "dirs",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "files",
+            "columnName": "files",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "error",
+            "columnName": "error",
+            "affinity": "TEXT"
+          }
+        ],
+        "primaryKey": {
+          "autoGenerate": true,
+          "columnNames": [
+            "id"
+          ]
+        }
+      },
+      {
+        "tableName": "directory_cache",
+        "createSql": "CREATE TABLE IF NOT EXISTS `${TABLE_NAME}` (`source_id` TEXT NOT NULL, `remote_key` TEXT NOT NULL, `etag` TEXT, `last_modified` TEXT, `last_scan_run_id` INTEGER, `child_count` INTEGER NOT NULL, PRIMARY KEY(`source_id`, `remote_key`))",
+        "fields": [
+          {
+            "fieldPath": "sourceId",
+            "columnName": "source_id",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "remoteKey",
+            "columnName": "remote_key",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "etag",
+            "columnName": "etag",
+            "affinity": "TEXT"
+          },
+          {
+            "fieldPath": "lastModified",
+            "columnName": "last_modified",
+            "affinity": "TEXT"
+          },
+          {
+            "fieldPath": "lastScanRunId",
+            "columnName": "last_scan_run_id",
+            "affinity": "INTEGER"
+          },
+          {
+            "fieldPath": "childCount",
+            "columnName": "child_count",
+            "affinity": "INTEGER",
+            "notNull": true
+          }
+        ],
+        "primaryKey": {
+          "autoGenerate": false,
+          "columnNames": [
+            "source_id",
+            "remote_key"
+          ]
+        },
+        "indices": [
+          {
+            "name": "index_directory_cache_source_id_last_scan_run_id",
+            "unique": false,
+            "columnNames": [
+              "source_id",
+              "last_scan_run_id"
+            ],
+            "orders": [],
+            "createSql": "CREATE INDEX IF NOT EXISTS `index_directory_cache_source_id_last_scan_run_id` ON `${TABLE_NAME}` (`source_id`, `last_scan_run_id`)"
+          }
+        ]
+      },
+      {
+        "tableName": "scan_queue",
+        "createSql": "CREATE TABLE IF NOT EXISTS `${TABLE_NAME}` (`source_id` TEXT NOT NULL, `scan_run_id` INTEGER NOT NULL, `remote_key` TEXT NOT NULL, `depth` INTEGER NOT NULL, PRIMARY KEY(`source_id`, `remote_key`))",
+        "fields": [
+          {
+            "fieldPath": "sourceId",
+            "columnName": "source_id",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "scanRunId",
+            "columnName": "scan_run_id",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "remoteKey",
+            "columnName": "remote_key",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "depth",
+            "columnName": "depth",
+            "affinity": "INTEGER",
+            "notNull": true
+          }
+        ],
+        "primaryKey": {
+          "autoGenerate": false,
+          "columnNames": [
+            "source_id",
+            "remote_key"
+          ]
+        }
+      }
+    ],
+    "views": [
+      {
+        "viewName": "media_items",
+        "createSql": "CREATE VIEW `${VIEW_NAME}` AS SELECT\n          mf.legacy_path AS path,\n          mf.name AS name,\n          mf.size_bytes AS sizeBytes,\n          mf.mtime AS lastModified,\n          CASE WHEN mf.legacy_compat = 1 THEN mf.parsed_title\n               ELSE COALESCE(mf.parsed_title, mw.title, ew.title, mf.name) END AS parsedTitle,\n          CASE WHEN mf.legacy_compat = 1 THEN mf.parsed_year\n               ELSE COALESCE(mf.parsed_year, mw.year, ew.year) END AS year,\n          CASE WHEN mf.legacy_compat = 1 THEN mf.parsed_season\n               ELSE COALESCE(mf.parsed_season, e.season) END AS season,\n          CASE WHEN mf.legacy_compat = 1 THEN mf.parsed_episode\n               ELSE COALESCE(mf.parsed_episode, e.episode) END AS episode,\n          COALESCE(mw.scrape_state, ew.scrape_state, 'UNSCRAPED') AS scrapeState,\n          COALESCE(mw.tmdb_id, ew.tmdb_id) AS tmdbId,\n          COALESCE(mw.poster_path, ew.poster_path) AS posterPath,\n          COALESCE(mw.backdrop_path, ew.backdrop_path) AS backdropPath,\n          COALESCE(mw.overview, ew.overview) AS overview,\n          COALESCE(mw.rating, ew.rating) AS rating,\n          COALESCE(mw.scraped_at, ew.scraped_at) AS scrapedAt\n        FROM media_files mf\n        LEFT JOIN movie_versions mv ON mv.file_id = mf.id\n        LEFT JOIN works mw ON mw.id = mv.work_id\n        LEFT JOIN (\n          SELECT ev.file_id, e.id, e.work_id, e.season, e.episode\n          FROM episode_versions ev\n          JOIN episodes e ON e.id = ev.episode_id\n          JOIN file_segments fs ON fs.file_id = ev.file_id AND fs.episode_id = e.id\n          WHERE fs.segment_index = (\n            SELECT MIN(fs2.segment_index) FROM file_segments fs2 WHERE fs2.file_id = ev.file_id\n          )\n        ) e ON e.file_id = mf.id\n        LEFT JOIN works ew ON ew.id = e.work_id\n        WHERE mf.missing_at IS NULL"
+      },
+      {
+        "viewName": "playback_progress",
+        "createSql": "CREATE VIEW `${VIEW_NAME}` AS SELECT mf.legacy_path AS path, ep.position_ms AS positionMs,\n               ep.duration_ms AS durationMs, ep.updated_at AS updatedAt\n        FROM episode_progress ep\n        JOIN episode_versions ev ON ev.episode_id = ep.episode_id\n        JOIN media_files mf ON mf.id = ev.file_id\n        WHERE mf.missing_at IS NULL\n        UNION ALL\n        SELECT mf.legacy_path AS path, mp.position_ms AS positionMs,\n               mp.duration_ms AS durationMs, mp.updated_at AS updatedAt\n        FROM movie_progress mp\n        JOIN movie_versions mv ON mv.work_id = mp.work_id\n        JOIN media_files mf ON mf.id = mv.file_id\n        WHERE mf.missing_at IS NULL\n        UNION ALL\n        SELECT mf.legacy_path AS path, fp.position_ms AS positionMs,\n               fp.duration_ms AS durationMs, fp.updated_at AS updatedAt\n        FROM file_progress fp\n        JOIN media_files mf ON mf.id = fp.file_id\n        WHERE mf.missing_at IS NULL"
+      },
+      {
+        "viewName": "favorites_view",
+        "createSql": "CREATE VIEW `${VIEW_NAME}` AS SELECT mf.legacy_path AS path, f.added_at AS addedAt\n        FROM favorites f\n        JOIN (\n          SELECT mv.work_id AS work_id, mv.file_id AS file_id FROM movie_versions mv\n          UNION\n          SELECT e.work_id AS work_id, ev.file_id AS file_id\n          FROM episode_versions ev JOIN episodes e ON e.id = ev.episode_id\n        ) x ON x.work_id = f.work_id\n        JOIN media_files mf ON mf.id = x.file_id\n        WHERE mf.missing_at IS NULL"
+      },
+      {
+        "viewName": "playlist_items_view",
+        "createSql": "CREATE VIEW `${VIEW_NAME}` AS SELECT pi.playlist_id AS playlistId, mf.legacy_path AS path, pi.added_at AS addedAt\n        FROM playlist_items pi\n        JOIN media_files mf ON mf.id = (\n          SELECT mf2.id FROM media_files mf2\n          WHERE mf2.missing_at IS NULL AND mf2.id IN (\n            SELECT file_id FROM movie_versions WHERE work_id = pi.work_id\n            UNION\n            SELECT ev.file_id FROM episode_versions ev\n            JOIN episodes e ON e.id = ev.episode_id WHERE e.work_id = pi.work_id\n          )\n          ORDER BY mf2.legacy_path LIMIT 1\n        )"
+      },
+      {
+        "viewName": "title_overrides_view",
+        "createSql": "CREATE VIEW `${VIEW_NAME}` AS SELECT mf.legacy_path AS path, o.title AS title, o.year AS year\n        FROM title_overrides o\n        JOIN (\n          SELECT mv.work_id AS work_id, mv.file_id AS file_id FROM movie_versions mv\n          UNION\n          SELECT e.work_id AS work_id, ev.file_id AS file_id\n          FROM episode_versions ev JOIN episodes e ON e.id = ev.episode_id\n        ) x ON x.work_id = o.work_id\n        JOIN media_files mf ON mf.id = x.file_id\n        WHERE mf.missing_at IS NULL"
+      },
+      {
+        "viewName": "title_details",
+        "createSql": "CREATE VIEW `${VIEW_NAME}` AS SELECT mf.legacy_path AS path, wd.tmdb_id AS tmdbId,\n               wd.release_date AS releaseDate, wd.runtime_minutes AS runtimeMinutes,\n               wd.genres AS genres, wd.country AS country, wd.cast_json AS castJson,\n               wd.fetched_at AS fetchedAt, wd.total_episodes AS totalEpisodes,\n               wd.total_seasons AS totalSeasons\n        FROM work_details wd\n        JOIN (\n          SELECT mv.work_id AS work_id, mv.file_id AS file_id FROM movie_versions mv\n          UNION\n          SELECT e.work_id AS work_id, ev.file_id AS file_id\n          FROM episode_versions ev JOIN episodes e ON e.id = ev.episode_id\n        ) x ON x.work_id = wd.work_id\n        JOIN media_files mf ON mf.id = x.file_id\n        WHERE mf.missing_at IS NULL"
+      }
+    ],
+    "setupQueries": [
+      "CREATE TABLE IF NOT EXISTS room_master_table (id INTEGER PRIMARY KEY,identity_hash TEXT)",
+      "INSERT OR REPLACE INTO room_master_table (id,identity_hash) VALUES(42, 'f8f47077a15d26e3604d3d742bd93cdd')"
+    ]
+  }
+}

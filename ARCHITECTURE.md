@@ -1609,6 +1609,29 @@ DB 约 5.7 MB。**选定 FTS4 + `search_text`**，详见 WORKLOG 与 ADR-024。
 - **延后**：完整仓库与扫描状态机抽取（Phase 1 E1.6）、`:core:datastore`、
   `:core:ui` / `:feature:*` 拆分。
 
+**Phase 1 E1.1 实施结果（2026-10-19）**：
+
+- **v10 schema**：`scan_runs`（代际/状态/进度）、`directory_cache`（ETag / Last-Modified /
+  子项数）、`scan_queue`（持久 BFS）。迁移 `9→10` 已通过 MigrationTestHelper。
+- **网络**：PROPFIND 增加 `getetag` 与集合自身元数据；`propfindWithCache` 支持
+  `If-None-Match` / `If-Modified-Since`，304/412 视为未变化。
+- **`ScanEngine`（`:core:data`）**：持久 BFS、目录级差异写入、目录缓存跳过子树、
+  401/429 立即封锁源、FULL 收尾软删除未访问文件、目录/文件上限与截断标记；
+  取消/进程死亡保留 RUNNING + 队列，下次续跑。
+- **WorkManager**：`ScanWorker` 唯一名 `scan:<sourceId>`、`dataSync` 前台通知、
+  网络约束、网络故障退避重试；`ScanScheduler` 负责入队/取消/观察。
+- **真机结果（SM-G998U1 / 280 文件）**：
+  - 首轮无缓存：53 目录 / 280 文件，`DONE`；缓存 53 条。
+  - OpenList 不返回集合 ETag、也不支持 304，仅返回 Last-Modified；按
+    「Last-Modified + 子项数」判定未变化后，下一轮为 **1 目录 / 0 文件**。
+  - 中途取消：`RUNNING`，5 目录 / 92 文件，队列 35；再次启动续跑至
+    **52 目录 / 280 文件、队列 0**，`media_files` 280、缺失 0。
+  - 迁移前自动备份 `library-v9-*.db` 已生成。
+- **测试**：`ScanEngineTest`（全量/增量跳过/删除/401/断点续跑）、`MigrationV9ToV10Test`
+  与既有全部单测/instrumentation 通过。
+- **剩余 Phase 1**：E1.2 持久刮削（`scrape_tasks` Worker/预算/退避）、E1.3 Paging 3 +
+  works 查询、E1.4 FTS 搜索、E1.5 20k 压测；FULL 扫描的单独 UI 入口待补。
+
 ### 15.10 启动门槛
 
 1. 提交当前 54 个文件为基线（文档第二版 + 注释/文案）；确认 98 单测 + release。
@@ -1617,7 +1640,8 @@ DB 约 5.7 MB。**选定 FTS4 + `search_text`**，详见 WORKLOG 与 ADR-024。
 4. 确认 SLO/DoD/CI 门禁。
 5. 0a 已完成（2026-10-19）：数据层 + 兼容 VIEW，真机迁移与回滚演练通过。
 6. 0b 已完成（2026-10-19）：网络/数据模块骨架与查询、刮削抽取。
-7. 下一步：Phase 1（增量扫描、持久刮削、Paging/FTS）。
+7. Phase 1 E1.1 已完成（2026-10-19）：WorkManager 增量扫描、目录缓存与断点续跑。
+8. 下一步：E1.2 持久刮削、E1.3 Paging、E1.4 FTS、E1.5 20k 压测。
 
 ### 15.11 仍需确认
 

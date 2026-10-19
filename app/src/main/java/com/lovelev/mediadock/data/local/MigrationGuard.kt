@@ -16,7 +16,7 @@ import java.io.File
 class MigrationGuard(private val context: Context) {
 
     private val dir: File get() = File(context.filesDir, "migration").apply { mkdirs() }
-    private val stateFile: File get() = File(dir, "v9_state.json")
+    private fun stateFile(target: Int): File = File(dir, "v${target}_state.json")
     private val dbFile: File get() = context.getDatabasePath("library.db")
 
     /** 若当前库版本低于 [target]，先备份。重复调用安全。 */
@@ -35,6 +35,7 @@ class MigrationGuard(private val context: Context) {
                 if (sidecar.exists()) sidecar.copyTo(File(dir, base + suffix), overwrite = true)
             }
             writeState(
+                stateFile(target),
                 JSONObject()
                     .put("from", current)
                     .put("to", target)
@@ -49,11 +50,11 @@ class MigrationGuard(private val context: Context) {
     }
 
     fun markSuccess(target: Int) {
-        val state = readState() ?: JSONObject()
+        val state = readState(target) ?: JSONObject()
         state.put("to", target)
         state.put("finished_at", System.currentTimeMillis())
         state.put("status", "success")
-        writeState(state)
+        writeState(stateFile(target), state)
     }
 
     /** 迁移失败时可人工调用：恢复最近一次备份并删除坏库。返回是否恢复成功。 */
@@ -67,7 +68,8 @@ class MigrationGuard(private val context: Context) {
             }
             backup.copyTo(dbFile, overwrite = true)
             writeState(
-                (readState() ?: JSONObject())
+                latestStateFile(),
+                (readState(null) ?: JSONObject())
                     .put("status", "restored")
                     .put("restored_at", System.currentTimeMillis())
                     .put("restored_from", backup.absolutePath),
@@ -93,12 +95,18 @@ class MigrationGuard(private val context: Context) {
         }
     }
 
-    private fun readState(): JSONObject? = runCatching {
-        if (stateFile.exists()) JSONObject(stateFile.readText()) else null
+    private fun readState(target: Int?): JSONObject? = runCatching {
+        val file = if (target == null) latestStateFile() else stateFile(target)
+        if (file.exists()) JSONObject(file.readText()) else null
     }.getOrNull()
 
-    private fun writeState(state: JSONObject) {
-        runCatching { stateFile.writeText(state.toString(2)) }
+    private fun latestStateFile(): File =
+        dir.listFiles { f -> f.name.matches(Regex("v\\d+_state\\.json")) }
+            ?.maxByOrNull { it.lastModified() }
+            ?: stateFile(0)
+
+    private fun writeState(file: File, state: JSONObject) {
+        runCatching { file.writeText(state.toString(2)) }
     }
 
     private companion object {

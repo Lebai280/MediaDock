@@ -8,11 +8,13 @@ import com.lovelev.mediadock.data.log.AppLog
 import com.lovelev.mediadock.data.local.LocalScanner
 import com.lovelev.mediadock.data.local.LocalMedia
 import com.lovelev.mediadock.data.local.LocalFile
-import com.lovelev.mediadock.core.model.MediaTypes
 import com.lovelev.mediadock.data.local.MediaDatabase
 import com.lovelev.mediadock.data.local.MediaDao
 import com.lovelev.mediadock.data.local.MediaItemEntity
 import com.lovelev.mediadock.data.local.MediaLibraryStore
+import com.lovelev.mediadock.data.scan.ScanScheduler
+import com.lovelev.mediadock.data.scan.ScanWorker
+import androidx.work.WorkInfo
 import com.lovelev.mediadock.core.data.LibraryQueryRepository
 import com.lovelev.mediadock.core.data.MetadataScraper
 import com.lovelev.mediadock.core.data.withTitleOverride
@@ -25,10 +27,6 @@ import com.lovelev.mediadock.data.tmdb.TmdbAuthException
 import com.lovelev.mediadock.data.tmdb.TmdbException
 import com.lovelev.mediadock.data.tmdb.TmdbMatch
 import com.lovelev.mediadock.data.tmdb.TmdbSecret
-import com.lovelev.mediadock.data.webdav.WebDavClient
-import com.lovelev.mediadock.data.webdav.WebDavEntry
-import com.lovelev.mediadock.data.webdav.WebDavException
-import com.lovelev.mediadock.data.webdav.WebDavUrl
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
@@ -81,13 +79,13 @@ sealed interface ScrapeState {
  */
 class LibraryRepository(
     private val db: MediaDatabase,
-    private val client: WebDavClient,
     private val credentials: SecureCredentialStore,
     private val localScanner: LocalScanner,
     private val mediaStoreScanner: MediaStoreScanner,
     private val store: MediaLibraryStore,
     private val query: LibraryQueryRepository,
     private val scraper: MetadataScraper,
+    private val scanScheduler: ScanScheduler,
 ) {
 
     /** 应用作用域：扫描不跟着页面走，退出媒体库页/旋屏都不会把它打断。 */
@@ -98,6 +96,52 @@ class LibraryRepository(
 
     private val _scrape = MutableStateFlow<ScrapeState>(ScrapeState.Idle)
     val scrape: StateFlow<ScrapeState> = _scrape.asStateFlow()
+
+    /** 只有本会话主动发起过扫描时才把 WorkManager 的终态映射成 UI 状态。 */
+    private var workScanRequested = false
+
+    init {
+        scope.launch {
+            scanScheduler.observe(SourceId.WEBDAV).collect { info ->
+                if (!workScanRequested || info == null) return@collect
+                when (info.state) {
+                    WorkInfo.State.ENQUEUED, WorkInfo.State.BLOCKED -> {
+                        _scan.value = ScanState.Running(
+                            directories = info.progress.getInt(ScanWorker.KEY_DIRS, 0),
+                            files = info.progress.getInt(ScanWorker.KEY_FILES, 0),
+                        )
+                    }
+                    WorkInfo.State.RUNNING -> {
+                        _scan.value = ScanState.Running(
+                            directories = info.progress.getInt(ScanWorker.KEY_DIRS, 0),
+                            files = info.progress.getInt(ScanWorker.KEY_FILES, 0),
+                        )
+                    }
+                    WorkInfo.State.SUCCEEDED -> {
+                        workScanRequested = false
+                        // 增量扫描的 files 是“本轮处理数”；界面要显示库的总条目数。
+                        val total = db.mediaDao().allItems().size
+                        _scan.value = ScanState.Done(
+                            files = total,
+                            truncated = info.outputData.getBoolean(ScanWorker.KEY_TRUNCATED, false),
+                        )
+                        triggerAutoScrape()
+                    }
+                    WorkInfo.State.FAILED -> {
+                        workScanRequested = false
+                        _scan.value = ScanState.Failed(
+                            message = info.outputData.getString(ScanWorker.KEY_MESSAGE) ?: "扫描失败",
+                            blocked = info.outputData.getBoolean(ScanWorker.KEY_BLOCKED, false),
+                        )
+                    }
+                    WorkInfo.State.CANCELLED -> {
+                        workScanRequested = false
+                        _scan.value = ScanState.Idle
+                    }
+                }
+            }
+        }
+    }
 
     /** 库里的条目（查询层已合并手工覆盖）。 */
     val items: Flow<List<MediaItemEntity>> get() = query.items
@@ -219,98 +263,16 @@ class LibraryRepository(
         // 401/429 之后不许再试 —— 那会连累所有设备的 WebDAV
         if ((_scan.value as? ScanState.Failed)?.blocked == true) return
 
-        scanJob = scope.launch {
+        scope.launch {
             val saved = credentials.load()
-            val root = saved?.let { WebDavUrl.rootCollection(it.url, it.rootPath) }
-            if (saved == null || root == null) {
+            if (saved == null) {
                 _scan.value = ScanState.Failed("数据源不可用，请重新添加", blocked = false)
                 return@launch
             }
-            val auth = WebDavClient.basicAuth(saved.username, saved.password)
-
+            workScanRequested = true
             _scan.value = ScanState.Running(directories = 0, files = 0)
-
-            val found = ArrayList<MediaLibraryStore.ScannedFile>()
-            val queued = HashSet<String>().apply { add("") }
-            val queue = ArrayDeque<String>().apply { add("") }
-            var directories = 0
-            var truncated = false
-
-            try {
-                while (queue.isNotEmpty() && isActive) {
-                    if (directories >= MAX_DIRECTORIES) {
-                        truncated = true
-                        break
-                    }
-                    val dir = queue.removeFirst()
-                    directories++
-
-                    val entries = try {
-                        client.propfind(
-                            collection = WebDavUrl.child(root, dir, isCollection = true),
-                            root = root,
-                            basicAuthHeader = auth,
-                        )
-                    } catch (e: WebDavException.NotFound) {
-                        // 扫描途中目录被改名/删掉：跳过它，避免整次扫描失败
-                        if (dir.isEmpty()) throw e
-                        continue
-                    }
-
-                    for (entry in entries) {
-                        if (entry.isDirectory) {
-                            if (depth(dir) < MAX_DEPTH && queued.add(entry.path)) {
-                                queue.add(entry.path)
-                            }
-                        } else if (MediaTypes.isVideoFile(entry.name) && found.size < MAX_FILES) {
-                            found += entry.toScannedFile()
-                        }
-                    }
-                    _scan.value = ScanState.Running(directories, found.size)
-                }
-
-                if (found.size >= MAX_FILES) truncated = true
-
-                // 被取消：**不写库**，保留上一次的完整结果（否则会把半份结果当成扫描结果落库）
-                if (!isActive) return@launch
-
-                store.replaceScannedFiles(SourceId.WEBDAV, found)
-                _scan.value = ScanState.Done(files = found.size, truncated = truncated)
-                triggerAutoScrape()
-            } catch (e: WebDavException) {
-                // 单次尝试即返回，绝不重试
-                val blocked = e is WebDavException.Unauthorized || e is WebDavException.Locked
-                AppLog.e("scan", "扫描失败(blocked=$blocked): ${e.userMessage}")
-                _scan.value = ScanState.Failed(e.userMessage, blocked)
-            }
+            scanScheduler.start(SourceId.WEBDAV)
         }
-    }
-
-    /**
-     * 解析片名是在**扫描时**顺手做的：纯本地计算、不花请求，
-     * 而且海报墙立刻就有像样的标题可显示（刮削不上的也不至于显示成整串文件名）。
-     */
-    private fun WebDavEntry.toScannedFile(): MediaLibraryStore.ScannedFile {
-        val folderName = path.substringBeforeLast('/', "").substringAfterLast('/')
-        // 季目录里的 29.xxx 这种「序号前缀」只有在知道自己位于 S01/S02 下时才能当集数
-        val seasonFromPath = TitleParser.seasonOfPath(path)
-        val parsed = TitleParser.parse(
-            fileName = name,
-            folderName = folderName,
-            inSeasonDir = seasonFromPath != null,
-        )
-        return MediaLibraryStore.ScannedFile(
-            path = path,
-            name = name,
-            sizeBytes = size,
-            mtime = lastModified,
-            title = parsed.title,
-            year = parsed.year,
-            // 文件名只给集数时，季号往往在上层目录（S01 / Season 1 / 第1季）——
-            // 不补的话 S01/S02 的同集号会互相覆盖排序
-            season = parsed.season ?: seasonFromPath,
-            episode = parsed.episode,
-        )
     }
 
     // ---------------------------------------------------------------- 本地媒体
@@ -531,6 +493,8 @@ class LibraryRepository(
     fun cancelScan() {
         scanJob?.cancel()
         scanJob = null
+        scanScheduler.cancel(SourceId.WEBDAV)
+        workScanRequested = false
         _scan.value = ScanState.Idle
     }
 
@@ -573,13 +537,7 @@ class LibraryRepository(
         store.clearLibrary()
     }
 
-    private fun depth(path: String): Int =
-        if (path.isEmpty()) 0 else path.count { it == '/' } + 1
-
     private companion object {
-        const val MAX_DEPTH = 6
-        const val MAX_DIRECTORIES = 4_000
-        const val MAX_FILES = 20_000
         const val SCRAPE_CONCURRENCY = 4
     }
 }

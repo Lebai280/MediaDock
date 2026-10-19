@@ -23,6 +23,66 @@ import java.util.Base64
  */
 class WebDavClient(private val client: OkHttpClient) {
 
+    /** 条件 PROPFIND 的结果。 */
+    sealed interface PropfindResult {
+        data class Changed(val listing: WebDavListing) : PropfindResult
+
+        /** 304 / 412：目录未变化，可跳过子树。 */
+        data object NotModified : PropfindResult
+    }
+
+    /**
+     * 带目录缓存的条件 PROPFIND（增量扫描用）。
+     *
+     * 发送 `If-None-Match` / `If-Modified-Since`；服务端返回 304 或 412 时视为未变化。
+     * **不重试**；401/429 语义与 [propfind] 一致。
+     */
+    suspend fun propfindWithCache(
+        collection: HttpUrl,
+        root: HttpUrl,
+        basicAuthHeader: String,
+        etag: String?,
+        lastModified: String?,
+        depth: Int = 1,
+    ): PropfindResult = withContext(Dispatchers.IO) {
+        val builder = Request.Builder()
+            .url(collection)
+            .method(
+                "PROPFIND",
+                PROPFIND_BODY.toRequestBody("application/xml; charset=utf-8".toMediaType()),
+            )
+            .header("Depth", depth.coerceIn(0, 1).toString())
+            .header("Authorization", basicAuthHeader)
+            .header("Accept", "application/xml, text/xml")
+        if (!etag.isNullOrBlank()) builder.header("If-None-Match", etag)
+        if (!lastModified.isNullOrBlank()) builder.header("If-Modified-Since", lastModified)
+
+        val response = try {
+            client.newCall(builder.build()).execute()
+        } catch (e: IOException) {
+            throw WebDavException.Network(e)
+        }
+
+        response.use { resp ->
+            when (resp.code) {
+                304, 412 -> PropfindResult.NotModified
+                207, 200 -> PropfindResult.Changed(
+                    resp.body.byteStream().use {
+                        MultistatusParser.parseWithSelf(
+                            it,
+                            collection.encodedPath,
+                            root.encodedPath,
+                        )
+                    },
+                )
+                401 -> throw WebDavException.Unauthorized()
+                429 -> throw WebDavException.Locked()
+                404 -> throw WebDavException.NotFound()
+                else -> throw WebDavException.Http(resp.code, resp.message.ifBlank { null })
+            }
+        }
+    }
+
     /**
      * 一次 PROPFIND。失败抛 [WebDavException]。**不重试**。
      *
@@ -88,6 +148,7 @@ class WebDavClient(private val client: OkHttpClient) {
                 <D:getcontenttype/>
                 <D:getcontentlength/>
                 <D:getlastmodified/>
+                <D:getetag/>
               </D:prop>
             </D:propfind>
         """.trimIndent()

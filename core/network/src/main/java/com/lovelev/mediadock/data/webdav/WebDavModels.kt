@@ -13,4 +13,13 @@ data class WebDavEntry(
     val size: Long?,
     val lastModified: String?,
     val contentType: String?,
+    /** 集合/文件的 ETag；服务端不提供时为 null。 */
+    val etag: String? = null,
+)
+
+/** 一次 PROPFIND 的结果：目录条目 + 集合自身的缓存元数据。 */
+data class WebDavListing(
+    val entries: List<WebDavEntry>,
+    val collectionEtag: String?,
+    val collectionLastModified: String?,
 )

@@ -2059,6 +2059,36 @@ WorkManager 扫描/持久刮削做准备；不改变用户可见行为。
 - 延后：完整仓库与扫描状态机抽取（Phase 1 E1.6）、`:core:datastore`、
   `:core:ui` / `:feature:*` 拆分。
 
+### 2026-10-19 · Phase 1 E1.1：WorkManager 增量扫描与断点续跑
+
+**背景**：扫描从内存 job 迁到 WorkManager + 持久队列，要求增量、可中断续跑、
+401/429 不重试，并保持现有 UI 行为。
+
+**变更**：
+- v10 schema：`scan_runs`、`directory_cache`、`scan_queue`；`9→10` 迁移与测试。
+- `:core:network`：PROPFIND 增加 `getetag` 与集合自身元数据；新增
+  `propfindWithCache`（If-None-Match / If-Modified-Since，304/412 → 未变化）。
+- `:core:data`：`ScanEngine`（持久 BFS、目录级差异写入、目录缓存跳过子树、
+  401/429 封锁、FULL 收尾软删除、上限/截断、取消保留队列）。
+- app：`ScanWorker`（唯一名 `scan:<sourceId>`、dataSync 前台通知、网络约束、
+  网络故障退避）、`ScanScheduler`；`LibraryRepository.start()` 改为入队并观察 WorkInfo。
+- 兼容 VIEW `media_items` 仍为唯一读路径；扫描完成后 Done 显示库总量而非本轮变更数。
+
+**验证（SM-G998U1 / Android 15）**：
+- 首轮：53 目录 / 280 文件，`DONE`；缓存 53 条；队列 0。
+- OpenList 不返回集合 ETag、也不支持 304，仅返回 Last-Modified；改为
+  「Last-Modified + 子项数」判定未变化后，下一轮 **1 目录 / 0 文件**。
+- 中途取消：`RUNNING`，5 目录 / 92 文件，队列 35；再次启动续跑至
+  **52 目录 / 280 文件**、队列 0、`media_files` 280、缺失 0。
+- `ScanEngineTest`（全量/增量跳过/删除/401/续跑）、`MigrationV9ToV10Test` 与
+  全部既有单测/instrumentation 通过；0.8.0 release 真机验证。
+
+**备注**：
+- OpenList 的集合元数据不可靠时，可加“保守模式”（只跳过文件解析、不跳过 PROPFIND）；
+  当前默认按架构 3.4 跳过子树。
+- FULL 扫描接口已支持（`ScanScheduler.start(..., ScanMode.FULL)`），单独 UI 入口待补。
+- 剩余 Phase 1：E1.2 持久刮削、E1.3 Paging/works、E1.4 FTS、E1.5 20k 压测。
+
 ---
 
 ## 8. 待办
@@ -2077,8 +2107,10 @@ WorkManager 扫描/持久刮削做准备；不改变用户可见行为。
    shadow compare 0 差异；回滚演练通过。
 8. **0b**：已完成（2026-10-19）——`:core:network` / `:core:data` 骨架，查询与 TMDB 匹配抽取；
    依赖方向单向，0.7.0 真机播放验证通过。
-9. **下一步**：Phase 1（增量扫描、持久刮削、Paging/FTS）。
-10. **运维记录**：OpenList `movie1`–`movie8` 的 `base_path` 已改为 `/夸克/影视`；
+9. **Phase 1 E1.1**：已完成（2026-10-19）——WorkManager 增量扫描、目录缓存、
+   断点续跑；真机 280 文件，增量 1 目录/0 文件，取消后恢复至 280。
+10. **下一步**：E1.2 持久刮削、E1.3 Paging/works、E1.4 FTS、E1.5 20k 压测。
+11. **运维记录**：OpenList `movie1`–`movie8` 的 `base_path` 已改为 `/夸克/影视`；
     修改数据库后需重启 OpenList 才生效。
 
 ### 8.2 功能路线图（按优先级）

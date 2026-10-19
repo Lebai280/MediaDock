@@ -117,11 +117,16 @@ class AppContainer(context: Context) {
         com.lovelev.mediadock.core.data.MetadataScraper(tmdbClient)
     }
 
+    /** 扫描调度（WorkManager 唯一工作名 `scan:<sourceId>`）。 */
+    val scanScheduler: com.lovelev.mediadock.data.scan.ScanScheduler by lazy {
+        com.lovelev.mediadock.data.scan.ScanScheduler(appContext)
+    }
+
     val library: LibraryRepository by lazy {
         LibraryRepository(
-            database, webDavClient, credentials,
+            database, credentials,
             LocalScanner(appContext), MediaStoreScanner(appContext), libraryStore,
-            libraryQuery, metadataScraper,
+            libraryQuery, metadataScraper, scanScheduler,
         )
     }
 

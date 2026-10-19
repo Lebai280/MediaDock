@@ -36,6 +36,9 @@ import androidx.sqlite.db.SupportSQLiteDatabase
         ProviderHealthEntity::class,
         ScrapeTaskEntity::class,
         EpisodeMeta::class,
+        ScanRunEntity::class,
+        DirectoryCacheEntity::class,
+        ScanQueueEntity::class,
     ],
     views = [
         MediaItemEntity::class,
@@ -57,10 +60,11 @@ abstract class MediaDatabase : RoomDatabase() {
     abstract fun episodeMetaDao(): EpisodeMetaDao
     abstract fun playlistDao(): PlaylistDao
     abstract fun writeDao(): MediaLibraryWriteDao
+    abstract fun scanDao(): ScanDao
 
     companion object {
         /** 当前库表版本。**单一来源**：`@Database` 与迁移覆盖单测都读它。 */
-        const val VERSION = 9
+        const val VERSION = 10
 
         /** v3 → v4：加收藏表。纯新增，不动既有数据。 */
         val MIGRATION_3_4 = object : Migration(3, 4) {
@@ -139,12 +143,42 @@ abstract class MediaDatabase : RoomDatabase() {
          */
         val MIGRATION_8_9: Migration = MigrationV8ToV9.build()
 
+        /** v9 → v10：扫描代际、目录缓存与持久 BFS 队列（Phase 1 增量扫描）。 */
+        val MIGRATION_9_10 = object : Migration(9, 10) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL(
+                    "CREATE TABLE IF NOT EXISTS `scan_runs` (" +
+                        "`id` INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL, " +
+                        "`source_id` TEXT NOT NULL, `mode` TEXT NOT NULL, `status` TEXT NOT NULL, " +
+                        "`started_at` INTEGER NOT NULL, `finished_at` INTEGER, " +
+                        "`dirs` INTEGER NOT NULL, `files` INTEGER NOT NULL, `error` TEXT)",
+                )
+                db.execSQL(
+                    "CREATE TABLE IF NOT EXISTS `directory_cache` (" +
+                        "`source_id` TEXT NOT NULL, `remote_key` TEXT NOT NULL, " +
+                        "`etag` TEXT, `last_modified` TEXT, `last_scan_run_id` INTEGER, " +
+                        "`child_count` INTEGER NOT NULL, PRIMARY KEY(`source_id`, `remote_key`))",
+                )
+                db.execSQL(
+                    "CREATE INDEX IF NOT EXISTS `index_directory_cache_source_id_last_scan_run_id` " +
+                        "ON `directory_cache` (`source_id`, `last_scan_run_id`)",
+                )
+                db.execSQL(
+                    "CREATE TABLE IF NOT EXISTS `scan_queue` (" +
+                        "`source_id` TEXT NOT NULL, `scan_run_id` INTEGER NOT NULL, " +
+                        "`remote_key` TEXT NOT NULL, `depth` INTEGER NOT NULL, " +
+                        "PRIMARY KEY(`source_id`, `remote_key`))",
+                )
+            }
+        }
+
         /**
          * **所有迁移都放这个数组里，容器整批注册**。
          * 注意数组要放在各迁移定义**之后**（companion 是顺序初始化的）。
          */
         val MIGRATIONS = arrayOf(
-            MIGRATION_3_4, MIGRATION_4_5, MIGRATION_5_6, MIGRATION_6_7, MIGRATION_7_8, MIGRATION_8_9,
+            MIGRATION_3_4, MIGRATION_4_5, MIGRATION_5_6, MIGRATION_6_7, MIGRATION_7_8,
+            MIGRATION_8_9, MIGRATION_9_10,
         )
     }
 }

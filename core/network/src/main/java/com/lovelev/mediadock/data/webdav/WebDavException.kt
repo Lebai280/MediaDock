@@ -41,4 +41,7 @@ sealed class WebDavException(
 
     /** 响应不是合法的 multistatus XML。 */
     class Malformed(detail: String) : WebDavException("服务器响应无法解析：$detail")
+
+    /** 本地配置缺失（地址/凭据），不是服务器 401。 */
+    class Config(message: String) : WebDavException(message)
 }

@@ -26,6 +26,23 @@ interface MediaLibraryWriteDao {
     @Query("SELECT * FROM media_files WHERE legacy_path LIKE :prefix || '%'")
     suspend fun filesByPrefix(prefix: String): List<MediaFileEntity>
 
+    /**
+     * 按 remote_key 前缀取文件（走唯一索引）。[upper] 由调用方给 `prefix + '￿'`，
+     * 用于目录级差异写入时只扫描该目录子树。
+     */
+    @Query(
+        "SELECT * FROM media_files WHERE source_id = :sourceId " +
+            "AND remote_key >= :prefix AND remote_key < :upper",
+    )
+    suspend fun filesInKeyRange(
+        sourceId: String,
+        prefix: String,
+        upper: String,
+    ): List<MediaFileEntity>
+
+    @Query("UPDATE media_files SET missing_at = :at WHERE id IN (:ids)")
+    suspend fun markMissingByIds(ids: List<String>, at: Long)
+
     @Query("SELECT COUNT(*) FROM file_segments WHERE file_id = :fileId")
     suspend fun segmentCount(fileId: String): Int
 
@@ -93,6 +110,13 @@ interface MediaLibraryWriteDao {
 
     @Query("UPDATE media_files SET missing_at = :at WHERE source_id = :sourceId")
     suspend fun markMissingBySource(sourceId: String, at: Long)
+
+    /** FULL 扫描收尾：本轮没见到的文件标缺失（含被删目录）。 */
+    @Query(
+        "UPDATE media_files SET missing_at = :at WHERE source_id = :sourceId " +
+            "AND (scan_run_id IS NULL OR scan_run_id != :runId)",
+    )
+    suspend fun markMissingNotInRun(sourceId: String, runId: Long, at: Long)
 
     @Query("UPDATE media_files SET missing_at = :at WHERE legacy_path LIKE :prefix || '%'")
     suspend fun markMissingByPrefix(prefix: String, at: Long)
