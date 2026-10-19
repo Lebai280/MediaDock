@@ -1,53 +1,39 @@
 package com.lovelev.mediadock.ui.library
 
-import androidx.compose.foundation.BorderStroke
-import androidx.compose.foundation.background
-import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
-import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.aspectRatio
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.lazy.grid.GridCells
 import androidx.compose.foundation.lazy.grid.GridItemSpan
 import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
 import androidx.compose.foundation.lazy.grid.items
-import androidx.compose.foundation.shape.CircleShape
-import androidx.compose.foundation.text.BasicTextField
-import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.Close
-import androidx.compose.material.icons.filled.Search
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.HorizontalDivider
-import androidx.compose.material3.Icon
 import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableStateOf
-import androidx.compose.runtime.remember
-import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.draw.clip
-import androidx.compose.ui.focus.onFocusChanged
-import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
-import com.lovelev.mediadock.data.local.MediaItemEntity
+import androidx.paging.LoadState
+import androidx.paging.compose.LazyPagingItems
+import androidx.paging.compose.collectAsLazyPagingItems
+import androidx.paging.compose.itemKey
+import com.lovelev.mediadock.core.data.WorkCard
 import com.lovelev.mediadock.data.repo.DetailFillState
 import com.lovelev.mediadock.data.repo.ScanState
 import com.lovelev.mediadock.data.repo.ScrapeState
@@ -55,12 +41,8 @@ import com.lovelev.mediadock.data.repo.ScrapeState
 /**
  * 首页（底部的「媒体库」Tab，也是 App 的起始页）。
  *
- * 从上到下：**吸顶栏**（药丸搜索框 + ⋯，滚动时只有它留在顶部）→ 任务进度细线 → 滚动内容。
- * 滚动内容是一个 `LazyVerticalGrid`，整行的东西（随机推荐 / 分类行 / 「全部」标题 / 提示行）
- * 用 `item(span = { GridItemSpan(maxLineSpan) })` 跨满，海报条目走默认列宽。
- *
- * 吸顶栏样式照用户站点「星屿」的 `.search`：全圆角药丸、左侧放大镜、右侧圆形「×」、
- * 聚焦时描边变强调色（柠檬绿）—— 和站点同一套手感。
+ * 海报墙由 **works 分页**驱动（Paging 3），随机推荐与分类行只取有界样本；
+ * 不再把全库条目读进内存分组。整行内容跨满列，海报走网格。
  */
 @Composable
 fun LibraryScreen(
@@ -70,23 +52,22 @@ fun LibraryScreen(
     onRelogin: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
-    val items by vm.visible.collectAsState()
+    val cards = vm.wall.collectAsLazyPagingItems()
     val scan by vm.scan.collectAsState()
     val scrape by vm.scrape.collectAsState()
     val fill by vm.fill.collectAsState()
-    val progress by vm.progress.collectAsState()
     val genreSections by vm.genreSections.collectAsState()
-    val recommendReasons by vm.recommendReasons.collectAsState()
-    val searching = vm.query.isNotBlank()
+    val recommended = vm.recommended
+    val recommendReasons = vm.recommendReasons
 
     // 「进首页换一批」：Tab 切回来会重新进组合，这里就跟着换
     LaunchedEffect(Unit) { vm.reshuffle() }
+    // 扫描完成后刷新推荐/分类行（两者都只查有界样本）
+    LaunchedEffect(scan) { if (scan is ScanState.Done) vm.refreshHeader() }
 
-    // 读进局部 val 才做得了智能转换（`by` 委托属性不行）
     val scanState = scan
     val scrapeState = scrape
     val fillState = fill
-
     val blocked = (scanState as? ScanState.Failed)?.blocked == true
 
     val runningLabel: String? = when {
@@ -97,7 +78,6 @@ fun LibraryScreen(
         else -> null
     }
 
-    // 失败/告警只在吸顶栏下面挂一行 —— 库里已有的内容不该被一次失败抹掉
     val errorNotice: String? = when {
         scanState is ScanState.Failed && !blocked -> scanState.message
         scrapeState is ScrapeState.Failed -> scrapeState.message
@@ -108,7 +88,6 @@ fun LibraryScreen(
         scanState is ScanState.Done && scanState.truncated -> "达到扫描上限，结果可能不完整"
         scrapeState is ScrapeState.Done && scrapeState.failed > 0 ->
             "${scrapeState.matched} 条匹配上 · ${scrapeState.failed} 条没匹配上"
-        // 成功数和失败数分开报 —— 不得将「处理过的总数」作为成功数（网络不通时每条都会失败）
         fillState is DetailFillState.Done -> when {
             fillState.filled == 0 && fillState.failed == 0 -> null
             fillState.failed == 0 -> "已补齐 ${fillState.filled} 条影片信息"
@@ -118,15 +97,15 @@ fun LibraryScreen(
     }
 
     Column(modifier.fillMaxSize()) {
-        // 搜索已经搬到独立的搜索页（底部圆形按钮点进来），这里不再有吸顶搜索框。
-        // 扫描/刮削/补齐那几个动作也搬去「我的」页了，所以这里只剩任务状态条。
         if (runningLabel != null) {
             Spacer(Modifier.height(8.dp))
             RunningStrip(runningLabel)
             Spacer(Modifier.height(4.dp))
-            // 分隔线只给状态条收边。没有状态条时画它 = 首页顶部一条孤零零的线（用户反馈）。
             HorizontalDivider()
         }
+
+        val refreshing = cards.loadState.refresh is LoadState.Loading
+        val empty = cards.itemCount == 0 && cards.loadState.refresh is LoadState.NotLoading
 
         when {
             blocked -> Center {
@@ -145,31 +124,27 @@ fun LibraryScreen(
                 }
             }
 
-            items.isEmpty() && searching -> Center {
-                Text(
-                    text = "未找到匹配影片",
-                    style = MaterialTheme.typography.bodyMedium,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                )
-            }
-
-            items.isEmpty() -> WelcomeHero(
+            empty -> WelcomeHero(
                 scanning = scanState is ScanState.Running,
                 onScan = vm::toggleScan,
                 onAddSource = onAddSource,
             )
 
+            refreshing && cards.itemCount == 0 -> Center {
+                LinearProgressIndicator(modifier = Modifier.fillMaxWidth(0.4f))
+            }
+
+            cards.loadState.refresh is LoadState.Error && cards.itemCount == 0 -> Center {
+                TextButton(onClick = { cards.retry() }) { Text("加载失败，点击重试") }
+            }
+
             else -> HomeFeed(
-                items = items,
-                recommended = vm.recommended,
+                cards = cards,
+                recommended = recommended,
                 recommendReasons = recommendReasons,
                 genreSections = genreSections,
-                progress = progress,
-                searching = searching,
                 errorNotice = errorNotice,
                 hintNotice = hintNotice,
-                sort = vm.sort,
-                unwatchedOnly = vm.unwatchedOnly,
                 onOpenDetail = onOpenDetail,
                 onShuffle = vm::reshuffle,
             )
@@ -177,39 +152,22 @@ fun LibraryScreen(
     }
 }
 
-/**
- * 滚动内容。整行（随机推荐 / 分类行 / 「全部」标题 / 提示行）跨满列，海报条目按列排。
- */
 @Composable
 private fun HomeFeed(
-    items: List<MediaItemEntity>,
-    recommended: List<WallEntry>,
+    cards: LazyPagingItems<WorkCard>,
+    recommended: List<WorkCard>,
     recommendReasons: Map<String, String>,
-    genreSections: List<GenreRow>,
-    progress: Map<String, Float>,
-    searching: Boolean,
+    genreSections: List<GenreCardRow>,
     errorNotice: String?,
     hintNotice: String?,
-    sort: WallSort,
-    unwatchedOnly: Boolean,
     onOpenDetail: (List<String>) -> Unit,
     onShuffle: () -> Unit,
 ) {
-    val filteredItems = remember(items, unwatchedOnly, progress) {
-        if (unwatchedOnly) items.filter { (progress[it.path] ?: 0f) < 0.92f } else items
-    }
-    val wall = remember(filteredItems, sort) { sortWall(groupWall(filteredItems), sort) }
-    // 分类行先归并成「剧 / 单片」的块 —— 在网格外面算好（不得在 item 内重复执行 groupWall）
-    val genreWalls = remember(genreSections) {
-        genreSections.map { row -> row to groupWall(row.items) }
-    }
-
     LazyVerticalGrid(
         columns = GridCells.Adaptive(minSize = 104.dp),
         modifier = Modifier.fillMaxSize(),
         contentPadding = PaddingValues(12.dp),
         horizontalArrangement = Arrangement.spacedBy(8.dp),
-        // 「分类」和「影片」之间松一点（用户要求）：行内自己还留了 ROW_BOTTOM_GAP
         verticalArrangement = Arrangement.spacedBy(14.dp),
     ) {
         errorNotice?.let { text ->
@@ -223,45 +181,54 @@ private fun HomeFeed(
             }
         }
 
-        // 搜索时只留过滤后的网格 —— 分类行与随机推荐都收起来
-        if (!searching) {
-            if (recommended.isNotEmpty()) {
-                item(span = { GridItemSpan(maxLineSpan) }, key = "row-random") {
-                    FeaturedRow(
-                        entries = recommended,
-                        reasons = recommendReasons,
-                        progress = progress,
-                        onOpenDetail = onOpenDetail,
-                        onAction = onShuffle,
-                    )
-                }
+        if (recommended.isNotEmpty()) {
+            item(span = { GridItemSpan(maxLineSpan) }, key = "row-random") {
+                WorkFeaturedRow(
+                    cards = recommended,
+                    reasons = recommendReasons,
+                    onOpenDetail = onOpenDetail,
+                    onAction = onShuffle,
+                )
             }
-            genreWalls.forEach { (row, entries) ->
-                item(span = { GridItemSpan(maxLineSpan) }, key = "row-${row.genre}") {
-                    SectionRow(
-                        title = row.genre,
-                        count = row.total,
-                        entries = entries,
-                        progress = progress,
-                        onOpenDetail = onOpenDetail,
-                    )
-                }
-            }
-            item(span = { GridItemSpan(maxLineSpan) }, key = "row-all") { SectionTitle("全部") }
         }
+        genreSections.forEach { row ->
+            item(span = { GridItemSpan(maxLineSpan) }, key = "row-${row.genre}") {
+                WorkSectionRow(
+                    title = row.genre,
+                    cards = row.cards,
+                    onOpenDetail = onOpenDetail,
+                )
+            }
+        }
+        item(span = { GridItemSpan(maxLineSpan) }, key = "row-all") { SectionTitle("全部") }
 
-        items(wall, key = { it.key }) { entry ->
-            PosterCard(
-                entry = entry,
-                fraction = wallFraction(entry, progress),
-                onClick = { onOpenDetail(entry.paths()) },
+        items(count = cards.itemCount, key = cards.itemKey { it.id }) { index ->
+            val card = cards[index] ?: return@items
+            WorkPosterCard(
+                card = card,
+                onClick = { onOpenDetail(card.paths) },
                 modifier = Modifier.fillMaxWidth().aspectRatio(2f / 3f),
             )
+        }
+
+        val append = cards.loadState.append
+        when (append) {
+            is LoadState.Loading -> item(span = { GridItemSpan(maxLineSpan) }, key = "paging-loading") {
+                Box(Modifier.fillMaxWidth().padding(12.dp), contentAlignment = Alignment.Center) {
+                    LinearProgressIndicator(modifier = Modifier.fillMaxWidth(0.3f))
+                }
+            }
+            is LoadState.Error, is LoadState.NotLoading -> {
+                if (append is LoadState.Error) {
+                    item(span = { GridItemSpan(maxLineSpan) }, key = "paging-retry") {
+                        TextButton(onClick = { cards.retry() }) { Text("加载失败，点击重试") }
+                    }
+                }
+            }
         }
     }
 }
 
-/** 靠左的小节标题（用户要求的「分类标题靠左」）。 */
 @Composable
 private fun SectionTitle(text: String) {
     Text(
@@ -285,105 +252,6 @@ private fun Notice(text: String, isError: Boolean) {
     )
 }
 
-/**
- * 吸顶栏：**药丸搜索框 + ⋯**。样式照用户站点「星屿」的 `.search`：
- * 全圆角、左侧放大镜（16dp）、右侧有内容时一个圆形 ×、聚焦时描边变强调色。
- */
-@Composable
-private fun StickyBar(
-    query: String,
-    onQuery: (String) -> Unit,
-    scan: ScanState,
-    scrape: ScrapeState,
-    fill: DetailFillState,
-    onToggleScan: () -> Unit,
-    onToggleScrape: () -> Unit,
-    onToggleFill: () -> Unit,
-) {
-    var focused by remember { mutableStateOf(false) }
-
-    Row(
-        modifier = Modifier
-            .fillMaxWidth()
-            // 吸顶栏整体压到 38 + 6 + 4 = 48dp（原来 40 + 8 + 6 = 54）。
-            // 38dp 这个高度是对齐 NagoMusic 的搜索框。
-            .padding(start = 12.dp, end = 8.dp, top = 6.dp, bottom = 4.dp),
-        verticalAlignment = Alignment.CenterVertically,
-    ) {
-        Surface(
-            shape = CircleShape,
-            color = MaterialTheme.colorScheme.surfaceVariant,
-            border = BorderStroke(
-                width = 1.dp,
-                color = if (focused) {
-                    MaterialTheme.colorScheme.primary
-                } else {
-                    MaterialTheme.colorScheme.outlineVariant
-                },
-            ),
-            modifier = Modifier.weight(1f).height(38.dp),
-        ) {
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                Icon(
-                    imageVector = Icons.Filled.Search,
-                    contentDescription = "搜索",
-                    tint = MaterialTheme.colorScheme.onSurfaceVariant,
-                    modifier = Modifier.padding(start = 12.dp).size(16.dp),
-                )
-                BasicTextField(
-                    value = query,
-                    onValueChange = onQuery,
-                    singleLine = true,
-                    textStyle = MaterialTheme.typography.bodyMedium.copy(
-                        color = MaterialTheme.colorScheme.onSurface,
-                    ),
-                    cursorBrush = SolidColor(MaterialTheme.colorScheme.primary),
-                    decorationBox = { inner ->
-                        Box(contentAlignment = Alignment.CenterStart) {
-                            if (query.isEmpty()) {
-                                Text(
-                                    text = "搜索片名 / 类型 / 演员",
-                                    style = MaterialTheme.typography.bodyMedium,
-                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                                    maxLines = 1,
-                                )
-                            }
-                            inner()
-                        }
-                    },
-                    modifier = Modifier
-                        .weight(1f)
-                        .padding(horizontal = 8.dp)
-                        .onFocusChanged { focused = it.isFocused },
-                )
-                if (query.isNotEmpty()) {
-                    Box(
-                        modifier = Modifier
-                            .padding(end = 8.dp)
-                            .size(20.dp)
-                            .clip(CircleShape)
-                            .background(MaterialTheme.colorScheme.outlineVariant)
-                            .clickable { onQuery("") },
-                        contentAlignment = Alignment.Center,
-                    ) {
-                        Icon(
-                            imageVector = Icons.Filled.Close,
-                            contentDescription = "清除",
-                            tint = MaterialTheme.colorScheme.onSurfaceVariant,
-                            modifier = Modifier.size(13.dp),
-                        )
-                    }
-                }
-            }
-        }
-
-        // 扫描 / 刮削 / 补齐 已经搬进「我的」页 —— 这里不再留 ⋯ 按钮，
-        // 搜索框占满整行（见 MineScreen 的「媒体库」分组）。
-
-    }
-}
-
-/** 任务运行时吸顶栏下面那条细线 + 一行小字（不占位、也不跟着内容滚走）。 */
 @Composable
 private fun RunningStrip(label: String) {
     Column {
@@ -401,7 +269,6 @@ private fun RunningStrip(label: String) {
     }
 }
 
-/** 库为空时的欢迎页（照用户给的 VidHub 参考做的）。 */
 @Composable
 private fun WelcomeHero(
     scanning: Boolean,
@@ -418,9 +285,7 @@ private fun WelcomeHero(
             style = MaterialTheme.typography.headlineSmall,
             color = MaterialTheme.colorScheme.onSurface,
         )
-
         Spacer(Modifier.height(36.dp))
-
         Button(
             onClick = onScan,
             enabled = !scanning,
@@ -429,7 +294,6 @@ private fun WelcomeHero(
             Text(if (scanning) "扫描中…" else "扫描媒体库")
         }
         Spacer(Modifier.height(12.dp))
-        // 这个 TextButton 也要显式给色：默认 contentColor 是 primary（亮柠檬绿），浅底上看不清
         TextButton(
             onClick = onAddSource,
             colors = ButtonDefaults.textButtonColors(

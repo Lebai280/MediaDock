@@ -3,9 +3,14 @@ package com.lovelev.mediadock.core.data
 import com.lovelev.mediadock.data.local.MediaDatabase
 import com.lovelev.mediadock.data.local.MediaItemEntity
 import com.lovelev.mediadock.data.local.TitleOverride
+import androidx.paging.Pager
+import androidx.paging.PagingConfig
+import androidx.paging.PagingData
+import androidx.paging.map
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.flowOf
+import kotlinx.coroutines.flow.map
 
 /**
  * 媒体库只读查询：海报墙、详情页与搜索共用的读模型。
@@ -42,6 +47,35 @@ class LibraryQueryRepository(private val db: MediaDatabase) {
                 rows.map { item -> item.withTitleOverride(byPath[item.path]) }
             }
         }
+
+    /** 海报墙分页：30 条/页，由 works 表驱动。 */
+    fun worksPager(
+        sort: WorksSort = WorksSort.TITLE,
+        search: String = "",
+    ): Flow<PagingData<WorkCard>> =
+        Pager(
+            config = PagingConfig(
+                pageSize = 30,
+                initialLoadSize = 60,
+                prefetchDistance = 10,
+                enablePlaceholders = false,
+            ),
+        ) {
+            db.worksCardDao().pagingWorks(WorksCardSql.paging(sort, search))
+        }.flow.map { data -> data.map { it.toWorkCard() } }
+
+    /** 首页「随机推荐」。 */
+    suspend fun randomWorks(limit: Int = 5): List<WorkCard> =
+        db.worksCardDao().cards(WorksCardSql.random(limit)).map { it.toWorkCard() }
+
+    /** 分类行用的有界集合（按最近添加取 [limit] 部）。 */
+    suspend fun recentWorks(limit: Int = 200): List<WorkCard> =
+        db.worksCardDao().cards(WorksCardSql.limited(WorksSort.RECENT, limit))
+            .map { it.toWorkCard() }
+
+    /** 推荐理由用的收藏样本（有界）。 */
+    suspend fun favoriteWorks(limit: Int = 20): List<WorkCard> =
+        db.worksCardDao().cards(WorksCardSql.favorites(limit)).map { it.toWorkCard() }
 }
 
 /** 把手工覆盖并进条目：只改显示/检索用的片名与年份，不动路径。 */

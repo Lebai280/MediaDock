@@ -1653,6 +1653,21 @@ DB 约 5.7 MB。**选定 FTS4 + `search_text`**，详见 WORKLOG 与 ADR-024。
   单测/instrumentation 通过。
 - **剩余 Phase 1**：E1.3 Paging 3 + works 查询、E1.4 FTS 搜索、E1.5 20k 压测。
 
+**Phase 1 E1.3 实施结果（2026-10-19）**：
+
+- **works 查询**：`WorksCardDao` + `WorksCardSql`（RawQuery + Room PagingSource），
+  按 works 返回海报卡：海报/背景/评分/季集数、已看完集数、电影进度、收藏状态、
+  全部文件 path（`char(31)` 拼接，详情页继续走旧 path 接口）；只返回有未缺失文件的作品。
+- **Paging 3**：首页海报墙改为 `Pager(pageSize=30, initialLoadSize=60)` + `LazyPagingItems`；
+  支持增量加载、追加失败重试、下拉刷新状态；favorites/progress/works 变更触发 Room 失效重载。
+- **首页头部有界化**：随机推荐 5 部、分类行取最近 200 部后按类型分组；不再把全库条目读入内存。
+- **详情导航**：卡片携带该作品的全部文件 path，`DetailSelection`/详情页接口不变。
+- **真机（SM-G998U1）**：127 个作品分页展示；系列卡（24 集）点入详情显示
+  「共 22 集（库中 26 集）」与多季切换；滚动加载无崩溃。
+- **测试**：`WorksPagingTest`（分页/路径/集数/收藏/进度/随机与有界查询）与全部既有
+  单测/instrumentation 通过。
+- **剩余**：搜索页仍用全量内存过滤（E1.4 改 FTS 分页）；20k 压测（E1.5）。
+
 ### 15.10 启动门槛
 
 1. 提交当前 54 个文件为基线（文档第二版 + 注释/文案）；确认 98 单测 + release。
@@ -1663,7 +1678,8 @@ DB 约 5.7 MB。**选定 FTS4 + `search_text`**，详见 WORKLOG 与 ADR-024。
 6. 0b 已完成（2026-10-19）：网络/数据模块骨架与查询、刮削抽取。
 7. Phase 1 E1.1 已完成（2026-10-19）：WorkManager 增量扫描、目录缓存与断点续跑。
 8. Phase 1 E1.2 已完成（2026-10-19）：持久刮削队列、Worker、预算与退避。
-9. 下一步：E1.3 Paging、E1.4 FTS、E1.5 20k 压测。
+9. Phase 1 E1.3 已完成（2026-10-19）：works 分页海报墙、有界推荐/分类行。
+10. 下一步：E1.4 FTS 搜索、E1.5 20k 压测。
 
 ### 15.11 仍需确认
 

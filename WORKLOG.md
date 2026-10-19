@@ -2118,6 +2118,34 @@ WorkManager 扫描/持久刮削做准备；不改变用户可见行为。
 - 刮削预算设置项、FULL 扫描 UI 入口留待后续。
 - 剩余 Phase 1：E1.3 Paging/works、E1.4 FTS、E1.5 20k 压测。
 
+### 2026-10-19 · Phase 1 E1.3：works 分页海报墙
+
+**背景**：首页原先全量读取 `media_items` 并在内存分组，20k 库会卡顿/占内存；
+E1.3 改为直接查询 `works` 的 Paging 3 分页。
+
+**变更**：
+- `WorksCardDao` + `WorksCardSql`：RawQuery（Room PagingSource）返回作品卡，
+  含海报/评分/集数、已看完集数、电影进度、收藏标记与全部文件 path。
+- `LibraryQueryRepository`：`worksPager`（30/页）、`randomWorks`（5）、
+  `recentWorks`（200，分类行）、`favoriteWorks`（20，推荐理由）。
+- `LibraryViewModel`：首页墙改为 `PagingData<WorkCard>`；推荐/分类行改为有界查询，
+  不再收集全库条目；扫描完成刷新头部。
+- `LibraryScreen`：`LazyPagingItems` + `WorkPosterCard`/`WorkFeaturedRow`/`WorkSectionRow`；
+  支持追加加载、失败重试与刷新状态；详情仍按卡片携带的 paths 导航。
+- 搜索页暂未改（仍全量内存过滤），E1.4 处理。
+
+**验证（SM-G998U1 / Android 15）**：
+- 0.10.0 覆盖安装；127 个作品分页展示，系列卡（24 集）点入详情显示
+  「共 22 集（库中 26 集）」与多季切换；滚动加载正常，无崩溃。
+- `WorksPagingTest`（分页/路径/集数/收藏/进度/随机与有界查询）与全部既有
+  单测/instrumentation 通过。
+
+**备注**：
+- 作品卡集数按 works 聚合（跨季），与旧「按目录分组」的显示可能不同；
+  详情页仍以文件/集为单位。
+- 搜索页仍是全量内存过滤，E1.4 改为 FTS 分页后移除。
+- 剩余 Phase 1：E1.4 FTS、E1.5 20k 压测。
+
 ---
 
 ## 8. 待办
@@ -2140,8 +2168,10 @@ WorkManager 扫描/持久刮削做准备；不改变用户可见行为。
    断点续跑；真机 280 文件，增量 1 目录/0 文件，取消后恢复至 280。
 10. **Phase 1 E1.2**：已完成（2026-10-19）——`scrape_tasks` 持久队列、ScrapeWorker、
    每日预算与指数退避；真机 13 条任务入队并保留，TMDB 网络不可达时按退避重试。
-11. **下一步**：E1.3 Paging/works、E1.4 FTS、E1.5 20k 压测。
-12. **运维记录**：OpenList `movie1`–`movie8` 的 `base_path` 已改为 `/夸克/影视`；
+11. **Phase 1 E1.3**：已完成（2026-10-19）——works 分页海报墙（30/页），
+   推荐/分类行有界查询；真机 127 作品与系列详情验证通过。
+12. **下一步**：E1.4 FTS 搜索、E1.5 20k 压测。
+13. **运维记录**：OpenList `movie1`–`movie8` 的 `base_path` 已改为 `/夸克/影视`；
     修改数据库后需重启 OpenList 才生效。
 
 ### 8.2 功能路线图（按优先级）

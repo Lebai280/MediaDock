@@ -18,6 +18,7 @@ navigationCompose = "2.10.2"
 datastore = "1.2.1"
 securityCrypto = "1.1.0"
 work = "2.12.0"
+paging = "3.5.3"
 junit = "4.13.2"
 androidxTestJunit = "1.2.1"
 androidxTestRunner = "1.6.2"
@@ -35,6 +36,9 @@ androidx-datastore-preferences = { module = "androidx.datastore:datastore-prefer
 androidx-security-crypto = { module = "androidx.security:security-crypto", version.ref = "securityCrypto" }
 androidx-work-runtime-ktx = { module = "androidx.work:work-runtime-ktx", version.ref = "work" }
 androidx-work-testing = { module = "androidx.work:work-testing", version.ref = "work" }
+androidx-paging-common = { module = "androidx.paging:paging-common", version.ref = "paging" }
+androidx-paging-runtime = { module = "androidx.paging:paging-runtime", version.ref = "paging" }
+androidx-paging-compose = { module = "androidx.paging:paging-compose", version.ref = "paging" }
 
 compose-bom = { module = "androidx.compose:compose-bom", version.ref = "composeBom" }
 compose-ui = { module = "androidx.compose.ui:ui" }
@@ -53,6 +57,7 @@ room-runtime = { module = "androidx.room:room-runtime", version.ref = "room" }
 room-ktx = { module = "androidx.room:room-ktx", version.ref = "room" }
 room-compiler = { module = "androidx.room:room-compiler", version.ref = "room" }
 room-testing = { module = "androidx.room:room-testing", version.ref = "room" }
+room-paging = { module = "androidx.room:room-paging", version.ref = "room" }
 
 okhttp = { module = "com.squareup.okhttp3:okhttp", version.ref = "okhttp" }
 coil-compose = { module = "io.coil-kt.coil3:coil-compose", version.ref = "coil" }

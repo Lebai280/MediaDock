@@ -30,8 +30,8 @@ android {
         applicationId = "com.lovelev.mediadock"
         minSdk = 26
         targetSdk = 36
-        versionCode = 24
-        versionName = "0.9.0"
+        versionCode = 25
+        versionName = "0.10.0"
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
     }
 
@@ -98,6 +98,7 @@ dependencies {
     implementation(libs.androidx.datastore.preferences)
     implementation(libs.androidx.security.crypto)
     implementation(libs.androidx.work.runtime.ktx)
+    implementation(libs.androidx.paging.compose)
     implementation(libs.documentfile)
 
     implementation(platform(libs.compose.bom))

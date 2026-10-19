@@ -42,6 +42,8 @@ dependencies {
     api(project(":core:model"))
     api(libs.room.runtime)
     api(libs.room.ktx)
+    api(libs.androidx.paging.common)
+    api(libs.room.paging)
     ksp(libs.room.compiler)
     // S1 的兼容 VIEW 测试在 androidTest 里定义了独立的 Room 库。
     kspAndroidTest(libs.room.compiler)

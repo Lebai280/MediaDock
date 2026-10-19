@@ -8,17 +8,22 @@ import androidx.lifecycle.ViewModelProvider
 import androidx.lifecycle.viewModelScope
 import androidx.lifecycle.viewmodel.initializer
 import androidx.lifecycle.viewmodel.viewModelFactory
+import androidx.paging.PagingData
+import androidx.paging.cachedIn
+import com.lovelev.mediadock.core.data.WorkCard
 import com.lovelev.mediadock.data.local.MediaItemEntity
 import com.lovelev.mediadock.data.local.TitleDetail
 import com.lovelev.mediadock.data.repo.DetailFillState
 import com.lovelev.mediadock.data.repo.ScanState
 import com.lovelev.mediadock.data.repo.ScrapeState
 import com.lovelev.mediadock.di.AppContainer
+import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.combine
-import kotlinx.coroutines.flow.map
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
 
@@ -29,120 +34,99 @@ class LibraryViewModel(private val container: AppContainer) : ViewModel() {
     val scrape: StateFlow<ScrapeState> = container.library.scrape
     val fill: StateFlow<DetailFillState> = container.details.fill
 
-    /** 库里全部条目（已合并手工改名）。 */
-    private val allItems: StateFlow<List<MediaItemEntity>> = container.library.items
-        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
+    /** 海报墙：works 分页，不再把全库条目读进内存分组。 */
+    val wall: Flow<PagingData<WorkCard>> =
+        container.libraryQuery.worksPager().cachedIn(viewModelScope)
 
     /**
-     * 已缓存的详情。搜索要按 类型/国家/演员 过滤，靠的就是它 ——
-     * 而详情是「打开详情页才拉」的懒加载，所以**不一定齐**（用「补齐影片信息」补齐）。
+     * 搜索页仍在用全量条目（E1.4 会改成 FTS 分页）；
+     * 首页不再收集它们，只有「补齐影片信息」按需读取。
      */
+    private val allItems: StateFlow<List<MediaItemEntity>> = container.library.items
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
     private val allDetails: StateFlow<List<TitleDetail>> = container.library.details
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
 
-    /** 搜索页做分类/地区/年份筛选要用的原始数据。 */
     val allLibraryItems: StateFlow<List<MediaItemEntity>> get() = allItems
     val allLibraryDetails: StateFlow<List<TitleDetail>> get() = allDetails
 
-    /** 搜索词：Compose 状态给输入框显示，Flow 参与 combine。 */
+    /** 搜索词（搜索页用）。 */
     var query by mutableStateOf("")
         private set
     private val queryFlow = MutableStateFlow("")
 
-    /**
-     * 改搜索词。方法名不能叫 `setQuery` —— 会和 `var query` 合成的 setter 撞 JVM 签名
-     * （Kotlin 报 Platform declaration clash，见 WORKLOG 问题 6）。
-     */
     fun editQuery(value: String) {
         query = value
         queryFlow.value = value
     }
 
-    /** 搜索要显示的那一批。规则见 [filterLibraryItems]（纯逻辑，有单测）。 */
     val visible: StateFlow<List<MediaItemEntity>> =
         combine(allItems, allDetails, queryFlow) { items, details, q ->
             filterLibraryItems(items, details, q)
         }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
 
-    /** 海报块上那条进度条：path → 0..1。 */
-    val progress: StateFlow<Map<String, Float>> = container.progress.observeAll()
-        .map { rows ->
-            rows.filter { it.durationMs > 0L }
-                .associate { it.path to (it.positionMs.toFloat() / it.durationMs).coerceIn(0f, 1f) }
-        }
-        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyMap())
-
-    /** 首页那条「随机推荐」。进首页时换一批，也可以手动换。 */
-    var recommended by mutableStateOf<List<WallEntry>>(emptyList())
+    /** 首页随机推荐（有界查询）。 */
+    var recommended by mutableStateOf<List<WorkCard>>(emptyList())
         private set
 
-    /** 首页的分类行（数据驱动，规则见 [genreRows]）。详情没补齐就出不来，这是预期的。 */
-    val genreSections: StateFlow<List<GenreRow>> =
-        combine(allItems, allDetails) { items, details -> genreRows(items, details) }
-            .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
+    var recommendReasons by mutableStateOf<Map<String, String>>(emptyMap())
+        private set
 
-    /** 收藏的 path 集合 —— 推荐理由要用（「你收藏过的」「你收藏的《X》也是动画」）。 */
-    private val favoritePaths: StateFlow<Set<String>> = container.favorites.observePaths()
-        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptySet())
+    private val _genreSections = MutableStateFlow<List<GenreCardRow>>(emptyList())
+    val genreSections: StateFlow<List<GenreCardRow>> = _genreSections.asStateFlow()
+
+    init {
+        viewModelScope.launch { refreshHeader() }
+    }
+
+    /** 换一批推荐。 */
+    fun reshuffle() {
+        viewModelScope.launch { refreshRecommendations() }
+    }
 
     /**
-     * path → 推荐理由（首页大卡片下面那行）。规则与优先级见 [recommendReason]。
-     * 推不出理由的条目**不在这个表里**，界面那一行就不画（不编话凑数）。
+     * 重新取推荐与分类行（扫描/刮削完成后调用）。
+     * 两者都只查有界样本，不会把 20k 库读进内存。
      */
-    val recommendReasons: StateFlow<Map<String, String>> =
-        combine(allItems, allDetails, progress, favoritePaths) { items, details, prog, favorites ->
-            val byPath = details.associateBy { it.path }
-            val itemsByPath = items.associateBy { it.path }
-            fun genresOf(path: String): List<String> = byPath[path]?.genres
-                ?.split(',')?.map { it.trim() }?.filter { it.isNotEmpty() }
-                .orEmpty()
+    fun refreshHeader() {
+        viewModelScope.launch {
+            _genreSections.value = genreCardRows(
+                container.libraryQuery.recentWorks(limit = 200),
+            )
+            refreshRecommendations()
+        }
+    }
 
-            // 收藏里出现过的类型 → 一部收藏的片名（用来做「你收藏的《X》也是动画」那条）
-            val favoriteGenres = buildMap {
-                favorites.forEach { path ->
-                    val title = itemsByPath[path]?.parsedTitle?.takeIf { it.isNotBlank() } ?: return@forEach
-                    genresOf(path).forEach { genre -> putIfAbsent(genre, title) }
-                }
+    private suspend fun refreshRecommendations() {
+        val cards = container.libraryQuery.randomWorks(limit = 5)
+        val favorites = container.libraryQuery.favoriteWorks(limit = 20)
+        val favoriteGenres = buildMap {
+            favorites.forEach { card ->
+                card.genres.forEach { genre -> putIfAbsent(genre, card.title) }
             }
-
-            items
-                .associate { item ->
-                    item.path to recommendReason(
-                        genres = genresOf(item.path),
-                        rating = item.rating,
-                        progress = prog[item.path],
-                        isFavorite = item.path in favorites,
-                        favoriteGenres = favoriteGenres,
-                    )
-                }
-                .filterValues { it.isNotBlank() }
-        }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyMap())
-
-    fun reshuffle() {
-        recommended = pickRandom(groupWall(allItems.value))
-    }
-
-    /** 海报墙排序与「仅看未看」筛选（界面状态，放在 VM 里以便切换 Tab 后保持）。 */
-    var sort by mutableStateOf(WallSort.DEFAULT)
-        private set
-    var unwatchedOnly by mutableStateOf(false)
-        private set
-
-    fun pickSort(value: WallSort) {
-        sort = value
-    }
-
-    fun toggleUnwatchedOnly() {
-        unwatchedOnly = !unwatchedOnly
+        }
+        recommended = cards
+        recommendReasons = cards.associate { card ->
+            card.id to recommendReason(
+                genres = card.genres,
+                rating = card.rating,
+                progress = card.progressFraction.takeIf { it > 0f },
+                isFavorite = card.isFavorite,
+                favoriteGenres = favoriteGenres,
+            )
+        }.filterValues { it.isNotBlank() }
     }
 
     fun toggleScan() {
-        // 取消只取消扫描本身，不得同时清除刮削进度提示
         if (scan.value is ScanState.Running) container.library.cancelScan() else container.library.start()
     }
 
     fun toggleScrape() {
-        if (scrape.value is ScrapeState.Running) container.library.cancelScrape() else container.library.scrapeStart()
+        if (scrape.value is ScrapeState.Running) {
+            container.library.cancelScrape()
+        } else {
+            container.library.scrapeStart()
+        }
     }
 
     /** 补齐影片信息：跑着就取消，否则把已刮削条目缺的详情一次拉齐。 */
@@ -150,14 +134,9 @@ class LibraryViewModel(private val container: AppContainer) : ViewModel() {
         if (fill.value is DetailFillState.Running) {
             container.details.cancelFill()
         } else {
-            container.details.fillMissing(allItems.value)
-        }
-    }
-
-    init {
-        // 库第一次到位时先铺一批随机推荐；之后靠 reshuffle() 换
-        viewModelScope.launch {
-            allItems.collect { if (recommended.isEmpty() && it.isNotEmpty()) reshuffle() }
+            viewModelScope.launch {
+                container.details.fillMissing(container.library.items.first())
+            }
         }
     }
 
@@ -167,11 +146,3 @@ class LibraryViewModel(private val container: AppContainer) : ViewModel() {
         }
     }
 }
-
-/**
- * 随机挑一批（最多 [RECOMMEND_COUNT] 块）。
- */
-private fun pickRandom(wall: List<WallEntry>): List<WallEntry> =
-    if (wall.size <= RECOMMEND_COUNT) wall.shuffled() else wall.shuffled().take(RECOMMEND_COUNT)
-
-private const val RECOMMEND_COUNT = 5
