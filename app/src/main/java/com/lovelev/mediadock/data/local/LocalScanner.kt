@@ -4,7 +4,7 @@ import android.content.Context
 import android.database.Cursor
 import android.net.Uri
 import android.provider.DocumentsContract
-import com.lovelev.mediadock.data.MediaTypes
+import com.lovelev.mediadock.core.model.MediaTypes
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.currentCoroutineContext

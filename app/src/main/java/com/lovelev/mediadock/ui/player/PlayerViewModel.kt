@@ -15,7 +15,7 @@ import androidx.lifecycle.viewmodel.viewModelFactory
 import androidx.media3.session.MediaController
 import androidx.media3.session.SessionToken
 import com.lovelev.mediadock.data.local.LocalMedia
-import com.lovelev.mediadock.data.MediaTypes
+import com.lovelev.mediadock.core.model.MediaTypes
 import com.lovelev.mediadock.data.prefs.StoredSource
 import com.lovelev.mediadock.data.repo.LocalSubtitle
 import com.lovelev.mediadock.data.subtitle.SubtitleHit

@@ -8,19 +8,20 @@ import com.lovelev.mediadock.data.log.AppLog
 import com.lovelev.mediadock.data.local.LocalScanner
 import com.lovelev.mediadock.data.local.LocalMedia
 import com.lovelev.mediadock.data.local.LocalFile
-import com.lovelev.mediadock.data.MediaTypes
+import com.lovelev.mediadock.core.model.MediaTypes
 import com.lovelev.mediadock.data.local.MediaDatabase
 import com.lovelev.mediadock.data.local.MediaDao
 import com.lovelev.mediadock.data.local.MediaItemEntity
 import com.lovelev.mediadock.data.local.MediaLibraryStore
+import com.lovelev.mediadock.core.data.LibraryQueryRepository
+import com.lovelev.mediadock.core.data.MetadataScraper
+import com.lovelev.mediadock.core.data.withTitleOverride
 import com.lovelev.mediadock.core.model.SourceId
 import com.lovelev.mediadock.data.local.TitleDetail
-import com.lovelev.mediadock.data.local.TitleOverride
 import com.lovelev.mediadock.data.local.ScrapeStatus
 import com.lovelev.mediadock.data.prefs.SecureCredentialStore
-import com.lovelev.mediadock.data.tmdb.TitleParser
+import com.lovelev.mediadock.core.model.TitleParser
 import com.lovelev.mediadock.data.tmdb.TmdbAuthException
-import com.lovelev.mediadock.data.tmdb.TmdbClient
 import com.lovelev.mediadock.data.tmdb.TmdbException
 import com.lovelev.mediadock.data.tmdb.TmdbMatch
 import com.lovelev.mediadock.data.tmdb.TmdbSecret
@@ -39,9 +40,7 @@ import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
-import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.first
-import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 
@@ -83,11 +82,12 @@ sealed interface ScrapeState {
 class LibraryRepository(
     private val db: MediaDatabase,
     private val client: WebDavClient,
-    private val tmdb: TmdbClient,
     private val credentials: SecureCredentialStore,
     private val localScanner: LocalScanner,
     private val mediaStoreScanner: MediaStoreScanner,
     private val store: MediaLibraryStore,
+    private val query: LibraryQueryRepository,
+    private val scraper: MetadataScraper,
 ) {
 
     /** 应用作用域：扫描不跟着页面走，退出媒体库页/旋屏都不会把它打断。 */
@@ -99,39 +99,16 @@ class LibraryRepository(
     private val _scrape = MutableStateFlow<ScrapeState>(ScrapeState.Idle)
     val scrape: StateFlow<ScrapeState> = _scrape.asStateFlow()
 
-    /**
-     * 库里的条目，**已经把手工覆盖的片名/年份合并进来了** ——
-     * 海报墙、详情页、重新刮削的检索词都读这一份，保证「改过名字」到处都生效。
-     */
-    val items: Flow<List<MediaItemEntity>> =
-        combine(db.mediaDao().observeAll(), db.titleOverrideDao().observeAll()) { all, overrides ->
-            val byPath = overrides.associateBy { it.path }
-            all.map { item -> item.withOverride(byPath[item.path]) }
-        }
+    /** 库里的条目（查询层已合并手工覆盖）。 */
+    val items: Flow<List<MediaItemEntity>> get() = query.items
     val matchedCount: Flow<Int> = db.mediaDao().observeMatchedCount()
 
-    /**
-     * 全部**已缓存**的详情（首页搜索按类型/国家/演员过滤用）。
-     * 注意详情是懒加载的（打开详情页才拉），所以这里不一定齐 —— 用「补齐影片信息」可以补齐。
-     */
-    val details: Flow<List<TitleDetail>> = db.titleDetailDao().observeAll()
+    /** 全部**已缓存**的详情（首页搜索按类型/国家/演员过滤用）。 */
+    val details: Flow<List<TitleDetail>> get() = query.details
 
-    /**
-     * 详情页要的那一批条目。
-     * **空列表必须挡在这里** —— Room 会把 `IN (:paths)` 展开成 `IN ()`，那是 SQL 语法错。
-     */
+    /** 详情页要的那一批条目（空列表由查询层挡住）。 */
     fun observeByPaths(paths: List<String>): Flow<List<MediaItemEntity>> =
-        if (paths.isEmpty()) {
-            flowOf(emptyList())
-        } else {
-            combine(
-                db.mediaDao().observeByPaths(paths),
-                db.titleOverrideDao().observeAll(),
-            ) { rows, overrides ->
-                val byPath = overrides.associateBy { it.path }
-                rows.map { item -> item.withOverride(byPath[item.path]) }
-            }
-        }
+        query.observeByPaths(paths)
 
     /** 手工改片名/年份。空标题表示清除覆盖，回到自动解析的结果。 */
     suspend fun saveOverride(path: String, title: String, year: Int?) =
@@ -147,11 +124,7 @@ class LibraryRepository(
     suspend fun searchMatchCandidates(query: String, year: Int?, isTv: Boolean): List<TmdbMatch> {
         val secret = credentials.loadTmdbSecret()?.let(::TmdbSecret)
             ?: throw TmdbAuthException("还没填写 TMDB 凭据")
-        return if (isTv) {
-            tmdb.searchTvCandidates(query, year, secret)
-        } else {
-            tmdb.searchMovieCandidates(query, year, secret)
-        }
+        return scraper.searchCandidates(query, year, isTv, secret)
     }
 
     /**
@@ -187,7 +160,7 @@ class LibraryRepository(
         val dao = db.mediaDao()
         val overrides = db.titleOverrideDao().observeAll().first().associateBy { it.path }
         val items = dao.observeByPaths(paths).first()
-            .map { it.withOverride(overrides[it.path]) }
+            .map { it.withTitleOverride(overrides[it.path]) }
         if (items.isEmpty()) return "找不到条目"
         val secret = credentials.loadTmdbSecret()?.let(::TmdbSecret)
             ?: return "还没填写 TMDB 凭据"
@@ -207,7 +180,7 @@ class LibraryRepository(
         val dao = db.mediaDao()
         val override = db.titleOverrideDao().observeAll().first().firstOrNull { it.path == path }
         val item = dao.observeByPaths(listOf(path)).first().firstOrNull()
-            ?.withOverride(override)
+            ?.withTitleOverride(override)
             ?: return "找不到这一条"
         val secret = credentials.loadTmdbSecret()?.let(::TmdbSecret)
             ?: return "还没填写 TMDB 凭据"
@@ -488,7 +461,7 @@ class LibraryRepository(
             val dao = db.mediaDao()
             // 覆盖过的片名要参与检索，否则「改了名字再刮」等于没改
             val overrideByPath = db.titleOverrideDao().observeAll().first().associateBy { it.path }
-            val pending = dao.pendingScrape().map { it.withOverride(overrideByPath[it.path]) }
+            val pending = dao.pendingScrape().map { it.withTitleOverride(overrideByPath[it.path]) }
             if (pending.isEmpty()) {
                 _scrape.value = ScrapeState.Done(matched = 0, failed = 0)
                 return@launch
@@ -551,11 +524,7 @@ class LibraryRepository(
     /** 单条：剧集走 search/tv，电影走 search/movie；年份先带上，搜不到会自动去掉年份重试。 */
     private suspend fun scrapeItem(item: MediaItemEntity, secret: TmdbSecret): TmdbMatch? {
         val isEpisode = item.episode != null || item.season != null
-        return if (isEpisode) {
-            tmdb.searchTv(item.parsedTitle, item.year, secret)
-        } else {
-            tmdb.searchMovie(item.parsedTitle, item.year, secret)
-        }
+        return scraper.match(item.parsedTitle, item.year, isEpisode, secret)
     }
 
     /** 取消扫描：只动扫描，刮削的进度提示不受影响。 */
@@ -614,7 +583,3 @@ class LibraryRepository(
         const val SCRAPE_CONCURRENCY = 4
     }
 }
-
-/** 把手工覆盖并进条目：只改显示/检索用的片名与年份，不动路径。 */
-private fun MediaItemEntity.withOverride(override: TitleOverride?): MediaItemEntity =
-    if (override == null) this else copy(parsedTitle = override.title, year = override.year)

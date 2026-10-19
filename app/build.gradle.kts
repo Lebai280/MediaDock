@@ -30,8 +30,8 @@ android {
         applicationId = "com.lovelev.mediadock"
         minSdk = 26
         targetSdk = 36
-        versionCode = 21
-        versionName = "0.6.0"
+        versionCode = 22
+        versionName = "0.7.0"
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
     }
 
@@ -114,6 +114,8 @@ dependencies {
 
     implementation(project(":core:model"))
     implementation(project(":core:database"))
+    implementation(project(":core:network"))
+    implementation(project(":core:data"))
 
     implementation(libs.okhttp)
     implementation(libs.coil.compose)

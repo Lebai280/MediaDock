@@ -1,4 +1,4 @@
-package com.lovelev.mediadock.data.tmdb
+package com.lovelev.mediadock.core.model
 
 /** 从文件名里抠出来的检索线索。 */
 data class ParsedTitle(

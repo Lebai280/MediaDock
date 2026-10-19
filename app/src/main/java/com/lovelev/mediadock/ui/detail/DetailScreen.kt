@@ -73,12 +73,12 @@ import androidx.compose.ui.unit.sp
 import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.window.DialogProperties
 import coil3.compose.AsyncImage
-import com.lovelev.mediadock.data.MediaTypes
+import com.lovelev.mediadock.core.model.MediaTypes
 import com.lovelev.mediadock.data.local.EpisodeMeta
 import com.lovelev.mediadock.data.local.MediaItemEntity
 import com.lovelev.mediadock.data.local.PlaybackProgress
 import com.lovelev.mediadock.data.tmdb.CastMember
-import com.lovelev.mediadock.data.tmdb.TitleParser
+import com.lovelev.mediadock.core.model.TitleParser
 import com.lovelev.mediadock.data.tmdb.TmdbClient
 import com.lovelev.mediadock.ui.HeartButton
 import com.lovelev.mediadock.ui.formatClock
@@ -741,9 +741,10 @@ private fun MatchDialog(
                                 .padding(vertical = 10.dp),
                             verticalAlignment = Alignment.CenterVertically,
                         ) {
-                            if (match.posterPath != null) {
+                            val matchPoster = match.posterPath
+                            if (matchPoster != null) {
                                 AsyncImage(
-                                    model = TmdbClient.posterUrl(match.posterPath, width = 92),
+                                    model = TmdbClient.posterUrl(matchPoster, width = 92),
                                     contentDescription = null,
                                     contentScale = ContentScale.Crop,
                                     modifier = Modifier
@@ -1103,9 +1104,10 @@ private fun CastItem(member: CastMember) {
                 .background(Color.White.copy(alpha = 0.14f)),
             contentAlignment = Alignment.Center,
         ) {
-            if (member.profilePath != null) {
+            val memberProfile = member.profilePath
+            if (memberProfile != null) {
                 AsyncImage(
-                    model = TmdbClient.posterUrl(member.profilePath, width = 185),
+                    model = TmdbClient.posterUrl(memberProfile, width = 185),
                     contentDescription = null,
                     contentScale = ContentScale.Crop,
                     modifier = Modifier.fillMaxSize(),

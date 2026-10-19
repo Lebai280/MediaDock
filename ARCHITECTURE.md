@@ -1594,6 +1594,21 @@ DB 约 5.7 MB。**选定 FTS4 + `search_text`**，详见 WORKLOG 与 ADR-024。
 - **延后项**：SAF 用户可见备份导出、字幕文件索引、genres/people/cast 规范化；
   这些不影响 0a 的读写兼容，列入 Phase 1/2。
 
+**0b 实施结果（2026-10-19）**：
+
+- **`:core:network`**：WebDAV（Client / Url / Models / Exception / MultistatusParser）、
+  TMDB Client、OpenSubtitles Provider、UpdateChecker、Countries；只依赖 `:core:model`。
+- **`:core:data`**：`LibraryQueryRepository`（items / details / observeByPaths）、
+  `MetadataScraper`（TMDB 匹配与候选检索）、`PathIdentity` / `identityOf`；
+  依赖 `:core:model` / `:core:database` / `:core:network`。
+- **`:core:model`**：`TitleParser` 与 `MediaTypes` 移入纯 Kotlin 模块；
+  对应单测随代码迁移，`UpdateCheckerTest` / `WebDavClientTest` 移入 `:core:network`。
+- **依赖方向**：model ← database/network ← data ← app；没有 core 模块反向依赖 app。
+- **验证**：全部单测与 database instrumentation 测试通过；0.7.0 真机覆盖安装后
+  媒体库正常，WebDAV 播放 `PLAYING`、无 401/429。
+- **延后**：完整仓库与扫描状态机抽取（Phase 1 E1.6）、`:core:datastore`、
+  `:core:ui` / `:feature:*` 拆分。
+
 ### 15.10 启动门槛
 
 1. 提交当前 54 个文件为基线（文档第二版 + 注释/文案）；确认 98 单测 + release。
@@ -1601,7 +1616,8 @@ DB 约 5.7 MB。**选定 FTS4 + `search_text`**，详见 WORKLOG 与 ADR-024。
 3. S1–S4 已完成（2026-10-18），结果见 15.9 与 ADR-024–026。
 4. 确认 SLO/DoD/CI 门禁。
 5. 0a 已完成（2026-10-19）：数据层 + 兼容 VIEW，真机迁移与回滚演练通过。
-6. 下一步：0b（网络/数据模块骨架）或 Phase 1（增量扫描与持久刮削）。
+6. 0b 已完成（2026-10-19）：网络/数据模块骨架与查询、刮削抽取。
+7. 下一步：Phase 1（增量扫描、持久刮削、Paging/FTS）。
 
 ### 15.11 仍需确认
 

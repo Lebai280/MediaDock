@@ -2032,6 +2032,33 @@ APK sha256 `fbdbcc80…4bf8fe`；`version.json` 已指向 0.5.1；真机从 0.5.
   仅用于只读核对真机库；正常 debug 仍是 `.debug` 包名。
 - 项目接受开源，许可证采用 GPL-3.0（ADR-027）；Phase 3 可引入 GPL FFmpeg。
 
+### 2026-10-19 · 0b：网络/数据模块骨架与查询、刮削抽取
+
+**背景**：0a 迁移稳定后，按架构拆出网络与数据模块，强制依赖方向，为 Phase 1 的
+WorkManager 扫描/持久刮削做准备；不改变用户可见行为。
+
+**变更**：
+- 新增 `:core:network`：WebDAV 客户端与解析、TMDB Client、OpenSubtitles Provider、
+  UpdateChecker、Countries；依赖 `:core:model`。
+- 新增 `:core:data`：`LibraryQueryRepository`（items / details / observeByPaths）、
+  `MetadataScraper`（TMDB 匹配/候选）、`PathIdentity`；依赖 model/database/network。
+- `TitleParser`、`MediaTypes` 移入 `:core:model`；`UpdateCheckerTest`、`WebDavClientTest`
+  随实现移入 `:core:network`。
+- `LibraryRepository` 的读查询委派给 `LibraryQueryRepository`，单条匹配委派给
+  `MetadataScraper`；扫描/刮削状态机暂时仍留在应用层（Phase 1 抽取）。
+
+**验证（SM-G998U1 / Android 15）**：
+- `:core:model:test`、`:core:network:test`、`:app:testDebugUnitTest`、
+  `:core:database:testDebugUnitTest` 全部通过；database instrumentation 全部通过。
+- 0.7.0 release 覆盖安装：媒体库 280 条目正常；WebDAV 播放进入 `PLAYING`
+  （buffered 40 s），日志无 401/429、无崩溃。
+- 测试产生的进度已清理，库中用户数据仍为空（与 0a 基线一致）。
+
+**备注**：
+- 依赖方向：model ← database/network ← data ← app；没有 core 模块反向依赖 app。
+- 延后：完整仓库与扫描状态机抽取（Phase 1 E1.6）、`:core:datastore`、
+  `:core:ui` / `:feature:*` 拆分。
+
 ---
 
 ## 8. 待办
@@ -2048,9 +2075,11 @@ APK sha256 `fbdbcc80…4bf8fe`；`version.json` 已指向 0.5.1；真机从 0.5.
    nextlib 为 GPL-3.0 且 +7.5 MiB/arm64，FFmpeg 视频软解后置（ADR-026）。
 7. **0a**：已完成（2026-10-19）——v9 数据层 + 兼容 VIEW；真机迁移 280 文件 / 127 作品 / 139 集，
    shadow compare 0 差异；回滚演练通过。
-8. **下一步**：0b（`:core:network` / `:core:data` 骨架）或 Phase 1（增量扫描、持久刮削、Paging/FTS）。
-9. **运维记录**：OpenList `movie1`–`movie8` 的 `base_path` 已改为 `/夸克/影视`；
-   修改数据库后需重启 OpenList 才生效。
+8. **0b**：已完成（2026-10-19）——`:core:network` / `:core:data` 骨架，查询与 TMDB 匹配抽取；
+   依赖方向单向，0.7.0 真机播放验证通过。
+9. **下一步**：Phase 1（增量扫描、持久刮削、Paging/FTS）。
+10. **运维记录**：OpenList `movie1`–`movie8` 的 `base_path` 已改为 `/夸克/影视`；
+    修改数据库后需重启 OpenList 才生效。
 
 ### 8.2 功能路线图（按优先级）
 

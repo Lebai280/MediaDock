@@ -46,7 +46,7 @@ import com.lovelev.mediadock.data.log.AppLog
 import com.lovelev.mediadock.data.repo.LocalSubtitle
 import com.lovelev.mediadock.data.subtitle.SubtitleHit
 import com.lovelev.mediadock.data.subtitle.subtitleLanguageLabel
-import com.lovelev.mediadock.data.tmdb.TitleParser
+import com.lovelev.mediadock.core.model.TitleParser
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.launch
 

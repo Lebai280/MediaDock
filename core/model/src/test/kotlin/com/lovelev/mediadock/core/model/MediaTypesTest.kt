@@ -1,4 +1,4 @@
-package com.lovelev.mediadock.data
+package com.lovelev.mediadock.core.model
 
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse

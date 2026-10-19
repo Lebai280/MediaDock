@@ -107,10 +107,21 @@ class AppContainer(context: Context) {
         com.lovelev.mediadock.data.local.MediaLibraryStore(database)
     }
 
+    /** 只读查询层（海报墙 / 详情 / 搜索）。 */
+    val libraryQuery: com.lovelev.mediadock.core.data.LibraryQueryRepository by lazy {
+        com.lovelev.mediadock.core.data.LibraryQueryRepository(database)
+    }
+
+    /** TMDB 匹配逻辑（纯网络，无状态机）。 */
+    val metadataScraper: com.lovelev.mediadock.core.data.MetadataScraper by lazy {
+        com.lovelev.mediadock.core.data.MetadataScraper(tmdbClient)
+    }
+
     val library: LibraryRepository by lazy {
         LibraryRepository(
-            database, webDavClient, tmdbClient, credentials,
+            database, webDavClient, credentials,
             LocalScanner(appContext), MediaStoreScanner(appContext), libraryStore,
+            libraryQuery, metadataScraper,
         )
     }
 
