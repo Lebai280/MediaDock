@@ -1,21 +1,18 @@
 package com.lovelev.mediadock.data.local
 
 import androidx.room.Dao
-import androidx.room.Entity
-import androidx.room.Insert
-import androidx.room.OnConflictStrategy
-import androidx.room.PrimaryKey
+import androidx.room.DatabaseView
 import androidx.room.Query
 import kotlinx.coroutines.flow.Flow
 
 /**
- * 播放进度。**刻意单独一张表，不挂在 [MediaItemEntity] 上** ——
- * 每次扫描都是「整表替换」，进度要是写在媒体条目里，每扫一次全丢。
- * 另外从浏览页直接播放、没进过媒体库的文件也有进度，挂在媒体条目上根本存不下。
+ * 播放进度 —— **v9 起是只读兼容 VIEW**：按内容（电影/分集/多集文件）存的进度
+ * 投影回文件 path，现有海报墙、播放历史按 path 读的逻辑不变。
+ * 写入走 [MediaLibraryWriteDao]。
  */
-@Entity(tableName = "playback_progress")
+@DatabaseView(viewName = "playback_progress", value = ViewSql.PLAYBACK_PROGRESS)
 data class PlaybackProgress(
-    @PrimaryKey val path: String,
+    val path: String,
     val positionMs: Long,
     val durationMs: Long,
     val updatedAt: Long,
@@ -24,14 +21,8 @@ data class PlaybackProgress(
 @Dao
 interface ProgressDao {
 
-    @Insert(onConflict = OnConflictStrategy.REPLACE)
-    suspend fun upsert(progress: PlaybackProgress)
-
     @Query("SELECT * FROM playback_progress WHERE path = :path")
     suspend fun find(path: String): PlaybackProgress?
-
-    @Query("DELETE FROM playback_progress WHERE path = :path")
-    suspend fun remove(path: String)
 
     /** 海报墙用：一次拿全，界面自己拼成 map。 */
     @Query("SELECT * FROM playback_progress")

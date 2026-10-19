@@ -16,3 +16,5 @@ dependencyResolutionManagement {
 
 rootProject.name = "MediaDock"
 include(":app")
+include(":core:model")
+include(":core:database")

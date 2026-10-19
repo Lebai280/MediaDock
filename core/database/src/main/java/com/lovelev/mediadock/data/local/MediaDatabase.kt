@@ -8,28 +8,42 @@ import androidx.sqlite.db.SupportSQLiteDatabase
 /**
  * 库表结构版本。
  *
- * **加表/加列要写真迁移，而且必须进 [MIGRATIONS] 数组**（容器整批注册，见 AppContainer）。
- * `media_items` 是缓存（丢了重扫就行），但 `playback_progress`、`favorites`、
- * `title_overrides`、`title_details` 都是用户数据，丢一次就是真的丢了。
+ * **v9 一次性切到 UUID 身份 + 多集/版本模型**：旧表改名为 `*_legacy` 保留，
+ * 旧 UI 读的 `media_items` 等改为兼容 VIEW；写路径全部落到新表。
  *
- * **升级方向的破坏性回退已经去掉**（AppContainer 只留了 `OnDowngrade`）：
- * 漏写迁移的后果现在是「打开库时抛异常」，而不是「静默清库」。
- * 动 `media_items`（缓存）结构时，写一条显式的命名迁移（里面可以 DROP TABLE 再建），
- * 别指望回退 —— 回退一旦生效，用户数据也跟着一起没。
- *
- * 版本号是**单一来源** [VERSION]，`@Database` 与 [MigrationCoverageTest] 都用它 ——
- * 改了版本却没补迁移，单测会红。
+ * 加表/加列仍必须写真迁移，并放进 [MIGRATIONS]；版本号单一来源 [VERSION]。
+ * 升级方向的破坏性回退**绝不启用**（AppContainer 只留降级回退）。
  */
 @Database(
     entities = [
+        SourceEntity::class,
+        MediaFileEntity::class,
+        WorkEntity::class,
+        EpisodeEntity::class,
+        MovieVersionEntity::class,
+        EpisodeVersionEntity::class,
+        FileSegmentEntity::class,
+        MovieProgressEntity::class,
+        EpisodeProgressEntity::class,
+        FileProgressEntity::class,
+        FavoriteEntity::class,
+        Playlist::class,
+        PlaylistItemEntity::class,
+        TitleOverrideEntity::class,
+        WorkDetailEntity::class,
+        ContentTombstoneEntity::class,
+        SubtitleEntity::class,
+        ProviderHealthEntity::class,
+        ScrapeTaskEntity::class,
+        EpisodeMeta::class,
+    ],
+    views = [
         MediaItemEntity::class,
         PlaybackProgress::class,
         Favorite::class,
+        PlaylistItem::class,
         TitleOverride::class,
         TitleDetail::class,
-        EpisodeMeta::class,
-        Playlist::class,
-        PlaylistItem::class,
     ],
     version = MediaDatabase.VERSION,
     exportSchema = true,
@@ -42,10 +56,11 @@ abstract class MediaDatabase : RoomDatabase() {
     abstract fun titleDetailDao(): TitleDetailDao
     abstract fun episodeMetaDao(): EpisodeMetaDao
     abstract fun playlistDao(): PlaylistDao
+    abstract fun writeDao(): MediaLibraryWriteDao
 
     companion object {
         /** 当前库表版本。**单一来源**：`@Database` 与迁移覆盖单测都读它。 */
-        const val VERSION = 8
+        const val VERSION = 9
 
         /** v3 → v4：加收藏表。纯新增，不动既有数据。 */
         val MIGRATION_3_4 = object : Migration(3, 4) {
@@ -101,9 +116,7 @@ abstract class MediaDatabase : RoomDatabase() {
             }
         }
 
-        /**
-         * v7 → v8：新增用户片单与片单条目表。纯新增。
-         */
+        /** v7 → v8：新增用户片单与片单条目表。纯新增。 */
         val MIGRATION_7_8 = object : Migration(7, 8) {
             override fun migrate(db: SupportSQLiteDatabase) {
                 db.execSQL(
@@ -121,13 +134,17 @@ abstract class MediaDatabase : RoomDatabase() {
         }
 
         /**
-         * **所有迁移都放这个数组里，容器整批注册** ——
-         * 之前把迁移分开写、容器只注册了其中一个，结果升级走了 destructive 回退，
-         * 把库和进度一起清了。加新迁移时只改这里，容器会自动带上。
+         * v8 → v9：身份与多集模型切换。实现与校验在 [MigrationV8ToV9]，
+         * 这里只挂到迁移链上。
+         */
+        val MIGRATION_8_9: Migration = MigrationV8ToV9.build()
+
+        /**
+         * **所有迁移都放这个数组里，容器整批注册**。
          * 注意数组要放在各迁移定义**之后**（companion 是顺序初始化的）。
          */
         val MIGRATIONS = arrayOf(
-            MIGRATION_3_4, MIGRATION_4_5, MIGRATION_5_6, MIGRATION_6_7, MIGRATION_7_8,
+            MIGRATION_3_4, MIGRATION_4_5, MIGRATION_5_6, MIGRATION_6_7, MIGRATION_7_8, MIGRATION_8_9,
         )
     }
 }

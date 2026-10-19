@@ -2,16 +2,21 @@ package com.lovelev.mediadock.data.repo
 
 import androidx.room.withTransaction
 import com.lovelev.mediadock.data.local.MediaDatabase
+import com.lovelev.mediadock.data.local.MediaLibraryStore
 import com.lovelev.mediadock.data.local.PlaybackProgress
 import kotlinx.coroutines.flow.Flow
 
 /**
  * 播放进度：记到哪、从哪续、海报墙上的那条进度条。
  *
- * 写入是**节流**的（见 [PlaybackService][com.lovelev.mediadock.player.PlaybackService]
- * 里的 5 秒计时器 + 暂停时补一次），不是每一帧都写库。
+ * v9 起写入按内容身份落表（电影/分集/多集文件），读取仍走 `playback_progress`
+ * 兼容 VIEW，按 path 的接口不变。
+ * 写入是**节流**的（见 PlaybackService 里的 5 秒计时器 + 暂停时补一次）。
  */
-class ProgressRepository(private val db: MediaDatabase) {
+class ProgressRepository(
+    private val db: MediaDatabase,
+    private val store: MediaLibraryStore,
+) {
 
     fun observeAll(): Flow<List<PlaybackProgress>> = db.progressDao().observeAll()
 
@@ -22,16 +27,17 @@ class ProgressRepository(private val db: MediaDatabase) {
 
     suspend fun save(path: String, positionMs: Long, durationMs: Long) {
         if (durationMs <= 0L) return
-        db.withTransaction {
-            db.progressDao().upsert(
-                PlaybackProgress(
-                    path = path,
-                    positionMs = positionMs.coerceIn(0L, durationMs),
-                    durationMs = durationMs,
-                    updatedAt = System.currentTimeMillis(),
-                ),
-            )
-        }
+        val identity = identityOf(path)
+        store.saveProgress(
+            path = path,
+            title = identity.title,
+            year = identity.year,
+            season = identity.season,
+            episode = identity.episode,
+            positionMs = positionMs,
+            durationMs = durationMs,
+            updatedAt = System.currentTimeMillis(),
+        )
     }
 
     /**
@@ -53,7 +59,7 @@ class ProgressRepository(private val db: MediaDatabase) {
 
     /** 标记为未看：删掉这一条进度。 */
     suspend fun clear(path: String) {
-        db.withTransaction { db.progressDao().remove(path) }
+        db.withTransaction { store.clearProgress(path) }
     }
 
     private companion object {

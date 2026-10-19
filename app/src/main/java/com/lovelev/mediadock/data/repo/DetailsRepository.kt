@@ -3,6 +3,7 @@ package com.lovelev.mediadock.data.repo
 import com.lovelev.mediadock.data.local.EpisodeMeta
 import com.lovelev.mediadock.data.local.MediaDatabase
 import com.lovelev.mediadock.data.local.MediaItemEntity
+import com.lovelev.mediadock.data.local.MediaLibraryStore
 import com.lovelev.mediadock.data.local.TitleDetail
 import com.lovelev.mediadock.data.prefs.SecureCredentialStore
 import com.lovelev.mediadock.data.tmdb.CastMember
@@ -53,6 +54,7 @@ class DetailsRepository(
     private val db: MediaDatabase,
     private val tmdb: TmdbClient,
     private val credentials: SecureCredentialStore,
+    private val store: MediaLibraryStore,
 ) {
 
     private val json = Json { ignoreUnknownKeys = true }
@@ -161,19 +163,17 @@ class DetailsRepository(
     /** 拉一次并落库。凭据 / 网络问题**抛出去** —— 批量补齐要靠它决定中止还是跳过。 */
     private suspend fun fetchAndStore(path: String, tmdbId: Int, isTv: Boolean, secret: TmdbSecret) {
         val details = tmdb.fetchDetails(tmdbId, isTv, secret) ?: throw TmdbException("这一条没查到详情")
-        db.titleDetailDao().upsert(
-            TitleDetail(
-                path = path,
-                tmdbId = tmdbId,
-                releaseDate = details.releaseDate,
-                runtimeMinutes = details.runtimeMinutes,
-                genres = details.genres.joinToString(","),
-                country = details.country,
-                castJson = json.encodeToString(details.cast),
-                fetchedAt = System.currentTimeMillis(),
-                totalEpisodes = details.totalEpisodes,
-                totalSeasons = details.totalSeasons,
-            ),
+        store.saveDetails(
+            path = path,
+            tmdbId = tmdbId,
+            releaseDate = details.releaseDate,
+            runtimeMinutes = details.runtimeMinutes,
+            genres = details.genres.joinToString(","),
+            country = details.country,
+            castJson = json.encodeToString(details.cast),
+            totalEpisodes = details.totalEpisodes,
+            totalSeasons = details.totalSeasons,
+            fetchedAt = System.currentTimeMillis(),
         )
     }
 

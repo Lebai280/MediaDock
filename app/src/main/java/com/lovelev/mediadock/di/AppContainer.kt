@@ -4,6 +4,7 @@ import android.content.Context
 import androidx.room.Room
 import com.lovelev.mediadock.data.local.MediaStoreScanner
 import com.lovelev.mediadock.data.local.LocalScanner
+import com.lovelev.mediadock.data.local.MigrationGuard
 import com.lovelev.mediadock.data.local.MediaDatabase
 import com.lovelev.mediadock.data.prefs.SecureCredentialStore
 import com.lovelev.mediadock.data.repo.FavoriteRepository
@@ -74,38 +75,56 @@ class AppContainer(context: Context) {
     val detailSelection: DetailSelection = DetailSelection()
 
     val database: MediaDatabase by lazy {
-        Room.databaseBuilder(appContext, MediaDatabase::class.java, "library.db")
+        // B6：v8→v9 前先自动备份（含 WAL 检查点），状态写入 filesDir/migration/v9_state.json。
+        val guard = MigrationGuard(appContext)
+        guard.prepareIfNeeded(MediaDatabase.VERSION)
+        val db = Room.databaseBuilder(appContext, MediaDatabase::class.java, "library.db")
             // 纯新增表走真迁移 —— 进度/收藏/改名都是用户数据，不能丢。
             // 迁移清单在 MediaDatabase.MIGRATIONS 里，这里整批注册，避免逐项遗漏。
             .addMigrations(*MediaDatabase.MIGRATIONS)
             // **升级方向不留破坏性回退**：缺迁移就让 Room 抛异常（响亮），绝不静默清库。
-            // 之前用 fallbackToDestructiveMigration() 时，漏写/漏注册一条迁移的后果是
-            // 「库、进度、收藏全被清掉，而编译、单测、启动全都正常」—— 吃过一次亏。
             // 只有「降级」（手动装了旧版 APK）才允许破坏重建：那是人工动作，
-            // 而且旧代码本来也读不懂新结构。dropAllTables = false = **只丢结构变了的表**，
-            // 进度 / 收藏这些结构没变的表的数据能留下。
-            // 动 media_items（缓存）结构时，请写成显式的命名迁移（可以 DROP TABLE 再建），
-            // 而不是指望回退 —— 回退一开，用户数据也跟着一起没。
+            // 而且旧代码本来也读不懂新结构。dropAllTables = false = **只丢结构变了的表**。
             .fallbackToDestructiveMigrationOnDowngrade(dropAllTables = false)
             .build()
+        // 立即打开：迁移失败时在这里恢复备份，而不是等某次查询把异常抛到某个协程里。
+        runCatching { db.openHelper.writableDatabase }
+            .onSuccess {
+                guard.markSuccess(MediaDatabase.VERSION)
+                if (com.lovelev.mediadock.BuildConfig.DEBUG) {
+                    com.lovelev.mediadock.data.local.ShadowCompare.run(db)
+                }
+            }
+            .onFailure {
+                guard.restoreLatest()
+                throw it
+            }
+        db
+    }
+
+    /** v9 路径 API → UUID/内容模型的写适配层，所有仓库共用。 */
+    val libraryStore: com.lovelev.mediadock.data.local.MediaLibraryStore by lazy {
+        com.lovelev.mediadock.data.local.MediaLibraryStore(database)
     }
 
     val library: LibraryRepository by lazy {
         LibraryRepository(
             database, webDavClient, tmdbClient, credentials,
-            LocalScanner(appContext), MediaStoreScanner(appContext),
+            LocalScanner(appContext), MediaStoreScanner(appContext), libraryStore,
         )
     }
 
-    val progress: ProgressRepository by lazy { ProgressRepository(database) }
+    val progress: ProgressRepository by lazy { ProgressRepository(database, libraryStore) }
 
-    val favorites: FavoriteRepository by lazy { FavoriteRepository(database) }
+    val favorites: FavoriteRepository by lazy { FavoriteRepository(database, libraryStore) }
 
     /** 用户片单。 */
-    val playlists: PlaylistRepository by lazy { PlaylistRepository(database) }
+    val playlists: PlaylistRepository by lazy { PlaylistRepository(database, libraryStore) }
 
     /** 详情页的补充信息（类型/国家/时长/演职人员），打开详情页时才拉。 */
-    val details: DetailsRepository by lazy { DetailsRepository(database, tmdbClient, credentials) }
+    val details: DetailsRepository by lazy {
+        DetailsRepository(database, tmdbClient, credentials, libraryStore)
+    }
 
     /** 在线版本检查：GET 站点上的 `mediadock/version.json`（见 UpdateChecker.UPDATE_URL）。 */
     val updateChecker: UpdateChecker = UpdateChecker(okHttpClient)

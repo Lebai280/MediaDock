@@ -12,6 +12,8 @@ import com.lovelev.mediadock.data.MediaTypes
 import com.lovelev.mediadock.data.local.MediaDatabase
 import com.lovelev.mediadock.data.local.MediaDao
 import com.lovelev.mediadock.data.local.MediaItemEntity
+import com.lovelev.mediadock.data.local.MediaLibraryStore
+import com.lovelev.mediadock.core.model.SourceId
 import com.lovelev.mediadock.data.local.TitleDetail
 import com.lovelev.mediadock.data.local.TitleOverride
 import com.lovelev.mediadock.data.local.ScrapeStatus
@@ -85,6 +87,7 @@ class LibraryRepository(
     private val credentials: SecureCredentialStore,
     private val localScanner: LocalScanner,
     private val mediaStoreScanner: MediaStoreScanner,
+    private val store: MediaLibraryStore,
 ) {
 
     /** 应用作用域：扫描不跟着页面走，退出媒体库页/旋屏都不会把它打断。 */
@@ -137,13 +140,7 @@ class LibraryRepository(
     /** 整部剧一起改：所有集的覆盖都写同一份，重新刮削时用同一检索词。 */
     suspend fun saveOverride(paths: List<String>, title: String, year: Int?) {
         if (paths.isEmpty()) return
-        if (title.isBlank()) {
-            paths.forEach { db.titleOverrideDao().remove(it) }
-        } else {
-            paths.forEach {
-                db.titleOverrideDao().upsert(TitleOverride(path = it, title = title.trim(), year = year))
-            }
-        }
+        store.saveOverride(paths, title, year)
     }
 
     /** 手动匹配的候选：剧集走 tv，电影走 movie。 */
@@ -164,27 +161,24 @@ class LibraryRepository(
     suspend fun applyMatch(paths: List<String>, match: TmdbMatch) {
         if (paths.isEmpty()) return
         val now = System.currentTimeMillis()
-        db.withTransaction {
-            val dao = db.mediaDao()
-            val details = db.titleDetailDao()
-            val overrides = db.titleOverrideDao()
-            for (path in paths) {
-                dao.markScraped(
-                    path = path,
-                    state = ScrapeStatus.MATCHED,
-                    tmdbId = match.tmdbId,
-                    posterPath = match.posterPath,
-                    backdropPath = match.backdropPath,
-                    overview = match.overview,
-                    rating = match.rating,
-                    scrapedAt = now,
-                )
-                match.title?.takeIf { it.isNotBlank() }?.let {
-                    overrides.upsert(TitleOverride(path = path, title = it, year = match.year))
-                }
-            }
-            details.deleteAll(paths)
+        paths.forEach { path ->
+            store.applyScrape(
+                path = path,
+                tmdbId = match.tmdbId,
+                title = match.title,
+                year = match.year,
+                posterPath = match.posterPath,
+                backdropPath = match.backdropPath,
+                overview = match.overview,
+                rating = match.rating,
+                matched = true,
+                scrapedAt = now,
+            )
         }
+        match.title?.takeIf { it.isNotBlank() }?.let { title ->
+            store.saveOverride(paths, title, match.year)
+        }
+        store.deleteDetails(paths)
     }
 
     /** 用覆盖后的片名重刮整部剧；成功后把同一匹配应用到所有集。 */
@@ -219,14 +213,16 @@ class LibraryRepository(
             ?: return "还没填写 TMDB 凭据"
         return try {
             val match = scrapeItem(item, secret)
-            dao.markScraped(
+            store.applyScrape(
                 path = path,
-                state = if (match != null) ScrapeStatus.MATCHED else ScrapeStatus.FAILED,
                 tmdbId = match?.tmdbId,
+                title = match?.title,
+                year = match?.year,
                 posterPath = match?.posterPath,
                 backdropPath = match?.backdropPath,
                 overview = match?.overview,
                 rating = match?.rating,
+                matched = match != null,
                 scrapedAt = System.currentTimeMillis(),
             )
             if (match == null) "没匹配到，可以试试「修改信息」换个片名" else null
@@ -261,7 +257,7 @@ class LibraryRepository(
 
             _scan.value = ScanState.Running(directories = 0, files = 0)
 
-            val found = ArrayList<MediaItemEntity>()
+            val found = ArrayList<MediaLibraryStore.ScannedFile>()
             val queued = HashSet<String>().apply { add("") }
             val queue = ArrayDeque<String>().apply { add("") }
             var directories = 0
@@ -294,7 +290,7 @@ class LibraryRepository(
                                 queue.add(entry.path)
                             }
                         } else if (MediaTypes.isVideoFile(entry.name) && found.size < MAX_FILES) {
-                            found += entry.toEntity()
+                            found += entry.toScannedFile()
                         }
                     }
                     _scan.value = ScanState.Running(directories, found.size)
@@ -305,14 +301,7 @@ class LibraryRepository(
                 // 被取消：**不写库**，保留上一次的完整结果（否则会把半份结果当成扫描结果落库）
                 if (!isActive) return@launch
 
-                db.withTransaction {
-                    val dao = db.mediaDao()
-                    // 先接住上一次的刮削结果，再整批替换 —— 否则每次重扫都要重刮全库
-                    val merged = dao.keepScraped(found)
-                    // **不是 deleteAll**：库里还有本地媒体那两半，一起删会把它们扫掉
-                    dao.deleteWebDavItems(LocalMedia.SAF_LIKE, LocalMedia.CONTENT_LIKE)
-                    dao.insertAll(merged)
-                }
+                store.replaceScannedFiles(SourceId.WEBDAV, found)
                 _scan.value = ScanState.Done(files = found.size, truncated = truncated)
                 triggerAutoScrape()
             } catch (e: WebDavException) {
@@ -328,7 +317,7 @@ class LibraryRepository(
      * 解析片名是在**扫描时**顺手做的：纯本地计算、不花请求，
      * 而且海报墙立刻就有像样的标题可显示（刮削不上的也不至于显示成整串文件名）。
      */
-    private fun WebDavEntry.toEntity(): MediaItemEntity {
+    private fun WebDavEntry.toScannedFile(): MediaLibraryStore.ScannedFile {
         val folderName = path.substringBeforeLast('/', "").substringAfterLast('/')
         // 季目录里的 29.xxx 这种「序号前缀」只有在知道自己位于 S01/S02 下时才能当集数
         val seasonFromPath = TitleParser.seasonOfPath(path)
@@ -337,45 +326,18 @@ class LibraryRepository(
             folderName = folderName,
             inSeasonDir = seasonFromPath != null,
         )
-        return MediaItemEntity(
+        return MediaLibraryStore.ScannedFile(
             path = path,
             name = name,
             sizeBytes = size,
-            lastModified = lastModified,
-            parsedTitle = parsed.title,
+            mtime = lastModified,
+            title = parsed.title,
             year = parsed.year,
             // 文件名只给集数时，季号往往在上层目录（S01 / Season 1 / 第1季）——
             // 不补的话 S01/S02 的同集号会互相覆盖排序
             season = parsed.season ?: seasonFromPath,
             episode = parsed.episode,
         )
-    }
-
-    /**
-     * 扫描是整批替换，但**刮削结果必须留下来**：
-     * 每次加几集就重刮全库，既慢又白烧 TMDB 配额（用户明确反馈过）。
-     * 按 path 把上一次的 MATCHED / FAILED 结果接回去；文件大小变了说明文件被换过，
-     * 旧匹配不再可信，就让它重新刮。
-     */
-    private suspend fun MediaDao.keepScraped(fresh: List<MediaItemEntity>): List<MediaItemEntity> {
-        val previous = allItems().associateBy { it.path }
-        return fresh.map { item ->
-            val old = previous[item.path] ?: return@map item
-            val sameFile = old.sizeBytes == null || item.sizeBytes == null || old.sizeBytes == item.sizeBytes
-            if (sameFile && old.scrapeState != ScrapeStatus.UNSCRAPED) {
-                item.copy(
-                    scrapeState = old.scrapeState,
-                    tmdbId = old.tmdbId,
-                    posterPath = old.posterPath,
-                    backdropPath = old.backdropPath,
-                    overview = old.overview,
-                    rating = old.rating,
-                    scrapedAt = old.scrapedAt,
-                )
-            } else {
-                item
-            }
-        }
     }
 
     // ---------------------------------------------------------------- 本地媒体
@@ -411,13 +373,12 @@ class LibraryRepository(
                 return@launch
             }
 
-            val entities = outcome.files.map { it.toEntity() }
-            db.withTransaction {
-                val dao = db.mediaDao()
-                val merged = dao.keepScraped(entities)
-                dao.deleteLocalItems(LocalMedia.SAF_LIKE, LocalMedia.CONTENT_LIKE)
-                dao.insertAll(merged)
-            }
+            val entities = outcome.files.map { it.toScannedFile() }
+            store.replaceScannedFiles(
+                SourceId.LOCAL,
+                entities,
+                missingPrefix = LocalMedia.SAF_PREFIX,
+            )
             _scan.value = ScanState.Done(files = entities.size, truncated = outcome.truncated)
             triggerAutoScrape()
         }
@@ -448,13 +409,12 @@ class LibraryRepository(
                 return@launch
             }
 
-            val entities = outcome.files.map { it.toEntity() }
-            db.withTransaction {
-                val dao = db.mediaDao()
-                val merged = dao.keepScraped(entities)
-                dao.deleteLocalItems(LocalMedia.SAF_LIKE, LocalMedia.CONTENT_LIKE)
-                dao.insertAll(merged)
-            }
+            val entities = outcome.files.map { it.toScannedFile() }
+            store.replaceScannedFiles(
+                SourceId.LOCAL,
+                entities,
+                missingPrefix = LocalMedia.CONTENT_SCHEME,
+            )
             _scan.value = ScanState.Done(files = entities.size, truncated = outcome.truncated)
             triggerAutoScrape()
         }
@@ -465,11 +425,12 @@ class LibraryRepository(
      * 这个只用在「移除本地文件夹」上 —— WebDAV 那边一根汗毛都不动。
      */
     suspend fun clearLocalItems() {
-        db.mediaDao().deleteLocalItems(LocalMedia.SAF_LIKE, LocalMedia.CONTENT_LIKE)
+        store.replaceScannedFiles(SourceId.LOCAL, emptyList(), LocalMedia.SAF_PREFIX)
+        store.replaceScannedFiles(SourceId.LOCAL, emptyList(), LocalMedia.CONTENT_SCHEME)
     }
 
     /** 和 WebDAV 条目走同一个解析器 —— 所以本地文件扫进来也有像样的片名和海报墙。 */
-    private fun LocalFile.toEntity(): MediaItemEntity {
+    private fun LocalFile.toScannedFile(): MediaLibraryStore.ScannedFile {
         val storedPath = LocalMedia.toStoredPath(key)
         val seasonFromPath = TitleParser.seasonOfPath(storedPath)
         val parsed = TitleParser.parse(
@@ -477,14 +438,13 @@ class LibraryRepository(
             folderName = folderName,
             inSeasonDir = seasonFromPath != null,
         )
-        return MediaItemEntity(
+        return MediaLibraryStore.ScannedFile(
             path = storedPath,
             name = name,
             sizeBytes = sizeBytes,
-            // 实体里这列是 String?（WebDAV 那边存的是 RFC1123 字符串）。
-            // 本地拿到的是毫秒数，直接转字符串 —— 这列目前不用来比较，只当元信息存着。
-            lastModified = lastModified.toString(),
-            parsedTitle = parsed.title,
+            // WebDAV 那边存的是 RFC1123 字符串；本地是毫秒数，转字符串只当元信息。
+            mtime = lastModified.toString(),
+            title = parsed.title,
             year = parsed.year,
             // 文件名只给集数时，季号往往在上层目录（S01 / Season 1 / 第1季）——
             // 不补的话 S01/S02 的同集号会互相覆盖排序
@@ -561,14 +521,16 @@ class LibraryRepository(
                         }.awaitAll()
                     }
                     for ((path, match) in results) {
-                        dao.markScraped(
+                        store.applyScrape(
                             path = path,
-                            state = if (match != null) ScrapeStatus.MATCHED else ScrapeStatus.FAILED,
                             tmdbId = match?.tmdbId,
+                            title = match?.title,
+                            year = match?.year,
                             posterPath = match?.posterPath,
                             backdropPath = match?.backdropPath,
                             overview = match?.overview,
                             rating = match?.rating,
+                            matched = match != null,
                             scrapedAt = System.currentTimeMillis(),
                         )
                         if (match != null) matched++ else failed++
@@ -639,7 +601,7 @@ class LibraryRepository(
      */
     suspend fun clearLibrary() {
         cancelAll() // 避免扫描或刮削期间执行清理
-        db.withTransaction { db.mediaDao().deleteAll() }
+        store.clearLibrary()
     }
 
     private fun depth(path: String): Int =

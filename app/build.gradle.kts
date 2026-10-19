@@ -17,7 +17,6 @@ plugins {
     // 少了它 @Serializable 不会生成 serializer，编译照样过，一跑就崩在
     // "Serializer for class 'SearchResponse' is not found"。
     alias(libs.plugins.kotlin.serialization)
-    alias(libs.plugins.ksp)
 }
 
 android {
@@ -31,8 +30,8 @@ android {
         applicationId = "com.lovelev.mediadock"
         minSdk = 26
         targetSdk = 36
-        versionCode = 20
-        versionName = "0.5.7"
+        versionCode = 21
+        versionName = "0.6.0"
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
     }
 
@@ -52,8 +51,13 @@ android {
     buildTypes {
         debug {
             // 与正式签名包并存，避免 instrumentation 测试覆盖真机上的 release 安装。
-            applicationIdSuffix = ".debug"
+            // -PverifySamePackage 时用正式包名 + 正式签名构建可调试包，仅用于只读核对真机库。
+            val verifySamePackage = project.hasProperty("verifySamePackage")
+            applicationIdSuffix = if (verifySamePackage) "" else ".debug"
             versionNameSuffix = "-debug"
+            if (verifySamePackage && hasReleaseKey) {
+                signingConfig = signingConfigs.getByName("release")
+            }
         }
         release {
             if (hasReleaseKey) signingConfig = signingConfigs.getByName("release")
@@ -85,11 +89,6 @@ kotlin {
     }
 }
 
-ksp {
-    // Room schema 导出：v8→v9 迁移测试与评审的基线。
-    arg("room.schemaLocation", "$projectDir/schemas")
-}
-
 dependencies {
     implementation(libs.androidx.core.ktx)
     implementation(libs.androidx.activity.compose)
@@ -113,10 +112,8 @@ dependencies {
     implementation(libs.media3.session)
     implementation(libs.media3.datasource.okhttp)
 
-    implementation(libs.room.runtime)
-    implementation(libs.room.ktx)
-    ksp(libs.room.compiler)
-    kspAndroidTest(libs.room.compiler)
+    implementation(project(":core:model"))
+    implementation(project(":core:database"))
 
     implementation(libs.okhttp)
     implementation(libs.coil.compose)

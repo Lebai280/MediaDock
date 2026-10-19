@@ -1040,6 +1040,7 @@ data class LibraryFilter(
 | ADR-024 | 中文搜索用 FTS4 + `search_text` | 目标机不支持 FTS5 trigram；FTS4 p95 3.44 ms | 查询构造需把 CJK 转为空格短语；索引随标题/演员重建 |
 | ADR-025 | SMB 用 SMBJ；DLNA 自研 SSDP/SOAP + 本地 HTTP 代理 | jUPnP Android 模块缺 Jetty；SMBJ Apache 2.0；DLNA 不依赖 GMS | 需自建代理与 SOAP；只在可信 LAN 使用 |
 | ADR-026 | FFmpeg 视频软解暂不引入；HDR 承诺 HDR10/HLG/HDR10+，不承诺 DV | 官方 Media3 扩展仅音频；nextlib 为 GPL-3.0 且 +7.5 MiB/arm64；S21 无 DV 解码器；TrueHD/DTS 无解码器 | 若需覆盖 RMVB 等格式，需自建 LGPL 视频解码器或接受 GPL；UI 必须提示无解码器 |
+| ADR-027 | 项目接受开源（GPL-3.0 兼容）；Phase 3 可使用 nextlib 等 GPL FFmpeg | 用户 2026-10-18 明确接受开源，解除 ADR-026 的许可证封锁 | 发布时需提供源码与许可证；HDR/DV 承诺仍按 ADR-026，不因开源改变 |
 
 > 新增决策时在表格末尾追加，并在 WORKLOG 记录背景与影响。
 
@@ -1570,6 +1571,28 @@ DB 约 5.7 MB。**选定 FTS4 + `search_text`**，详见 WORKLOG 与 ADR-024。
 - 结论：**FFmpeg 视频软解后置**（ADR-026）；HDR 承诺 HDR10/HLG/HDR10+，不承诺 DV；
   Atmos 仅记为“设备声明支持”，不承诺直通；TrueHD/DTS 需在播放页提示无解码器。
 
+**0a 实施结果（2026-10-19）**：
+
+- **模块**：新增纯 Kotlin `:core:model`（SourceId / LogicalKey / LogicalKeyCodec /
+  normalizeRemoteKey / 确定性 UUID）与 `:core:database`（Room 实体、DAO、迁移、写适配层）；
+  app 依赖两者，包名不变，UI 与仓库结构未重构。
+- **schema**：v9 建立 `sources`、`media_files`、`works`、`episodes`、`movie_versions`、
+  `episode_versions`、`file_segments`、`movie/episode/file_progress`、`favorites`、
+  `playlists`（含 user_id）、`playlist_items`、`title_overrides`、`work_details`、
+  `content_tombstones`、`subtitles`、`provider_health`、`scrape_tasks`、`media_fts`（FTS4）。
+  旧表改名为 `*_legacy` 保留。
+- **兼容 VIEW**：`media_items`、`playback_progress`、`favorites_view`、`playlist_items_view`、
+  `title_overrides_view`、`title_details`；旧 DAO 读查询不变，写路径全部改新表
+  （`MediaLibraryStore`）。
+- **迁移守卫**：升级前备份到 `filesDir/migration/`（含 WAL 检查点）、写 `v9_state.json`；
+  迁移失败时恢复最近备份；debug 构建启动后执行 shadow compare。
+- **验证**：真机 SM-G998U1 由 0.5.7 覆盖升级 —— `media_items_legacy` 280 行 →
+  `media_files` 280、`works` 127、`episodes` 139；「葬送的芙莉莲」38 集（S1–S2）；
+  shadow compare 280 行 **0 差异**；`MigrationV8ToV9Test`（含回滚演练）与
+  `MediaLibraryStoreTest`（扫描/收藏/片单/进度/改名/详情/刮削合并）全部通过。
+  升级前用户数据表中收藏/片单/进度/改名为空，迁移后仍为空。
+- **延后项**：SAF 用户可见备份导出、字幕文件索引、genres/people/cast 规范化；
+  这些不影响 0a 的读写兼容，列入 Phase 1/2。
 
 ### 15.10 启动门槛
 
@@ -1577,8 +1600,8 @@ DB 约 5.7 MB。**选定 FTS4 + `search_text`**，详见 WORKLOG 与 ADR-024。
 2. 按 15.2–15.7 修订 schema 与迁移计划，冻结 v9 设计。
 3. S1–S4 已完成（2026-10-18），结果见 15.9 与 ADR-024–026。
 4. 确认 SLO/DoD/CI 门禁。
-5. 开始 0a：只做数据层 + 兼容 VIEW，不混重构。
-6. 0a 真机验证通过后，进入 0b / Phase 1。
+5. 0a 已完成（2026-10-19）：数据层 + 兼容 VIEW，真机迁移与回滚演练通过。
+6. 下一步：0b（网络/数据模块骨架）或 Phase 1（增量扫描与持久刮削）。
 
 ### 15.11 仍需确认
 

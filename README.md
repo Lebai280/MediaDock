@@ -36,6 +36,15 @@ E:/code/tools/android-sdk/platform-tools/adb.exe install -r \
 
 > debug 构建的包名为 `com.lovelev.mediadock.debug`，release 仍为 `com.lovelev.mediadock`；
 > instrumentation 测试不会覆盖真机上的 release 安装。
+>
+> 只读核对真机库时可执行
+> `./gradlew :app:assembleDebug -PverifySamePackage`：生成同包名、正式签名、可调试的包，
+> 安装后可用 `run-as` 导出数据库；该入口仅用于诊断，不用于分发。
+
+## 许可证
+
+本项目采用 GNU General Public License v3.0，全文见 [LICENSE](LICENSE)。
+允许在 GPL-3.0 兼容的前提下引入 GPL 组件（例如 Phase 3 的 FFmpeg 软解）。
 
 ## 本机开发环境
 
@@ -63,7 +72,7 @@ compileSdk 37.2 / targetSdk 36 / minSdk 26
 
 8 个功能阶段（构建链、数据源、浏览、播放、媒体库、TMDB 刮削、播放体验、字幕与设置）已完成，并通过真机逐屏验证；界面按 VidHub 版式与产品配色完成改造。
 
-当前版本 `0.5.7`（versionCode 20），已发布；应用内「设置 → 关于 → 检查更新」可用。
+当前版本 `0.6.0`（versionCode 21）：Phase 0a 数据层切换（v9、兼容 VIEW、真机迁移与回滚演练）。应用内「设置 → 关于 → 检查更新」可用。
 
 > 构建 release 变体需要签名材料：密码配置在 `local.properties`（已 gitignore），密钥库位于仓库之外。缺少签名材料时仅可构建 debug 变体。签名材料丢失后无法继续发布同一应用的更新。
 

@@ -1994,6 +1994,44 @@ APK sha256 `fbdbcc80…4bf8fe`；`version.json` 已指向 0.5.1；真机从 0.5.
 - DV P5/P8 未实测（无片源/设备）；P8 预期回落 HEVC 基础层，P5 预期不可播。
 - S1–S4 全部完成；下一步按 15.10 进入 0a（数据层 + 兼容 VIEW）。
 
+### 2026-10-19 · 0a：v9 数据层、兼容 VIEW 与真机迁移
+
+**背景**：0a 只切数据层：把用户数据从 path 迁到 UUID/内容模型，旧 UI 读路径保持不变，
+并满足「真迁移、零丢失、可回滚」。
+
+**变更**：
+- 新增 `:core:model`（SourceId / LogicalKey / LogicalKeyCodec / normalizeRemoteKey /
+  确定性 UUID）与 `:core:database`（Room 实体/DAO/迁移/`MediaLibraryStore`）。
+- v9 schema：sources / media_files / works / episodes / movie_versions / episode_versions /
+  file_segments / 三类 progress / favorites / playlists（user_id）/ playlist_items /
+  title_overrides / work_details / content_tombstones / subtitles / provider_health /
+  scrape_tasks / media_fts（FTS4）。旧表改名 `*_legacy` 保留到 v10。
+- 兼容 VIEW：`media_items`、`playback_progress`、`favorites_view`、`playlist_items_view`、
+  `title_overrides_view`、`title_details`；旧 DAO 只读不变，写路径统一走新表。
+- `MigrationGuard`：升级前 WAL 检查点 + 备份到 `filesDir/migration/`，写 `v9_state.json`；
+  迁移失败恢复最近备份。debug 启动执行 `ShadowCompare`。
+- 新增 `MigrationV8ToV9Test`（脱敏 fixture + 逐列 VIEW 校验 + 回滚演练）与
+  `MediaLibraryStoreTest`（扫描/收藏/片单/进度/改名/详情/刮削合并/清库）。
+
+**验证（SM-G998U1 / Android 15，0.5.7 → 本版覆盖安装）**：
+- `media_items_legacy` 280 行 → `media_files` 280、`works` 127、`episodes` 139、
+  `movie_versions` 126 + `episode_versions` 154 = 280。
+- 「葬送的芙莉莲」38 集，季 1–2；详情页显示「共 22 集（库中 11 集）」等原有信息正常。
+- ShadowCompare：**比对 280 行，差异 0 处**。
+- 迁移前用户表（收藏/片单/进度/改名）为空，迁移后仍为空；实测写入收藏与播放进度后，
+  `favorites` / `movie_progress` 与兼容 VIEW 同步；测试写入已清理。
+- `MigrationV8ToV9Test`、`MediaLibraryStoreTest`、S1 兼容 VIEW 测试全部通过；
+  98 条单测与 release 构建通过。
+- 升级备份已生成：`filesDir/migration/library-v8-*.db`。
+
+**备注**：
+- 兼容 VIEW 需要 per-file 的解析标题/年份/季集与 v8 一致，故 `media_files` 增
+  `parsed_*` 与 `legacy_compat`；`scrapedAt` 是作品级派生值，shadow compare 不比它。
+- 延后：SAF 用户可见备份导出、字幕文件索引、genres/people/cast 规范化（Phase 1/2）。
+- 临时校验入口：`./gradlew :app:assembleDebug -PverifySamePackage` 生成同包名可调试包，
+  仅用于只读核对真机库；正常 debug 仍是 `.debug` 包名。
+- 项目接受开源，许可证采用 GPL-3.0（ADR-027）；Phase 3 可引入 GPL FFmpeg。
+
 ---
 
 ## 8. 待办
@@ -2008,7 +2046,10 @@ APK sha256 `fbdbcc80…4bf8fe`；`version.json` 已指向 0.5.1；真机从 0.5.
    真机投屏与 SMB 实网连接待有设备/共享后补验。
 6. **S4**：已完成（2026-10-18）——S21 Ultra 支持 HDR10/HLG/HDR10+，无 DV；TrueHD/DTS 无解码器；
    nextlib 为 GPL-3.0 且 +7.5 MiB/arm64，FFmpeg 视频软解后置（ADR-026）。
-7. **运维记录**：OpenList `movie1`–`movie8` 的 `base_path` 已改为 `/夸克/影视`；
+7. **0a**：已完成（2026-10-19）——v9 数据层 + 兼容 VIEW；真机迁移 280 文件 / 127 作品 / 139 集，
+   shadow compare 0 差异；回滚演练通过。
+8. **下一步**：0b（`:core:network` / `:core:data` 骨架）或 Phase 1（增量扫描、持久刮削、Paging/FTS）。
+9. **运维记录**：OpenList `movie1`–`movie8` 的 `base_path` 已改为 `/夸克/影视`；
    修改数据库后需重启 OpenList 才生效。
 
 ### 8.2 功能路线图（按优先级）

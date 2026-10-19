@@ -1007,9 +1007,10 @@ private fun EpisodeCard(
                     modifier = Modifier.size(20.dp),
                 )
             }
+            val metaRuntime = meta?.runtimeMinutes
             val durationLabel = when {
-                meta?.runtimeMinutes != null && meta.runtimeMinutes > 0 ->
-                    formatClock(meta.runtimeMinutes * 60_000L)
+                metaRuntime != null && metaRuntime > 0 ->
+                    formatClock(metaRuntime * 60_000L)
                 progress != null && progress.durationMs > 0L -> formatClock(progress.durationMs)
                 else -> null
             }
