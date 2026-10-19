@@ -23,6 +23,8 @@ data class WorkCardRow(
     val movieProgress: Double,
     val isFavorite: Int,
     val genres: String?,
+    val country: String?,
+    val releaseDate: String?,
     val paths: String?,
 )
 

@@ -30,8 +30,8 @@ android {
         applicationId = "com.lovelev.mediadock"
         minSdk = 26
         targetSdk = 36
-        versionCode = 25
-        versionName = "0.10.0"
+        versionCode = 26
+        versionName = "0.11.0"
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
     }
 
@@ -51,13 +51,10 @@ android {
     buildTypes {
         debug {
             // 与正式签名包并存，避免 instrumentation 测试覆盖真机上的 release 安装。
-            // -PverifySamePackage 时用正式包名 + 正式签名构建可调试包，仅用于只读核对真机库。
-            val verifySamePackage = project.hasProperty("verifySamePackage")
-            applicationIdSuffix = if (verifySamePackage) "" else ".debug"
+            // **不得**用同包名/正式签名跑 connectedAndroidTest：Gradle 测试结束会卸载该包，
+            // 把真实用户的数据库、DataStore 与 Keystore 凭据一起清空（见 WORKLOG 问题 80）。
+            applicationIdSuffix = ".debug"
             versionNameSuffix = "-debug"
-            if (verifySamePackage && hasReleaseKey) {
-                signingConfig = signingConfigs.getByName("release")
-            }
         }
         release {
             if (hasReleaseKey) signingConfig = signingConfigs.getByName("release")

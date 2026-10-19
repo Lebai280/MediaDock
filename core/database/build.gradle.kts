@@ -44,6 +44,8 @@ dependencies {
     api(libs.room.ktx)
     api(libs.androidx.paging.common)
     api(libs.room.paging)
+    // 搜索索引需要解析 work_details.cast_json（只解析 name）。
+    implementation(libs.kotlinx.serialization.json)
     ksp(libs.room.compiler)
     // S1 的兼容 VIEW 测试在 androidTest 里定义了独立的 Room 库。
     kspAndroidTest(libs.room.compiler)

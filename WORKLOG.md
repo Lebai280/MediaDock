@@ -1703,6 +1703,13 @@ APK sha256 `fbdbcc80…4bf8fe`；`version.json` 已指向 0.5.1；真机从 0.5.
 - **问题 75：`【电影】` 被当成片名**。`TitleParser` 的「方括号中文优先」规则把分类标签也算了进去，
   `【电影】秒速五厘米….mp4` 解析成「电影」。→ 加 `CATEGORY_TAGS` 过滤（电影/动画/纪录片…），
   单测锁住；在线字幕和刮削的预填都会受益。
+- **问题 76（严禁重犯）：`connectedAndroidTest` 会卸载被测包。** 用同包名/正式签名的
+  “verify” 构建跑 connected 测试后，Gradle 在测试结束卸载 `com.lovelev.mediadock`，
+  把真实数据库、DataStore 与 Keystore 凭据一起清空。2026-10-19 已发生一次：
+  用 `-PverifySamePackage` 跑 Compose UI 测试后 App 被卸载。恢复方式：
+  从 `E:	mpts.db`（v11，280 文件/127 作品/139 集）回填数据库，重新填写 WebDAV/
+  TMDB/OpenSubtitles 凭据；播放恢复为 `PLAYING`。**该 verify 入口已删除**；
+  instrumentation 只能跑 `.debug` 包，绝不针对真实包名。
 
 **0.5.4（versionCode 17，2026-10-17）**
 
@@ -2146,6 +2153,36 @@ E1.3 改为直接查询 `works` 的 Paging 3 分页。
 - 搜索页仍是全量内存过滤，E1.4 改为 FTS 分页后移除。
 - 剩余 Phase 1：E1.4 FTS、E1.5 20k 压测。
 
+### 2026-10-19 · Phase 1 E1.4：FTS4 搜索、SQL 筛选与分页
+
+**背景**：搜索页原先全量读取 `media_items`/`title_details` 后在内存过滤，20k 库不可用。
+E1.4 改为 FTS4 + SQL 过滤/排序 + Paging。
+
+**变更**：
+- `SearchText`（`:core:model`）：索引文本 CJK 逐字加空格；查询把中文转逐字短语、
+  拉丁词转前缀（FTS4 前缀必须不带引号）；单测覆盖。
+- `SearchIndexer`（`:core:database`）：索引标题/手工改名/类型/演员；`media_fts`
+  在全新安装时自动创建；`provider_health(fts_index)` 记录索引版本，启动后台重建一次；
+  扫描/刮削/改名/详情写入时同步刷新。
+- `WorksCardSql`：增加 FTS 子查询与类型/类型标签/地区/年份/排序过滤；作品卡接入
+  `title_overrides` 的显示标题，并补 `country` / `releaseDate`。
+- `SearchViewModel`：输入与筛选项 250ms 防抖；筛选选项取最近 500 部（有界）；
+  结果走 Paging 3。`SearchScreen` 改为 `LazyPagingItems` 三列网格。
+- **移除** `-PverifySamePackage` 诊断构建（见问题 76）。
+
+**验证（SM-G998U1 / Android 15）**：
+- 真机库 FTS 索引 127/127，`provider_health(fts_index)=2`；直接 SQL `MATCH '"芙 莉 莲"'`
+  命中「葬送的芙莉莲」。
+- `SearchPagingTest`：中文（含空格）、拉丁前缀、演员名、手工改名、类型/地区/年份筛选全部通过。
+- 搜索页空查询显示作品；「动漫」筛选正常返回结果并分页。
+- 因问题 76 的卸载事故，数据已从导出副本恢复；WebDAV/TMDB/OpenSubtitles 凭据已重填，
+  播放恢复为 `PLAYING`（position 25s）。
+
+**备注**：
+- FTS4 前缀必须写 `term*`（不带引号）；中文短语用 `"芙 莉 莲"`。
+- 搜索页 UI 的中文输入由仓库级测试覆盖；自动化 UI 输入在本次尝试中不可靠，未保留。
+- 剩余 Phase 1：E1.5 20k 压测。
+
 ---
 
 ## 8. 待办
@@ -2170,7 +2207,10 @@ E1.3 改为直接查询 `works` 的 Paging 3 分页。
    每日预算与指数退避；真机 13 条任务入队并保留，TMDB 网络不可达时按退避重试。
 11. **Phase 1 E1.3**：已完成（2026-10-19）——works 分页海报墙（30/页），
    推荐/分类行有界查询；真机 127 作品与系列详情验证通过。
-12. **下一步**：E1.4 FTS 搜索、E1.5 20k 压测。
+12. **Phase 1 E1.4**：已完成（2026-10-19）——FTS4 中文搜索、SQL 筛选与分页；
+   真机索引 127/127，中文/演员/改名/筛选测试通过。
+13. **下一步**：E1.5 20k 压测。
+14. **禁止事项**：不得用同包名/正式签名跑 connected 测试（会卸载真实包，见问题 76）。
 13. **运维记录**：OpenList `movie1`–`movie8` 的 `base_path` 已改为 `/夸克/影视`；
     修改数据库后需重启 OpenList 才生效。
 

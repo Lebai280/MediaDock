@@ -35,11 +35,8 @@ E:/code/tools/android-sdk/platform-tools/adb.exe install -r \
 也可将 APK 复制到设备后安装。
 
 > debug 构建的包名为 `com.lovelev.mediadock.debug`，release 仍为 `com.lovelev.mediadock`；
-> instrumentation 测试不会覆盖真机上的 release 安装。
->
-> 只读核对真机库时可执行
-> `./gradlew :app:assembleDebug -PverifySamePackage`：生成同包名、正式签名、可调试的包，
-> 安装后可用 `run-as` 导出数据库；该入口仅用于诊断，不用于分发。
+> instrumentation 测试不会覆盖真机上的 release 安装。**不得**用同包名/正式签名跑
+> `connectedAndroidTest`：测试结束 Gradle 会卸载该包并清空真实数据。
 
 ## 许可证
 
@@ -72,8 +69,9 @@ compileSdk 37.2 / targetSdk 36 / minSdk 26
 
 8 个功能阶段（构建链、数据源、浏览、播放、媒体库、TMDB 刮削、播放体验、字幕与设置）已完成，并通过真机逐屏验证；界面按 VidHub 版式与产品配色完成改造。
 
-当前版本 `0.10.0`（versionCode 25）：Phase 0a 数据层、Phase 0b 网络/数据模块、
-Phase 1 E1.1 增量扫描、E1.2 持久刮削、E1.3 works 分页海报墙。应用内「设置 → 关于 → 检查更新」可用。
+当前版本 `0.11.0`（versionCode 26）：Phase 0a 数据层、Phase 0b 网络/数据模块、
+Phase 1 E1.1 增量扫描、E1.2 持久刮削、E1.3 works 分页、E1.4 FTS 搜索。
+应用内「设置 → 关于 → 检查更新」可用。
 
 > 构建 release 变体需要签名材料：密码配置在 `local.properties`（已 gitignore），密钥库位于仓库之外。缺少签名材料时仅可构建 debug 变体。签名材料丢失后无法继续发布同一应用的更新。
 

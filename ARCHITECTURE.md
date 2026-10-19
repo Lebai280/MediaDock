@@ -1668,6 +1668,24 @@ DB 约 5.7 MB。**选定 FTS4 + `search_text`**，详见 WORKLOG 与 ADR-024。
   单测/instrumentation 通过。
 - **剩余**：搜索页仍用全量内存过滤（E1.4 改 FTS 分页）；20k 压测（E1.5）。
 
+**Phase 1 E1.4 实施结果（2026-10-19）**：
+
+- **FTS4 中文**：`SearchText` 生成 CJK 逐字空格索引文本；查询转逐字短语，
+  拉丁词使用不带引号的前缀（`term*`）。目标机不支持 FTS5 trigram，维持 ADR-024。
+- **索引维护**：`SearchIndexer` 覆盖标题/手工改名/类型/演员；全新安装自动建
+  `media_fts`；`provider_health(fts_index)` 版本变化时启动后台重建；扫描/刮削/
+  改名/详情写入同步刷新。
+- **SQL 搜索**：`WorksCardSql` 增加 FTS 子查询与类型/类型标签/地区/年份/排序过滤；
+  作品卡使用 `title_overrides` 的显示标题。
+- **UI**：搜索页改为 `SearchViewModel + Paging 3`，输入/筛选防抖 250ms，
+  筛选选项取最近 500 部（有界）。
+- **真机**：索引 127/127；中文 `MATCH '"芙 莉 莲"'` 命中；拉丁前缀、演员、改名、
+  类型/地区/年份筛选由 `SearchPagingTest` 覆盖；搜索页筛选与分页正常。
+- **事故与约束**：同包名 verify 构建跑 `connectedAndroidTest` 会被 Gradle 卸载并清空
+  真实数据（问题 76）。数据已从导出副本恢复、凭据已重填；verify 入口已删除，
+  instrumentation 只允许 `.debug` 包。
+- **剩余**：E1.5 20k 压测。
+
 ### 15.10 启动门槛
 
 1. 提交当前 54 个文件为基线（文档第二版 + 注释/文案）；确认 98 单测 + release。
@@ -1679,7 +1697,8 @@ DB 约 5.7 MB。**选定 FTS4 + `search_text`**，详见 WORKLOG 与 ADR-024。
 7. Phase 1 E1.1 已完成（2026-10-19）：WorkManager 增量扫描、目录缓存与断点续跑。
 8. Phase 1 E1.2 已完成（2026-10-19）：持久刮削队列、Worker、预算与退避。
 9. Phase 1 E1.3 已完成（2026-10-19）：works 分页海报墙、有界推荐/分类行。
-10. 下一步：E1.4 FTS 搜索、E1.5 20k 压测。
+10. Phase 1 E1.4 已完成（2026-10-19）：FTS4 搜索、SQL 筛选与分页。
+11. 下一步：E1.5 20k 压测。
 
 ### 15.11 仍需确认
 

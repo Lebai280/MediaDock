@@ -16,6 +16,7 @@ import com.lovelev.mediadock.core.model.normalizeRemoteKey
 class MediaLibraryStore(private val db: MediaDatabase) {
 
     private val w = db.writeDao()
+    private val search = SearchIndexer(db)
 
     data class Resolved(
         val workId: String,
@@ -176,6 +177,7 @@ class MediaLibraryStore(private val db: MediaDatabase) {
                     )
                     w.workById(id)!!
                 }
+            search.refreshLocked(work.id)
             val season = file.season ?: 0
             val episode = file.episode ?: 0
             val episodeKey = work.tmdbId?.let { LogicalKeyCodec.episode(it, season, episode) }
@@ -229,6 +231,7 @@ class MediaLibraryStore(private val db: MediaDatabase) {
                     )
                     w.workById(id)!!
                 }
+            search.refreshLocked(work.id)
             w.upsertMovieVersion(
                 MovieVersionEntity(
                     workId = work.id,
@@ -318,6 +321,7 @@ class MediaLibraryStore(private val db: MediaDatabase) {
         } else {
             workIds.forEach { w.upsertOverride(TitleOverrideEntity(it, title.trim(), year)) }
         }
+        workIds.forEach { search.refreshLocked(it) }
     }
 
     suspend fun createPlaylist(name: String): Long =
@@ -367,11 +371,15 @@ class MediaLibraryStore(private val db: MediaDatabase) {
                 totalSeasons = totalSeasons,
             ),
         )
+        search.refreshLocked(workId)
     }
 
     suspend fun deleteDetails(paths: List<String>) = db.withTransaction {
         val workIds = paths.mapNotNull { resolveLocked(it)?.workId }.distinct()
-        if (workIds.isNotEmpty()) w.deleteWorkDetails(workIds)
+        if (workIds.isNotEmpty()) {
+            w.deleteWorkDetails(workIds)
+            workIds.forEach { search.refreshLocked(it) }
+        }
     }
 
     // ---------------------------------------------------------------- 刮削
@@ -474,6 +482,7 @@ class MediaLibraryStore(private val db: MediaDatabase) {
         if (work.type == "tv") {
             relinkEpisodesLocked(work, id)
         }
+        search.refreshLocked(work.id)
     }
 
     /** 把待刮削作品全部入队；重复入队由唯一索引合并。返回当前待处理任务数。 */
@@ -556,6 +565,8 @@ class MediaLibraryStore(private val db: MediaDatabase) {
         }
         w.moveOverride(from.id, to.id)
         w.deleteOverride(from.id)
+        search.delete(from.id)
+        search.refreshLocked(to.id)
         w.insertTombstone(ContentTombstoneEntity(from.id, to.id, now))
     }
 

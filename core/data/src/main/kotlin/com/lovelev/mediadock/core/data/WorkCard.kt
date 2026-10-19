@@ -2,6 +2,7 @@ package com.lovelev.mediadock.core.data
 
 import androidx.sqlite.db.SimpleSQLiteQuery
 import androidx.sqlite.db.SupportSQLiteQuery
+import com.lovelev.mediadock.core.model.SearchText
 import com.lovelev.mediadock.data.local.WorkCardRow
 
 enum class WorksSort { TITLE, RATING, YEAR, RECENT }
@@ -21,6 +22,8 @@ data class WorkCard(
     val movieProgress: Float,
     val isFavorite: Boolean,
     val genres: List<String>,
+    val country: String?,
+    val releaseDate: String?,
     val paths: List<String>,
 ) {
     /** 剧按「已看完集数 / 总集数」，单片按观看比例。 */
@@ -38,7 +41,7 @@ object WorksCardSql {
     private const val SELECT = """
         SELECT
           w.id AS id,
-          w.title AS title,
+          COALESCE(o.title, w.title) AS title,
           w.year AS year,
           w.poster_path AS posterPath,
           w.backdrop_path AS backdropPath,
@@ -58,6 +61,8 @@ object WorksCardSql {
           EXISTS(SELECT 1 FROM favorites f
                  WHERE f.work_id = w.id AND f.user_id = 'default') AS isFavorite,
           wd.genres AS genres,
+          wd.country AS country,
+          wd.release_date AS releaseDate,
           (SELECT group_concat(path, char(31)) FROM (
              SELECT mf.legacy_path AS path
              FROM movie_versions mv JOIN media_files mf ON mf.id = mv.file_id
@@ -70,6 +75,7 @@ object WorksCardSql {
           )) AS paths
         FROM works w
         LEFT JOIN work_details wd ON wd.work_id = w.id
+        LEFT JOIN title_overrides o ON o.work_id = w.id
         WHERE (
           EXISTS (SELECT 1 FROM movie_versions mv2
                   JOIN media_files mf2 ON mf2.id = mv2.file_id
@@ -81,19 +87,22 @@ object WorksCardSql {
         )
     """
 
-    fun paging(sort: WorksSort, search: String = ""): SupportSQLiteQuery {
-        val sql = "$SELECT AND (? = '' OR w.title LIKE '%' || ? || '%') ORDER BY ${orderBy(sort)}"
-        return SimpleSQLiteQuery(sql, arrayOf(search, search))
+    fun paging(filter: WorksFilter = WorksFilter()): SupportSQLiteQuery {
+        val sql = "$SELECT AND ${where(filter)} ORDER BY ${orderBy(filter.sort)}"
+        return SimpleSQLiteQuery(sql, filter.args())
     }
+
+    fun paging(sort: WorksSort, search: String = ""): SupportSQLiteQuery =
+        paging(WorksFilter(query = search, sort = sort))
 
     fun limited(
         sort: WorksSort = WorksSort.RECENT,
         limit: Int = 200,
         search: String = "",
     ): SupportSQLiteQuery {
-        val sql = "$SELECT AND (? = '' OR w.title LIKE '%' || ? || '%') " +
-            "ORDER BY ${orderBy(sort)} LIMIT $limit"
-        return SimpleSQLiteQuery(sql, arrayOf(search, search))
+        val filter = WorksFilter(query = search, sort = sort)
+        val sql = "$SELECT AND ${where(filter)} ORDER BY ${orderBy(sort)} LIMIT $limit"
+        return SimpleSQLiteQuery(sql, filter.args())
     }
 
     fun random(limit: Int = 5): SupportSQLiteQuery =
@@ -106,11 +115,71 @@ object WorksCardSql {
                 "ORDER BY w.added_at DESC LIMIT $limit",
         )
 
+    private fun where(filter: WorksFilter): String {
+        val clauses = mutableListOf<String>()
+        if (filter.query.isNotBlank() && SearchText.query(filter.query) != null) {
+            clauses += "w.id IN (SELECT work_id FROM media_fts WHERE media_fts MATCH ?)"
+        }
+        when (filter.type) {
+            "电影" -> clauses += "w.type = 'movie'"
+            "电视剧" -> clauses += "w.type = 'tv' AND COALESCE(wd.genres,'') NOT LIKE '%动画%' " +
+                "AND COALESCE(wd.genres,'') NOT LIKE '%综艺%' AND COALESCE(wd.genres,'') NOT LIKE '%真人秀%'"
+            "动漫" -> clauses += "COALESCE(wd.genres,'') LIKE '%动画%'"
+            "综艺" -> clauses += "(COALESCE(wd.genres,'') LIKE '%综艺%' OR COALESCE(wd.genres,'') LIKE '%真人秀%')"
+        }
+        if (filter.genre.isNotBlank()) {
+            clauses += "COALESCE(wd.genres,'') LIKE '%' || ? || '%'"
+        }
+        if (filter.country.isNotBlank()) {
+            clauses += "wd.country = ?"
+        }
+        when {
+            filter.year.isBlank() -> Unit
+            filter.year.endsWith("年代") -> {
+                val decade = filter.year.removeSuffix("年代").toIntOrNull()
+                if (decade != null) {
+                    clauses += "COALESCE(w.year, CAST(substr(wd.release_date,1,4) AS INTEGER)) BETWEEN ? AND ?"
+                }
+            }
+            else -> {
+                if (filter.year.toIntOrNull() != null) {
+                    clauses += "COALESCE(w.year, CAST(substr(wd.release_date,1,4) AS INTEGER)) = ?"
+                }
+            }
+        }
+        return if (clauses.isEmpty()) "1 = 1" else clauses.joinToString(" AND ")
+    }
+
     private fun orderBy(sort: WorksSort): String = when (sort) {
-        WorksSort.TITLE -> "w.title COLLATE NOCASE, w.id"
-        WorksSort.RATING -> "COALESCE(w.rating, -1) DESC, w.title COLLATE NOCASE"
-        WorksSort.YEAR -> "COALESCE(w.year, 0) DESC, w.title COLLATE NOCASE"
-        WorksSort.RECENT -> "w.added_at DESC, w.title COLLATE NOCASE"
+        WorksSort.TITLE -> "COALESCE(o.title, w.title) COLLATE NOCASE, w.id"
+        WorksSort.RATING -> "COALESCE(w.rating, -1) DESC, COALESCE(o.title, w.title) COLLATE NOCASE"
+        WorksSort.YEAR -> "COALESCE(w.year, 0) DESC, COALESCE(o.title, w.title) COLLATE NOCASE"
+        WorksSort.RECENT -> "w.added_at DESC, COALESCE(o.title, w.title) COLLATE NOCASE"
+    }
+}
+
+data class WorksFilter(
+    val query: String = "",
+    /** 全部 / 电视剧 / 电影 / 动漫 / 综艺 */
+    val type: String = "",
+    /** 类型名（work_details.genres 中的一项） */
+    val genre: String = "",
+    val country: String = "",
+    /** 全部 / 2020年代 / 具体年份 */
+    val year: String = "",
+    val sort: WorksSort = WorksSort.RECENT,
+) {
+    internal fun args(): Array<Any?> {
+        val args = mutableListOf<Any?>()
+        SearchText.query(query)?.let { args += it }
+        if (genre.isNotBlank()) args += genre
+        if (country.isNotBlank()) args += country
+        if (year.endsWith("年代")) {
+            year.removeSuffix("年代").toIntOrNull()?.let { args += it; args += it + 9 }
+        } else {
+            year.toIntOrNull()?.let { args += it }
+        }
+        return args.toTypedArray()
     }
 }
 
@@ -130,6 +199,8 @@ fun WorkCardRow.toWorkCard(): WorkCard {
         movieProgress = movieProgress.toFloat(),
         isFavorite = isFavorite != 0,
         genres = genres?.split(',')?.map { it.trim() }?.filter { it.isNotEmpty() }.orEmpty(),
+        country = country?.takeIf { it.isNotBlank() },
+        releaseDate = releaseDate?.takeIf { it.isNotBlank() },
         paths = pathList,
     )
 }

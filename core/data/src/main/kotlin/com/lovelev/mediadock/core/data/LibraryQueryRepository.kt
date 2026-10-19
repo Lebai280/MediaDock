@@ -52,7 +52,10 @@ class LibraryQueryRepository(private val db: MediaDatabase) {
     fun worksPager(
         sort: WorksSort = WorksSort.TITLE,
         search: String = "",
-    ): Flow<PagingData<WorkCard>> =
+    ): Flow<PagingData<WorkCard>> = worksPager(WorksFilter(query = search, sort = sort))
+
+    /** 搜索/筛选分页：FTS + SQL 过滤与排序。 */
+    fun worksPager(filter: WorksFilter): Flow<PagingData<WorkCard>> =
         Pager(
             config = PagingConfig(
                 pageSize = 30,
@@ -61,7 +64,7 @@ class LibraryQueryRepository(private val db: MediaDatabase) {
                 enablePlaceholders = false,
             ),
         ) {
-            db.worksCardDao().pagingWorks(WorksCardSql.paging(sort, search))
+            db.worksCardDao().pagingWorks(WorksCardSql.paging(filter))
         }.flow.map { data -> data.map { it.toWorkCard() } }
 
     /** 首页「随机推荐」。 */
