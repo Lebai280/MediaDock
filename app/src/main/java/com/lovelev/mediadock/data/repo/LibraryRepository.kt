@@ -13,6 +13,8 @@ import com.lovelev.mediadock.data.local.MediaDao
 import com.lovelev.mediadock.data.local.MediaItemEntity
 import com.lovelev.mediadock.data.local.MediaLibraryStore
 import com.lovelev.mediadock.data.scan.ScanScheduler
+import com.lovelev.mediadock.data.scrape.ScrapeScheduler
+import com.lovelev.mediadock.data.scrape.ScrapeWorker
 import com.lovelev.mediadock.data.scan.ScanWorker
 import androidx.work.WorkInfo
 import com.lovelev.mediadock.core.data.LibraryQueryRepository
@@ -31,9 +33,6 @@ import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.SupervisorJob
-import kotlinx.coroutines.async
-import kotlinx.coroutines.awaitAll
-import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -86,6 +85,7 @@ class LibraryRepository(
     private val query: LibraryQueryRepository,
     private val scraper: MetadataScraper,
     private val scanScheduler: ScanScheduler,
+    private val scrapeScheduler: ScrapeScheduler,
 ) {
 
     /** 应用作用域：扫描不跟着页面走，退出媒体库页/旋屏都不会把它打断。 */
@@ -99,6 +99,7 @@ class LibraryRepository(
 
     /** 只有本会话主动发起过扫描时才把 WorkManager 的终态映射成 UI 状态。 */
     private var workScanRequested = false
+    private var workScrapeRequested = false
 
     init {
         scope.launch {
@@ -137,6 +138,41 @@ class LibraryRepository(
                     WorkInfo.State.CANCELLED -> {
                         workScanRequested = false
                         _scan.value = ScanState.Idle
+                    }
+                }
+            }
+        }
+    }
+
+    init {
+        scope.launch {
+            scrapeScheduler.observe().collect { info ->
+                if (!workScrapeRequested || info == null) return@collect
+                when (info.state) {
+                    WorkInfo.State.ENQUEUED, WorkInfo.State.BLOCKED, WorkInfo.State.RUNNING -> {
+                        _scrape.value = ScrapeState.Running(
+                            done = info.progress.getInt(ScrapeWorker.KEY_DONE, 0),
+                            total = info.progress.getInt(ScrapeWorker.KEY_TOTAL, 0),
+                            matched = info.progress.getInt(ScrapeWorker.KEY_MATCHED, 0),
+                        )
+                    }
+                    WorkInfo.State.SUCCEEDED -> {
+                        workScrapeRequested = false
+                        _scrape.value = ScrapeState.Done(
+                            matched = info.outputData.getInt(ScrapeWorker.KEY_MATCHED, 0),
+                            failed = info.outputData.getInt(ScrapeWorker.KEY_FAILED, 0),
+                        )
+                    }
+                    WorkInfo.State.FAILED -> {
+                        workScrapeRequested = false
+                        _scrape.value = ScrapeState.Failed(
+                            message = info.outputData.getString(ScrapeWorker.KEY_MESSAGE) ?: "刮削失败",
+                            needsSecret = info.outputData.getBoolean(ScrapeWorker.KEY_NEEDS_SECRET, false),
+                        )
+                    }
+                    WorkInfo.State.CANCELLED -> {
+                        workScrapeRequested = false
+                        _scrape.value = ScrapeState.Idle
                     }
                 }
             }
@@ -192,6 +228,7 @@ class LibraryRepository(
                 scrapedAt = now,
             )
         }
+        paths.forEach { store.completeScrapeTask(it) }
         match.title?.takeIf { it.isNotBlank() }?.let { title ->
             store.saveOverride(paths, title, match.year)
         }
@@ -250,16 +287,15 @@ class LibraryRepository(
         }
     }
 
-    /** 扫描与刮削各有独立的 job —— 取消其中一个不该影响另一个。 */
+    /** 本地扫描（SAF / 系统媒体库）的 job；WebDAV 扫描与刮削由 WorkManager 承载。 */
     private var scanJob: Job? = null
-    private var scrapeJob: Job? = null
 
     // ---------------------------------------------------------------- 扫描
 
     fun start() {
         if (scanJob?.isActive == true) return
         // 刮削在跑时不并发扫描：扫描是整表替换 media_items，会把刮削中的结果一起换掉
-        if (scrapeJob?.isActive == true) return
+        if (workScrapeRequested) return
         // 401/429 之后不许再试 —— 那会连累所有设备的 WebDAV
         if ((_scan.value as? ScanState.Failed)?.blocked == true) return
 
@@ -287,7 +323,7 @@ class LibraryRepository(
      */
     fun startLocal(treeUri: Uri) {
         if (scanJob?.isActive == true) return
-        if (scrapeJob?.isActive == true) return
+        if (workScrapeRequested) return
 
         scanJob = scope.launch {
             _scan.value = ScanState.Running(directories = 0, files = 0)
@@ -327,7 +363,7 @@ class LibraryRepository(
      */
     fun startMediaStore() {
         if (scanJob?.isActive == true) return
-        if (scrapeJob?.isActive == true) return
+        if (workScrapeRequested) return
 
         scanJob = scope.launch {
             _scan.value = ScanState.Running(directories = 0, files = 0)
@@ -390,96 +426,43 @@ class LibraryRepository(
 
     // ---------------------------------------------------------------- 刮削
 
-    /** 扫描完成后自动为新条目刮削（仅 UNSCRAPED，不自动重试历史失败项）。 */
+    /** 扫描完成后自动为新条目刮削（仅未匹配作品，不自动重试已退避的失败项）。 */
     private fun triggerAutoScrape() {
         scope.launch {
-            // 等 scanJob 退出：scrapeStart 在扫描进行中会拒绝启动
             kotlinx.coroutines.delay(800)
-            if (scanJob?.isActive == true) return@launch
-            if (scrapeJob?.isActive == true) return@launch
+            if (scanJob?.isActive == true || workScanRequested) return@launch
+            if (workScrapeRequested) return@launch
             if ((_scrape.value as? ScrapeState.Failed)?.needsSecret == true) return@launch
             if (credentials.loadTmdbSecret() == null) return@launch
-            if (db.mediaDao().unscrapedCount() == 0) return@launch
-            scrapeStart()
+            val pending = store.enqueuePendingScrapeTasks()
+            if (pending == 0) {
+                _scrape.value = ScrapeState.Done(matched = 0, failed = 0)
+                return@launch
+            }
+            workScrapeRequested = true
+            _scrape.value = ScrapeState.Running(done = 0, total = pending, matched = 0)
+            scrapeScheduler.start()
         }
     }
 
     fun scrapeStart() {
-        if (scrapeJob?.isActive == true) return
-        // 扫描在跑时不并发刮削（理由同 start()）
-        if (scanJob?.isActive == true) return
-        if ((_scrape.value as? ScrapeState.Failed)?.needsSecret == true) {
-            // 凭据没填/不对：界面应该把人引去设置，而不是反复空转
-            return
-        }
+        if (workScrapeRequested) return
+        if (scanJob?.isActive == true || workScanRequested) return
+        if ((_scrape.value as? ScrapeState.Failed)?.needsSecret == true) return
 
-        scrapeJob = scope.launch {
-            val secret = credentials.loadTmdbSecret()?.let(::TmdbSecret)
-            if (secret == null) {
+        scope.launch {
+            if (credentials.loadTmdbSecret() == null) {
                 _scrape.value = ScrapeState.Failed("还没填写 TMDB 凭据", needsSecret = true)
                 return@launch
             }
-
-            val dao = db.mediaDao()
-            // 覆盖过的片名要参与检索，否则「改了名字再刮」等于没改
-            val overrideByPath = db.titleOverrideDao().observeAll().first().associateBy { it.path }
-            val pending = dao.pendingScrape().map { it.withTitleOverride(overrideByPath[it.path]) }
-            if (pending.isEmpty()) {
+            val pending = store.enqueuePendingScrapeTasks()
+            if (pending == 0) {
                 _scrape.value = ScrapeState.Done(matched = 0, failed = 0)
                 return@launch
             }
-
-            _scrape.value = ScrapeState.Running(done = 0, total = pending.size, matched = 0)
-            var done = 0
-            var matched = 0
-            var failed = 0
-
-            try {
-                // 4 个一批：避免逐条请求的低效，同时避免对 TMDB 造成突发压力
-                for (batch in pending.chunked(SCRAPE_CONCURRENCY)) {
-                    if (!isActive) return@launch
-                    val results = coroutineScope {
-                        batch.map { item ->
-                            async {
-                                // 单条失败（网络抖动 / 非 200）只算这一条没匹配上，**不让整轮中断** ——
-                                // 否则 92 条跑到一半遇到一次抖动就前功尽弃。
-                                // 凭据无效是另一回事，必须立刻中止整轮（照旧抛出去）。
-                                val match = try {
-                                    scrapeItem(item, secret)
-                                } catch (e: TmdbAuthException) {
-                                    throw e
-                                } catch (e: TmdbException) {
-                                    null
-                                }
-                                item.path to match
-                            }
-                        }.awaitAll()
-                    }
-                    for ((path, match) in results) {
-                        store.applyScrape(
-                            path = path,
-                            tmdbId = match?.tmdbId,
-                            title = match?.title,
-                            year = match?.year,
-                            posterPath = match?.posterPath,
-                            backdropPath = match?.backdropPath,
-                            overview = match?.overview,
-                            rating = match?.rating,
-                            matched = match != null,
-                            scrapedAt = System.currentTimeMillis(),
-                        )
-                        if (match != null) matched++ else failed++
-                        done++
-                    }
-                    _scrape.value = ScrapeState.Running(done, pending.size, matched)
-                }
-                _scrape.value = ScrapeState.Done(matched = matched, failed = failed)
-            } catch (e: TmdbAuthException) {
-                // 凭据无效：整轮停掉，剩下的别试了
-                _scrape.value = ScrapeState.Failed(e.message ?: "TMDB 凭据无效", needsSecret = true)
-            } catch (e: TmdbException) {
-                _scrape.value = ScrapeState.Failed(e.message ?: "刮削失败", needsSecret = false)
-            }
+            workScrapeRequested = true
+            _scrape.value = ScrapeState.Running(done = 0, total = pending, matched = 0)
+            scrapeScheduler.start()
         }
     }
 
@@ -500,8 +483,8 @@ class LibraryRepository(
 
     /** 取消刮削：只动刮削，**不会**把扫描结果提示（「共 N 个视频」）一起抹掉。 */
     fun cancelScrape() {
-        scrapeJob?.cancel()
-        scrapeJob = null
+        scrapeScheduler.cancel()
+        workScrapeRequested = false
         _scrape.value = ScrapeState.Idle
     }
 
@@ -535,9 +518,5 @@ class LibraryRepository(
     suspend fun clearLibrary() {
         cancelAll() // 避免扫描或刮削期间执行清理
         store.clearLibrary()
-    }
-
-    private companion object {
-        const val SCRAPE_CONCURRENCY = 4
     }
 }

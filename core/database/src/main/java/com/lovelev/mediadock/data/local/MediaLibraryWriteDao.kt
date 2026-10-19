@@ -73,6 +73,11 @@ interface MediaLibraryWriteDao {
     @Query("SELECT * FROM works WHERE id = :id")
     suspend fun workById(id: String): WorkEntity?
 
+    @Query(
+        "SELECT * FROM works WHERE scrape_state != 'MATCHED' ORDER BY added_at DESC",
+    )
+    suspend fun pendingWorks(): List<WorkEntity>
+
     @Query("SELECT * FROM episodes WHERE logical_key = :logicalKey LIMIT 1")
     suspend fun episodeByLogicalKey(logicalKey: String): EpisodeEntity?
 

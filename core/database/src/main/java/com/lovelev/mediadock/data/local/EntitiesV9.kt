@@ -220,7 +220,15 @@ data class ProviderHealthEntity(
     @ColumnInfo(name = "updated_at") val updatedAt: Long,
 )
 
-@Entity(tableName = "scrape_tasks")
+@Entity(
+    tableName = "scrape_tasks",
+    indices = [
+        Index(
+            value = ["content_id", "content_kind", "provider", "task_kind"],
+            unique = true,
+        ),
+    ],
+)
 data class ScrapeTaskEntity(
     @PrimaryKey @ColumnInfo(name = "id") val id: String,
     @ColumnInfo(name = "content_id") val contentId: String,

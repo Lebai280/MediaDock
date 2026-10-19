@@ -1629,8 +1629,29 @@ DB 约 5.7 MB。**选定 FTS4 + `search_text`**，详见 WORKLOG 与 ADR-024。
   - 迁移前自动备份 `library-v9-*.db` 已生成。
 - **测试**：`ScanEngineTest`（全量/增量跳过/删除/401/断点续跑）、`MigrationV9ToV10Test`
   与既有全部单测/instrumentation 通过。
-- **剩余 Phase 1**：E1.2 持久刮削（`scrape_tasks` Worker/预算/退避）、E1.3 Paging 3 +
-  works 查询、E1.4 FTS 搜索、E1.5 20k 压测；FULL 扫描的单独 UI 入口待补。
+- **剩余 Phase 1**：E1.3 Paging 3 + works 查询、E1.4 FTS 搜索、E1.5 20k 压测；
+  FULL 扫描的单独 UI 入口、刮削预算设置项待补。
+
+**Phase 1 E1.2 实施结果（2026-10-19）**：
+
+- **v11 schema**：`scrape_tasks` 增加
+  `(content_id, content_kind, provider, task_kind)` 唯一索引，重复入队合并；
+  `MigrationV10ToV11Test` 通过。
+- **持久队列**：`ScrapeTaskDao`（到期任务、退避、状态计数）；扫描完成/手动“刮削”只入队，
+  不再在仓库里跑内存循环。
+- **`ScrapeEngine`（`:core:data`）**：按 priority/next_attempt_at 领取到期任务；
+  每个任务每轮只处理一次；单条失败按 1→2→4… 分钟指数退避（上限 24h）；
+  401/凭据错误整轮停止且剩余任务保留；每日预算耗尽暂停。
+- **`ScrapeWorker` / `ScrapeScheduler`**：唯一名 `scrape`、网络约束、进度写 WorkInfo；
+  UI 由 WorkInfo 驱动 Running/Done/Failed，取消只停 Worker、任务保留。
+- **HTTP 缓存**：共享 OkHttp 增加 32 MB 磁盘缓存（仅 GET，PROPFIND 不受影响）。
+- **预算**：DataStore `scrape_budget`，默认 1000 次/天（设置项待补）。
+- **真机结果（SM-G998U1）**：库内 13 个待刮削作品全部入队；设备当前无法连接 TMDB
+  （IPv6 connect timeout），任务按退避保留，`attempts=1–2`、`next_attempt_at` 递增；
+  取消后 13 条仍为 PENDING，无 401/429 重试风暴。匹配成功路径由 `ScrapeEngineTest` 覆盖。
+- **测试**：`ScrapeEngineTest`（成功/失败退避/401 停止/预算/幂等入队）、迁移与既有全部
+  单测/instrumentation 通过。
+- **剩余 Phase 1**：E1.3 Paging 3 + works 查询、E1.4 FTS 搜索、E1.5 20k 压测。
 
 ### 15.10 启动门槛
 
@@ -1641,7 +1662,8 @@ DB 约 5.7 MB。**选定 FTS4 + `search_text`**，详见 WORKLOG 与 ADR-024。
 5. 0a 已完成（2026-10-19）：数据层 + 兼容 VIEW，真机迁移与回滚演练通过。
 6. 0b 已完成（2026-10-19）：网络/数据模块骨架与查询、刮削抽取。
 7. Phase 1 E1.1 已完成（2026-10-19）：WorkManager 增量扫描、目录缓存与断点续跑。
-8. 下一步：E1.2 持久刮削、E1.3 Paging、E1.4 FTS、E1.5 20k 压测。
+8. Phase 1 E1.2 已完成（2026-10-19）：持久刮削队列、Worker、预算与退避。
+9. 下一步：E1.3 Paging、E1.4 FTS、E1.5 20k 压测。
 
 ### 15.11 仍需确认
 

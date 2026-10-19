@@ -2087,7 +2087,36 @@ WorkManager 扫描/持久刮削做准备；不改变用户可见行为。
 - OpenList 的集合元数据不可靠时，可加“保守模式”（只跳过文件解析、不跳过 PROPFIND）；
   当前默认按架构 3.4 跳过子树。
 - FULL 扫描接口已支持（`ScanScheduler.start(..., ScanMode.FULL)`），单独 UI 入口待补。
-- 剩余 Phase 1：E1.2 持久刮削、E1.3 Paging/works、E1.4 FTS、E1.5 20k 压测。
+- 剩余 Phase 1：E1.3 Paging/works、E1.4 FTS、E1.5 20k 压测。
+
+### 2026-10-19 · Phase 1 E1.2：持久刮削队列、Worker 与预算
+
+**背景**：刮削从内存循环迁到 `scrape_tasks` 持久队列 + WorkManager，要求可暂停/续跑、
+单条失败退避、凭据错误整轮停止、按日预算限流。
+
+**变更**：
+- v11：`scrape_tasks` 增加 `(content_id, content_kind, provider, task_kind)` 唯一索引；
+  `MigrationV10ToV11Test` 通过。
+- `ScrapeTaskDao`：到期任务、状态/尝试次数计数、失败退避、手动匹配清理。
+- `:core:data` `ScrapeEngine`：按任务驱动匹配；每个任务每轮只处理一次；
+  失败 1→2→4… 分钟指数退避（上限 24h）；401 整轮停止；预算耗尽暂停。
+- app：`ScrapeWorker`（唯一名 `scrape`、网络约束、WorkInfo 进度）、`ScrapeScheduler`；
+  `LibraryRepository` 改为入队 + 观察 WorkInfo；扫描后自动入队，手动“刮削”同样。
+- HTTP 缓存：共享 OkHttp 增加 32 MB 磁盘缓存（仅 GET）。
+- 预算：DataStore `scrape_budget`，默认 1000 次/天。
+
+**验证（SM-G998U1 / Android 15）**：
+- 升级 v10→v11 成功并生成 `library-v10-*.db` 备份。
+- 库内 13 个待刮削作品全部入队；设备当前无法连接 TMDB（IPv6 连接超时），
+  任务按退避保留（`attempts=1–2`、`next_attempt_at` 递增），取消后 13 条仍为 PENDING；
+  UI 进度由 WorkInfo 驱动，取消只停 Worker，不丢任务。
+- 发现并修复：同一轮内退避到期会重复领取任务（进度 17/13）；现每任务每轮只处理一次。
+- `ScrapeEngineTest`（成功/失败退避/401/预算/幂等）与全部既有单测/instrumentation 通过。
+
+**备注**：
+- 网络恢复后在「我的 → 刮削」即可继续处理这 13 条（到期任务）。
+- 刮削预算设置项、FULL 扫描 UI 入口留待后续。
+- 剩余 Phase 1：E1.3 Paging/works、E1.4 FTS、E1.5 20k 压测。
 
 ---
 
@@ -2109,8 +2138,10 @@ WorkManager 扫描/持久刮削做准备；不改变用户可见行为。
    依赖方向单向，0.7.0 真机播放验证通过。
 9. **Phase 1 E1.1**：已完成（2026-10-19）——WorkManager 增量扫描、目录缓存、
    断点续跑；真机 280 文件，增量 1 目录/0 文件，取消后恢复至 280。
-10. **下一步**：E1.2 持久刮削、E1.3 Paging/works、E1.4 FTS、E1.5 20k 压测。
-11. **运维记录**：OpenList `movie1`–`movie8` 的 `base_path` 已改为 `/夸克/影视`；
+10. **Phase 1 E1.2**：已完成（2026-10-19）——`scrape_tasks` 持久队列、ScrapeWorker、
+   每日预算与指数退避；真机 13 条任务入队并保留，TMDB 网络不可达时按退避重试。
+11. **下一步**：E1.3 Paging/works、E1.4 FTS、E1.5 20k 压测。
+12. **运维记录**：OpenList `movie1`–`movie8` 的 `base_path` 已改为 `/夸克/影视`；
     修改数据库后需重启 OpenList 才生效。
 
 ### 8.2 功能路线图（按优先级）

@@ -393,7 +393,44 @@ class MediaLibraryStore(private val db: MediaDatabase) {
         scrapedAt: Long,
     ) = db.withTransaction {
         val resolved = resolveLocked(path) ?: return@withTransaction
-        var work = w.workById(resolved.workId) ?: return@withTransaction
+        applyScrapeWorkLocked(
+            resolved.workId, tmdbId, title, year, posterPath, backdropPath,
+            overview, rating, matched, scrapedAt,
+        )
+    }
+
+    /** 持久刮削任务按作品直接写回，不再依赖某个文件 path。 */
+    suspend fun applyScrapeToWork(
+        workId: String,
+        tmdbId: Int?,
+        title: String?,
+        year: Int?,
+        posterPath: String?,
+        backdropPath: String?,
+        overview: String?,
+        rating: Double?,
+        matched: Boolean,
+        scrapedAt: Long,
+    ) = db.withTransaction {
+        applyScrapeWorkLocked(
+            workId, tmdbId, title, year, posterPath, backdropPath,
+            overview, rating, matched, scrapedAt,
+        )
+    }
+
+    private suspend fun applyScrapeWorkLocked(
+        workId: String,
+        tmdbId: Int?,
+        title: String?,
+        year: Int?,
+        posterPath: String?,
+        backdropPath: String?,
+        overview: String?,
+        rating: Double?,
+        matched: Boolean,
+        scrapedAt: Long,
+    ) {
+        var work = w.workById(workId) ?: return
         val state = if (matched) ScrapeStatus.MATCHED else ScrapeStatus.FAILED
         if (!matched || tmdbId == null) {
             work = work.copy(
@@ -407,9 +444,9 @@ class MediaLibraryStore(private val db: MediaDatabase) {
                 updatedAt = scrapedAt,
             )
             w.updateWork(work)
-            return@withTransaction
+            return
         }
-        val id = tmdbId ?: return@withTransaction
+        val id = tmdbId
         val targetKey = if (work.type == "tv") {
             LogicalKeyCodec.show(id)
         } else {
@@ -437,6 +474,37 @@ class MediaLibraryStore(private val db: MediaDatabase) {
         if (work.type == "tv") {
             relinkEpisodesLocked(work, id)
         }
+    }
+
+    /** 把待刮削作品全部入队；重复入队由唯一索引合并。返回当前待处理任务数。 */
+    suspend fun enqueuePendingScrapeTasks(): Int = db.withTransaction {
+        val dao = db.scrapeTaskDao()
+        val now = System.currentTimeMillis()
+        w.pendingWorks().forEach { work ->
+            dao.insertIgnore(
+                ScrapeTaskEntity(
+                    id = java.util.UUID.randomUUID().toString(),
+                    contentId = work.id,
+                    contentKind = work.type,
+                    provider = "tmdb",
+                    taskKind = "search",
+                    state = ScrapeTaskState.PENDING,
+                    attempts = 0,
+                    nextAttemptAt = 0L,
+                    priority = 0,
+                    updatedAt = now,
+                ),
+            )
+        }
+        dao.countDue(now)
+    }
+
+    suspend fun pendingScrapeTaskCount(): Int = db.scrapeTaskDao().countPending()
+
+    /** 手动匹配成功后清掉该作品的队列任务。 */
+    suspend fun completeScrapeTask(path: String) = db.withTransaction {
+        val resolved = resolveLocked(path) ?: return@withTransaction
+        db.scrapeTaskDao().deleteForWork(resolved.workId)
     }
 
     private suspend fun relinkEpisodesLocked(work: WorkEntity, tmdbId: Int) {

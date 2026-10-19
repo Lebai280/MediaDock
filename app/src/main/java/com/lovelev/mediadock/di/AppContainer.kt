@@ -36,6 +36,9 @@ class AppContainer(context: Context) {
         .connectTimeout(15, TimeUnit.SECONDS)
         .readTimeout(30, TimeUnit.SECONDS)
         .callTimeout(45, TimeUnit.SECONDS)
+        // TMDB / 字幕响应的 HTTP 缓存：重复刮削与详情刷新不再消耗配额。
+        // 只缓存 GET；WebDAV 的 PROPFIND 不会被缓存。
+        .cache(okhttp3.Cache(java.io.File(appContext.cacheDir, "http"), 32L * 1024 * 1024))
         // 仅连接层瞬时故障重试；HTTP 响应（尤其 401）绝不重发 ——
         // 未设置 Authenticator，OkHttp 就不会对 401 做内置重试。
         .retryOnConnectionFailure(true)
@@ -122,11 +125,21 @@ class AppContainer(context: Context) {
         com.lovelev.mediadock.data.scan.ScanScheduler(appContext)
     }
 
+    /** 刮削每日预算（DataStore，默认 1000 次/天）。 */
+    val scrapeBudget: com.lovelev.mediadock.data.scrape.ScrapeBudgetStore by lazy {
+        com.lovelev.mediadock.data.scrape.ScrapeBudgetStore(appContext)
+    }
+
+    /** 刮削调度（WorkManager 唯一工作名 `scrape`）。 */
+    val scrapeScheduler: com.lovelev.mediadock.data.scrape.ScrapeScheduler by lazy {
+        com.lovelev.mediadock.data.scrape.ScrapeScheduler(appContext)
+    }
+
     val library: LibraryRepository by lazy {
         LibraryRepository(
             database, credentials,
             LocalScanner(appContext), MediaStoreScanner(appContext), libraryStore,
-            libraryQuery, metadataScraper, scanScheduler,
+            libraryQuery, metadataScraper, scanScheduler, scrapeScheduler,
         )
     }
 

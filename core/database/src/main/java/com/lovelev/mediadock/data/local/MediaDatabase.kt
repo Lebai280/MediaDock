@@ -61,10 +61,11 @@ abstract class MediaDatabase : RoomDatabase() {
     abstract fun playlistDao(): PlaylistDao
     abstract fun writeDao(): MediaLibraryWriteDao
     abstract fun scanDao(): ScanDao
+    abstract fun scrapeTaskDao(): ScrapeTaskDao
 
     companion object {
         /** 当前库表版本。**单一来源**：`@Database` 与迁移覆盖单测都读它。 */
-        const val VERSION = 10
+        const val VERSION = 11
 
         /** v3 → v4：加收藏表。纯新增，不动既有数据。 */
         val MIGRATION_3_4 = object : Migration(3, 4) {
@@ -172,13 +173,29 @@ abstract class MediaDatabase : RoomDatabase() {
             }
         }
 
+        /** v10 → v11：刮削任务按 (content, kind, provider, task_kind) 唯一，重复入队合并。 */
+        val MIGRATION_10_11 = object : Migration(10, 11) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL(
+                    "DELETE FROM `scrape_tasks` WHERE rowid NOT IN (" +
+                        "SELECT MIN(rowid) FROM `scrape_tasks` " +
+                        "GROUP BY `content_id`, `content_kind`, `provider`, `task_kind`)",
+                )
+                db.execSQL(
+                    "CREATE UNIQUE INDEX IF NOT EXISTS " +
+                        "`index_scrape_tasks_content_id_content_kind_provider_task_kind` " +
+                        "ON `scrape_tasks` (`content_id`, `content_kind`, `provider`, `task_kind`)",
+                )
+            }
+        }
+
         /**
          * **所有迁移都放这个数组里，容器整批注册**。
          * 注意数组要放在各迁移定义**之后**（companion 是顺序初始化的）。
          */
         val MIGRATIONS = arrayOf(
             MIGRATION_3_4, MIGRATION_4_5, MIGRATION_5_6, MIGRATION_6_7, MIGRATION_7_8,
-            MIGRATION_8_9, MIGRATION_9_10,
+            MIGRATION_8_9, MIGRATION_9_10, MIGRATION_10_11,
         )
     }
 }
