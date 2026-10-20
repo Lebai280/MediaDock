@@ -75,6 +75,14 @@ class PlayerViewModel(private val container: AppContainer) : ViewModel() {
      */
     val queueSignature: String = queue.joinToString("\u0000")
 
+    /** 本次进入播放页是否要按 [PlaybackSelection.path] 切换（同队列重选条目时为 true）。 */
+    val needsSelectionApply: Boolean
+        get() = container.playbackSelection.needsApply
+
+    fun markSelectionApplied() {
+        container.playbackSelection.markApplied()
+    }
+
     var controller by mutableStateOf<MediaController?>(null)
         private set
 

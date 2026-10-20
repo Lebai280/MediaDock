@@ -229,15 +229,22 @@ private fun PlayerSurface(
 
     LaunchedEffect(controller, vm.queueSignature) {
         val c = controller ?: return@LaunchedEffect
-        // 队列和控制器上挂着的那批一样就不再 set —— 旋屏重建走的就是这条路，
-        // 重设会把播放拽回开头，「旋转屏幕不中断」就废了。
-        if (!c.holdsQueue(vm.queueSignature)) {
+        // 队列和控制器上挂着的那批一样、且这次选择已经应用过，就不再 set ——
+        // 旋屏重建走的就是这条路，重设会把播放拽回开头。
+        // 但「同一队列里改了选中条目」必须按新选中项切换，令牌就是用来区分这两种情况的。
+        if (!c.holdsQueue(vm.queueSignature) || vm.needsSelectionApply) {
+            AppLog.d(
+                "player",
+                "apply selection idx=${ready.startIndex} of ${ready.items.size} " +
+                    "(sameQueue=${c.holdsQueue(vm.queueSignature)})",
+            )
             c.setMediaItems(
                 ready.items.map { it.toMediaItem() },
                 ready.startIndex,
                 ready.startPositionMs,
             )
             c.prepare()
+            vm.markSelectionApplied()
         }
         c.play()
         AppLog.d("player", "player: play() called on ${c.mediaItemCount} items")

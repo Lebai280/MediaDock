@@ -124,6 +124,8 @@ class NowPlayingViewModel(private val container: AppContainer) : ViewModel() {
         val paths = (0 until c.mediaItemCount)
             .mapNotNull { c.getMediaItemAt(it).mediaId.takeIf(String::isNotBlank) }
         container.playbackSelection.set(current, paths)
+        // 控制器上已经在播这一批，进播放页只需沿用；标记为已应用，避免按续播进度重设而回退。
+        container.playbackSelection.markApplied()
     }
 
     fun togglePlay() {

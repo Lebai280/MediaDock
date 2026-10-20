@@ -2249,7 +2249,34 @@ E1.4 改为 FTS4 + SQL 过滤/排序 + Paging。
   有选中轨时按选中轨判断；没有任何选中轨时，仅当全部音轨都不受支持才提示
   （避免把用户主动关闭音轨误报成解码失败）。
 - 发现一个与本次改动无关的既有行为：同一队列内从详情页重新选择另一个条目时，
-  播放器会继续播旧条目（`holdsQueue` 只比较队列、不比较选中项）。已记入 8.1 待办。
+  播放器会继续播旧条目（`holdsQueue` 只比较队列、不比较选中项）。已在 0.12.1 修复。
+
+### 2026-10-20 · 0.12.1：同队列重选条目修复
+
+**背景**：播放页只用 `holdsQueue()` 判断控制器上挂的是不是同一批队列；同目录/同季的另一个
+条目点播放时队列没变，于是跳过 `setMediaItems`，继续播旧条目。旋屏时的「不重设」保护与
+「新选择要切换」被混为一谈。
+
+**变更**：
+- `PlaybackSelection`：新增选择令牌（`selectionToken` / `appliedToken` 与 `needsApply`）。
+  每次显式 `set()` 自增令牌；`markApplied()` 记录已应用。
+- `PlayerViewModel`：暴露 `needsSelectionApply` 与 `markSelectionApplied()`。
+- `PlayerScreen`：`!holdsQueue || needsSelectionApply` 时才按新选中项设置队列并记录
+  `apply selection` 日志；旋屏/配置变更令牌不变，不重设。
+- `NowPlayingViewModel.syncSelection()`：从迷你条回到播放页时沿用控制器当前项，
+  写回选择后立即标记已应用，避免按续播进度回退。
+- 新增 `PlaybackSelectionTest`（5 条）。
+
+**验证（SM-G998U1 / Android 15，release 0.12.1）**：
+- 同队列 A→B：日志 `apply selection idx=1 of 26 (sameQueue=true)`，画面标题切到新条目。
+- 播放中点「下一集」后触发配置变更（`wm density 640` → 恢复）：无 `apply selection`，
+  标题与进度保持在新条目。
+- 迷你条回到播放页：无 `apply selection`，从暂停位置继续，未回到队首或旧进度。
+- 单元测试通过；0.12.1（versionCode 28）已覆盖安装。
+
+**备注**：
+- 令牌只在显式选择时自增；配置变更复用同一 ViewModel/令牌，因此不会重设，满足
+  「旋屏不中断」的既有约束。
 
 ---
 
@@ -2283,9 +2310,8 @@ E1.4 改为 FTS4 + SQL 过滤/排序 + Paging。
 14. **禁止事项**：不得用同包名/正式签名跑 connected 测试（会卸载真实包，见问题 76）。
 15. **运维记录**：OpenList `movie1`–`movie8` 的 `base_path` 已改为 `/夸克/影视`；
     修改数据库后需重启 OpenList 才生效。
-16. **同一队列重新选择条目（待修）**：从详情页对同一目录/队列里的另一个条目点播放时，
-    `holdsQueue` 只比较队列内容，控制器会继续播旧条目；需在不破坏旋屏续播的前提下
-    按选中项切换。详见 2026-10-20 条目备注。
+16. **同一队列重新选择条目**：已修复（2026-10-20，0.12.1）——选择令牌区分新选择与配置变更；
+    真机验证 A→B 切换、配置变更不重设、迷你条恢复不回退。详见同名条目。
 
 ### 8.2 功能路线图（按优先级）
 
