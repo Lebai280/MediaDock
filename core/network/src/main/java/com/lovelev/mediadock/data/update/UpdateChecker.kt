@@ -46,6 +46,9 @@ class UpdateChecker(private val client: OkHttpClient) {
         val request = Request.Builder()
             .url(UPDATE_URL)
             .header("Accept", "application/json")
+            // 共享 OkHttp 有 32 MB 磁盘缓存；版本清单必须走网络（可 304），
+            // 否则发新版后可能一直读到旧清单，用户收不到更新提示。
+            .cacheControl(okhttp3.CacheControl.FORCE_NETWORK)
             .build()
 
         val response = try {
