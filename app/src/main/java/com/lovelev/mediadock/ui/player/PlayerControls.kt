@@ -19,6 +19,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.Audiotrack
 import androidx.compose.material.icons.filled.Info
+import androidx.compose.material.icons.filled.Monitor
 import androidx.compose.material.icons.filled.MoreHoriz
 import androidx.compose.material.icons.filled.Pause
 import androidx.compose.material.icons.filled.PhotoCamera
@@ -71,6 +72,7 @@ internal fun PlayerControls(
     playing: Boolean,
     onSeek: (Long) -> Unit,
     onInfo: () -> Unit,
+    onDiagnostics: () -> Unit,
     onScreenshot: () -> Unit,
     onLoadLocalSubtitle: () -> Unit,
     onSearchSubtitles: () -> Unit,
@@ -177,6 +179,14 @@ internal fun PlayerControls(
                         },
                         contentPadding = PaddingValues(horizontal = 12.dp, vertical = 6.dp),
                         onClick = { moreExpanded = false; onInfo() },
+                    )
+                    DropdownMenuItem(
+                        text = { Text("诊断") },
+                        leadingIcon = {
+                            Icon(Icons.Filled.Monitor, null, tint = MaterialTheme.colorScheme.primary)
+                        },
+                        contentPadding = PaddingValues(horizontal = 12.dp, vertical = 6.dp),
+                        onClick = { moreExpanded = false; onDiagnostics() },
                     )
                     DropdownMenuItem(
                         text = { Text("截图") },

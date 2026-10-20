@@ -54,6 +54,9 @@ import androidx.media3.common.C
 import androidx.media3.common.Format
 import androidx.media3.common.Tracks
 import com.lovelev.mediadock.data.log.AppLog
+import com.lovelev.mediadock.core.model.DeviceCapabilities
+import com.lovelev.mediadock.core.model.HdrFormat
+import com.lovelev.mediadock.player.diagnostics.PlaybackDiagnostics
 import com.lovelev.mediadock.ui.formatClock
 import com.lovelev.mediadock.ui.formatSize
 import com.lovelev.mediadock.ui.nav.findActivity
@@ -120,6 +123,94 @@ private fun InfoRow(label: String, value: String) {
         )
         Text(text = value, style = MaterialTheme.typography.bodySmall)
     }
+}
+
+/** 只读播放诊断：当前格式、实际解码器、丢帧与设备显示能力。 */
+@Composable
+internal fun DiagnosticsDialog(
+    title: String,
+    path: String,
+    tracks: Tracks?,
+    diagnostics: PlaybackDiagnostics,
+    device: DeviceCapabilities?,
+    onDismiss: () -> Unit,
+) {
+    val videoGroup = remember(tracks) {
+        tracks?.groups?.firstOrNull { it.type == C.TRACK_TYPE_VIDEO }
+    }
+    val audioGroup = remember(tracks) {
+        tracks?.groups?.firstOrNull { it.type == C.TRACK_TYPE_AUDIO && it.isSelected }
+            ?: tracks?.groups?.firstOrNull { it.type == C.TRACK_TYPE_AUDIO }
+    }
+    val videoFormat = videoGroup?.getTrackFormat(0)
+    val audioFormat = audioGroup?.getTrackFormat(0)
+
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text("播放诊断") },
+        text = {
+            Column(
+                modifier = Modifier.verticalScroll(rememberScrollState()),
+                verticalArrangement = Arrangement.spacedBy(6.dp),
+            ) {
+                InfoRow("文件", title.ifBlank { path.substringAfterLast('/') })
+                InfoRow("视频格式", formatSummary(videoFormat))
+                InfoRow("视频支持", supportLabel(videoGroup))
+                InfoRow("视频解码", diagnostics.videoDecoder ?: "未记录")
+                InfoRow("音频格式", formatSummary(audioFormat))
+                InfoRow("音频支持", supportLabel(audioGroup))
+                InfoRow("音频解码", diagnostics.audioDecoder ?: "未记录")
+                InfoRow("丢帧", diagnostics.droppedFrames.toString())
+                InfoRow("首帧", if (diagnostics.firstFrameRendered) "已渲染" else "未渲染")
+                device?.let {
+                    InfoRow(
+                        "显示 HDR",
+                        it.display.hdrFormats.joinToString(", ") { hdr -> hdrLabel(hdr) }.ifBlank { "无" },
+                    )
+                    it.display.currentMode?.let { mode ->
+                        InfoRow("显示模式", "${mode.width}×${mode.height}@${mode.refreshRate}Hz")
+                    }
+                }
+                diagnostics.errorCode?.let { InfoRow("错误", it) }
+                Text(
+                    text = "只读诊断；不含账号密码或 URL。",
+                    style = MaterialTheme.typography.labelSmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+            }
+        },
+        confirmButton = {
+            TextButton(onClick = onDismiss) { Text("关闭") }
+        },
+    )
+}
+
+private fun formatSummary(format: Format?): String {
+    if (format == null) return "未记录"
+    return buildList {
+        format.sampleMimeType?.let(::add)
+        format.codecs?.let(::add)
+        if (format.width > 0 && format.height > 0) add("${format.width}×${format.height}")
+        if (format.frameRate > 0f) add("${format.frameRate.toInt()}fps")
+        format.colorInfo?.let { color ->
+            add("color=${color.colorTransfer}/${color.colorSpace}")
+        }
+    }.joinToString(" ").ifBlank { "未记录" }
+}
+
+private fun supportLabel(group: Tracks.Group?): String = when {
+    group == null -> "无"
+    group.isSupported -> "支持"
+    else -> "无解码器"
+}
+
+private fun hdrLabel(hdr: HdrFormat): String = when (hdr) {
+    HdrFormat.HDR10 -> "HDR10"
+    HdrFormat.HDR10_PLUS -> "HDR10+"
+    HdrFormat.HLG -> "HLG"
+    HdrFormat.DOLBY_VISION -> "DV"
+    HdrFormat.SDR -> "SDR"
+    HdrFormat.UNKNOWN -> "未知"
 }
 
 /**

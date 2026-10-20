@@ -36,4 +36,7 @@ object Routes {
 
     /** 运行日志（设置 → 关于里的入口）。出问题时用户能自己看、自己复制。 */
     const val LOGS = "logs"
+
+    /** 播放能力 / 诊断（设置 → 关于里的入口）。 */
+    const val CAPABILITIES = "capabilities"
 }

@@ -12,7 +12,7 @@ import java.net.URLEncoder
  *
  * 生成的样子：
  * ```
- * MediaDock 数据源
+ * Mooring 数据源
  * 地址：https://files.example.com/dav
  * 账号：demo
  * 密码：xxxx-xxxx
@@ -64,7 +64,7 @@ internal object ShareConfig {
         rootPath: String,
         tmdbSecret: String? = null,
     ): String = buildString {
-        appendLine("MediaDock 数据源")
+        appendLine("Mooring 数据源")
         appendLine("地址：$url")
         appendLine("账号：$username")
         appendLine("密码：$password")

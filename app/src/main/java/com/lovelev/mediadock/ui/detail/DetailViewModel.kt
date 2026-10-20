@@ -15,16 +15,25 @@ import com.lovelev.mediadock.data.local.Playlist
 import com.lovelev.mediadock.data.local.PlaybackProgress
 import com.lovelev.mediadock.data.local.TitleDetail
 import com.lovelev.mediadock.data.repo.PlayableVersion
+import com.lovelev.mediadock.core.model.HdrFormat
+import com.lovelev.mediadock.core.model.ProbeStatus
+import com.lovelev.mediadock.core.model.StreamInfo
 import com.lovelev.mediadock.data.tmdb.CastMember
 import com.lovelev.mediadock.data.tmdb.TmdbClient
 import com.lovelev.mediadock.data.tmdb.TmdbMatch
 import com.lovelev.mediadock.di.AppContainer
 import com.lovelev.mediadock.ui.library.orderedEpisodes
 import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.ExperimentalCoroutinesApi
+import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.flow.flatMapLatest
+import kotlinx.coroutines.flow.flow
+import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
@@ -95,12 +104,20 @@ class DetailViewModel(private val container: AppContainer) : ViewModel() {
     var heroTint by mutableStateOf<Color?>(null)
         private set
 
+    private data class ProbeTarget(val path: String, val sizeBytes: Long?)
+
+    // init 引用了它，必须声明在 init 之前（Kotlin 按声明顺序初始化）。
+    private val probeTarget = MutableStateFlow<ProbeTarget?>(null)
+
     // init 必须放在它引用的属性**之后** —— Kotlin 按声明顺序初始化，
     // 之前把 init 写在了 entries 前面，运行起来就是 NullPointerException。
     init {
         viewModelScope.launch {
             // 等条目到位（StateFlow 的初值是空列表，不得直接调用 first()）
             val item = entries.first { it.isNotEmpty() }.first()
+
+            val isTv = item.episode != null || item.season != null
+            if (!isTv) probeTarget.value = ProbeTarget(item.path, item.sizeBytes)
 
             // 背景主色：取海报底部一条的均值（w92 只有几 KB），拿不到就算了
             item.heroArt()?.let { art ->
@@ -110,8 +127,8 @@ class DetailViewModel(private val container: AppContainer) : ViewModel() {
                 )
             }
 
-            val tmdbId = item.tmdbId ?: return@launch
-            val isTv = item.episode != null || item.season != null
+            val tmdbId = item.tmdbId
+            if (tmdbId == null) return@launch
             container.details.ensure(item.path, tmdbId, isTv)?.let { notice = it }
         }
     }
@@ -213,6 +230,37 @@ class DetailViewModel(private val container: AppContainer) : ViewModel() {
     val playlists: StateFlow<List<Playlist>> = container.playlists.playlists()
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
 
+    sealed interface StreamProbeUi {
+        data object None : StreamProbeUi
+        data object Loading : StreamProbeUi
+        data object Unknown : StreamProbeUi
+        data class Ready(val info: StreamInfo, val displayHdr: Set<HdrFormat>) : StreamProbeUi
+    }
+
+    @OptIn(ExperimentalCoroutinesApi::class)
+    val streamProbe: StateFlow<StreamProbeUi> = probeTarget
+        .flatMapLatest { target ->
+            if (target == null) {
+                flowOf<StreamProbeUi>(StreamProbeUi.None)
+            } else {
+                flow<StreamProbeUi> {
+                    emit(StreamProbeUi.Loading)
+                    val info = container.streamProbe.probe(target.path, target.sizeBytes)
+                    if (info.status == ProbeStatus.OK) {
+                        emit(
+                            StreamProbeUi.Ready(
+                                info = info,
+                                displayHdr = container.deviceCapabilities.displayHdrFormats(),
+                            ),
+                        )
+                    } else {
+                        emit(StreamProbeUi.Unknown)
+                    }
+                }
+            }
+        }
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), StreamProbeUi.None)
+
     fun addToPlaylist(playlistId: Long, path: String) {
         viewModelScope.launch { container.playlists.add(playlistId, path) }
     }
@@ -258,6 +306,7 @@ class DetailViewModel(private val container: AppContainer) : ViewModel() {
 
     fun chooseVersion(path: String) {
         chosenVersionPath = path
+        probeTarget.value = ProbeTarget(path, versions.value.firstOrNull { it.path == path }?.sizeBytes)
     }
 
     fun selectSeason(season: Int) {

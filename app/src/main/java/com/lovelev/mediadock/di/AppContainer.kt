@@ -1,6 +1,8 @@
 package com.lovelev.mediadock.di
 
 import android.content.Context
+import androidx.media3.datasource.DataSource
+import androidx.media3.datasource.DefaultDataSource
 import androidx.room.Room
 import com.lovelev.mediadock.data.local.MediaStoreScanner
 import com.lovelev.mediadock.data.local.LocalScanner
@@ -13,11 +15,18 @@ import com.lovelev.mediadock.data.repo.LibraryRepository
 import com.lovelev.mediadock.data.repo.PlaylistRepository
 import com.lovelev.mediadock.data.repo.ProgressRepository
 import com.lovelev.mediadock.data.repo.SubtitleRepository
+import com.lovelev.mediadock.data.probe.StreamProbeRepository
 import com.lovelev.mediadock.data.subtitle.OpenSubtitlesProvider
+import com.lovelev.mediadock.data.smb.SmbDataSource
 import com.lovelev.mediadock.data.tmdb.TmdbClient
 import com.lovelev.mediadock.data.update.UpdateChecker
 import com.lovelev.mediadock.data.webdav.WebDavClient
 import com.lovelev.mediadock.player.PlaybackSelection
+import com.lovelev.mediadock.player.MultiSourceHttpDataSource
+import com.lovelev.mediadock.player.PlayableUrlResolver
+import com.lovelev.mediadock.player.RoutingDataSource
+import com.lovelev.mediadock.player.capabilities.DeviceCapabilityProbe
+import com.lovelev.mediadock.player.diagnostics.PlaybackDiagnosticsStore
 import com.lovelev.mediadock.ui.detail.DetailSelection
 import okhttp3.OkHttpClient
 import java.util.concurrent.TimeUnit
@@ -83,6 +92,23 @@ class AppContainer(context: Context) {
 
     /** 「下一个要播的文件」，由浏览页/媒体库写入、播放页读取。 */
     val playbackSelection: PlaybackSelection = PlaybackSelection()
+
+    /** 库路径 → 播放地址；播放页与 StreamInfo 探针共用。 */
+    val playableUrlResolver: PlayableUrlResolver by lazy { PlayableUrlResolver(credentials) }
+
+    /**
+     * 播放与探测共用同一套数据源路由：smb:// 走 SMB，其余交给 DefaultDataSource
+     * （file/content 本地读，http(s) 落到补鉴权的 factory）。构造参数与播放服务原实现一致。
+     */
+    val playbackDataSourceFactory: DataSource.Factory by lazy {
+        RoutingDataSource.Factory(
+            smbFactory = SmbDataSource.Factory { sources.cachedAll() },
+            otherFactory = DefaultDataSource.Factory(
+                appContext,
+                MultiSourceHttpDataSource.Factory(mediaOkHttpClient) { sources.cachedAll() },
+            ),
+        )
+    }
 
     /** 详情页要看哪一批条目，由海报墙写入、详情页读取。 */
     val detailSelection: DetailSelection = DetailSelection()
@@ -154,6 +180,23 @@ class AppContainer(context: Context) {
     }
 
     val progress: ProgressRepository by lazy { ProgressRepository(database, libraryStore) }
+
+    /** 容器头探测：全源复用 URL 解析与鉴权头，按需探测并写 Room 缓存。 */
+    val streamProbe: StreamProbeRepository by lazy {
+        StreamProbeRepository(
+            context = appContext,
+            sources = sources,
+            resolver = playableUrlResolver,
+            dao = database.streamInfoDao(),
+            factory = playbackDataSourceFactory,
+        )
+    }
+
+    /** 设备声明能力；诊断页打开时强制刷新，平时进程内缓存。 */
+    val deviceCapabilities: DeviceCapabilityProbe by lazy { DeviceCapabilityProbe(appContext) }
+
+    /** 最近一次播放的运行时诊断。 */
+    val playbackDiagnostics: PlaybackDiagnosticsStore = PlaybackDiagnosticsStore()
 
     val favorites: FavoriteRepository by lazy { FavoriteRepository(database, libraryStore) }
 

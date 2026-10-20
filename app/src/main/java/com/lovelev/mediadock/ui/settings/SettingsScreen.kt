@@ -57,6 +57,7 @@ fun SettingsScreen(
     onOpenSources: () -> Unit,
     onLoggedOut: () -> Unit,
     onOpenLogs: () -> Unit,
+    onOpenCapabilities: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
     LaunchedEffect(Unit) {
@@ -278,6 +279,12 @@ fun SettingsScreen(
                 onClick = onOpenLogs,
             )
             HorizontalDivider()
+            ValueRow(
+                label = "播放能力 / 诊断",
+                value = "设备、解码器与最近播放",
+                onClick = onOpenCapabilities,
+            )
+            HorizontalDivider()
 
             // 检查更新：命中新版本就展开成一条「下载新版本」；其余状态就一行字，点一下重新查
             when (val state = vm.update) {
@@ -461,7 +468,7 @@ private fun DestructiveRow(label: String, onClick: () -> Unit) {
 /** 把分享文本放进剪贴板（用平台 API，不得使用已废弃的 Compose 剪贴板包装）。 */
 internal fun copyToClipboard(context: Context, text: String) {
     val manager = context.getSystemService(Context.CLIPBOARD_SERVICE) as? ClipboardManager ?: return
-    manager.setPrimaryClip(ClipData.newPlainText("MediaDock 数据源", text))
+    manager.setPrimaryClip(ClipData.newPlainText("Mooring 数据源", text))
 }
 
 /** 用系统浏览器 / 下载器打开一个 http(s) 链接。 */

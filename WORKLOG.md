@@ -61,6 +61,18 @@
 
 **尚未验证**：终止应用后重新启动，凭据是否仍然有效（Keystore 解密链路）。
 
+### 应用更名：MediaDock → Mooring（2026-10-20）
+
+- **决定**：桌面显示名改为 **Mooring**（英文「系泊处」）。选它的理由：四个标准里没有短板——贴（Dock 是公共码头，Mooring 是把船系在自己的桩上）、好记、有诗意、重名少。
+- **范围**：只改显示名与用户可见的品牌字样。`applicationId` 仍是 `com.lovelev.mediadock`，类名（`MediaDockApp`）、主题（`Theme.MediaDock`）、日志 TAG、模块与包结构全部不动。
+- **改动点**：
+  - `res/values/strings.xml` 的 `app_name` → Mooring（桌面与任务栏显示的就是它）
+  - 数据源分享文本标题、播放诊断标题、各处剪贴板标签 → Mooring
+  - 截图文件名前缀与相册目录 `Pictures/MediaDock` → `Pictures/Mooring`
+- **验证**：`assembleRelease` 成功；`aapt2 dump badging` 显示 `application-label:'Mooring'`、`package: name='com.lovelev.mediadock'`；真机 `install -r` 成功（同包同签名，数据保留），再从设备拉回 `base.apk` 复核，标签仍是 Mooring，versionCode 33 / 0.13.4 未变。
+- **副作用**：之后新截图进 `Pictures/Mooring`，旧截图仍留在 `Pictures/MediaDock`。
+- **待办**：文档（README / WORKLOG 标题）与代码里的 `MediaDock` 字样暂未改；将来若连包名一起换，需手动迁移 WebDAV 凭据（applicationId 变了等于新应用）。
+
 ### Stage 2 的进展与验证（2026-10-15）
 
 代码已完成、编译通过。**本机 adb 无设备，尚未装机验证过** —— 下面是"已经证明了的"和"还没证明的"。
@@ -2520,6 +2532,48 @@ E1.5 中首页 `RECENT` 首屏 p95 356.7 ms，是当前最慢查询。
 - 扫描/刮削状态仍为应用作用域单例；ViewModel 调用方式未变，`container.library` 公开 API
   除死代码外保持一致。
 - 未改数据库、迁移、Worker 名称与 401/429 策略；未提升版本号，未 push。
+
+### 2026-10-20 · Phase 3A（E3.1）：设备能力、StreamInfo 探测与播放诊断
+
+**背景**：Phase 0/1 已完成，Phase 2 真机验收暂缓。Phase 3A 要求先建立
+`DeviceCapabilities` / `StreamInfo` 与诊断面板，不改变播放行为，为后续 HDR 直出、
+降级软解与投屏提供事实基础。
+
+**变更**：
+- `:core:model` 新增 `StreamInfo`、`DeviceCapabilities`、`MediaSpecBadges` 与 HDR 分类规则。
+- DB v13：新增 `stream_info_cache(path, size_bytes, schema_version, probed_at, payload_json)`，
+  真实迁移 `MIGRATION_12_13`，提交 `13.json`；JSON payload 避免为可变长轨道再拆三张表。
+- 抽出 `PlayableUrlResolver` 与 `AppContainer.playbackDataSourceFactory`，播放服务与探针共用
+  同一套 URL 解析/鉴权；播放行为不变。
+- `StreamProbeRepository`：按需探测、Room 缓存（schema v3、30 天 TTL、size 校验）、并发 2 +
+  single-flight；失败返回 UNKNOWN，不阻塞播放，不写失败缓存。
+- 探针用独立 `ExoPlayer` 做只读 `prepare()` 读取 `currentTracks` 的 Format（与播放器同一套
+  解析器），不渲染、不播放、音量 0；复用 401/429 策略。
+- 新增设置页「播放能力 / 诊断」：设备身份、显示 HDR/亮度/模式、视频/音频解码器、
+  音频输出、最近播放的实际解码器/格式/丢帧/首帧；支持刷新与脱敏复制。
+- 播放页 ⋯ 菜单新增「诊断」：当前流格式、实际解码器、丢帧、首帧、设备显示 HDR 对照；
+  原「详细」对话框保持不动。
+- 详情页规格徽标改由真实 `StreamInfo` 驱动：分辨率、HDR10/HDR10+/HLG/DV、Atmos（仅 JOC）；
+  设备不支持时弱化显示；探测未知时不显示徽标，不再从文件名猜。
+- `PlaybackService` 只新增 `AnalyticsListener` 写诊断 store；渲染器、轨道选择、缓冲、
+  音频焦点与错误策略均未改。
+- 应用显示名改为 **Mooring**（`strings.xml`、剪贴板标签、截图文件名、诊断标题）；
+  applicationId/包名仍为 `com.lovelev.mediadock`。
+
+**验证**：
+- 单测：core:model **53** 条、app **123** 条全部通过；debug 与签名 release 构建通过。
+- 真机 SM-G998U1 覆盖安装：v12→v13 迁移后媒体库仍为 280 个视频；能力页与 S4 记录一致
+  （HDR10/HLG/HDR10+、无 DV；HEVC/VP9 硬解、AV1 软解；AC-3/E-AC-3/JOC 可解；
+  TrueHD/DTS 无解码器）。
+- 详情页真实探测返回 `video=1 audio=1`，徽标显示 **1080P**；二次打开命中 Room 缓存。
+- 播放后设置页「最近播放」显示 `c2.qti.hevc.decoder` / `c2.sec.flac.decoder`、
+  2560×1440、丢帧 17、首帧已渲染；播放页「诊断」菜单项存在。
+- 日志无 FATAL；401/429 零重试策略未改。
+
+**备注**：
+- 显示名改动不涉及包名/签名/更新链；GitHub 仓库与项目文档仍使用 MediaDock。
+- StreamInfo 缓存 schema 版本当前为 3；旧探测结果会在升级后自动失效。
+- SMB/Emby 探针复用同一数据源工厂，代码路径已接入，但无环境实测。
 
 ---
 

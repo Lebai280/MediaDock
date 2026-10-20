@@ -47,12 +47,12 @@ internal fun captureFrame(context: Context, root: View?, onDone: (String) -> Uni
 
 /** 存进相册。API 29+ 走 MediaStore 的 scoped storage，不需要存储权限。 */
 private fun saveToGallery(context: Context, bitmap: Bitmap): String {
-    val name = "MediaDock_${System.currentTimeMillis()}.png"
+    val name = "Mooring_${System.currentTimeMillis()}.png"
     val values = ContentValues().apply {
         put(MediaStore.Images.Media.DISPLAY_NAME, name)
         put(MediaStore.Images.Media.MIME_TYPE, "image/png")
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
-            put(MediaStore.Images.Media.RELATIVE_PATH, Environment.DIRECTORY_PICTURES + "/MediaDock")
+            put(MediaStore.Images.Media.RELATIVE_PATH, Environment.DIRECTORY_PICTURES + "/Mooring")
         }
     }
     return try {

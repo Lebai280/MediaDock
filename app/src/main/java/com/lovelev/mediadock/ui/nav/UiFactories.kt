@@ -13,6 +13,7 @@ import com.lovelev.mediadock.ui.playlist.PlaylistDetailViewModel
 import com.lovelev.mediadock.ui.playlist.PlaylistsViewModel
 import com.lovelev.mediadock.ui.search.SearchViewModel
 import com.lovelev.mediadock.ui.settings.SettingsViewModel
+import com.lovelev.mediadock.ui.settings.CapabilitiesViewModel
 import com.lovelev.mediadock.ui.source.SourceViewModel
 import com.lovelev.mediadock.ui.source.SourcesViewModel
 
@@ -26,6 +27,7 @@ class UiFactories(private val container: AppContainer) {
     val favorites: ViewModelProvider.Factory = FavoritesViewModel.factory(container)
     val browser: ViewModelProvider.Factory = BrowserViewModel.factory(container)
     val settings: ViewModelProvider.Factory = SettingsViewModel.factory(container)
+    val capabilities: ViewModelProvider.Factory = CapabilitiesViewModel.factory(container)
     val search: ViewModelProvider.Factory = SearchViewModel.factory(container)
     val detail: ViewModelProvider.Factory = DetailViewModel.factory(container)
     val player: ViewModelProvider.Factory = PlayerViewModel.factory(container)

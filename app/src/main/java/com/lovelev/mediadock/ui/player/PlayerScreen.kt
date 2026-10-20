@@ -24,6 +24,7 @@ import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableLongStateOf
 import androidx.compose.runtime.mutableStateOf
@@ -146,6 +147,9 @@ private fun PlayerSurface(
     var hint by remember { mutableStateOf<String?>(null) }
     val infoOpen = vm.infoOpen
     val searchOpen = vm.searchOpen
+    val diagnosticsOpen = vm.diagnosticsOpen
+    val playbackDiagnostics by vm.playbackDiagnostics.collectAsState()
+    val deviceCapabilities = vm.deviceCapabilities
     var playerView by remember { mutableStateOf<PlayerView?>(null) }
     val scope = rememberCoroutineScope()
 
@@ -439,6 +443,10 @@ private fun PlayerSurface(
                         AppLog.d("player", "info tapped")
                         vm.updateInfoOpen(true)
                     },
+                    onDiagnostics = {
+                        AppLog.d("player", "diagnostics tapped")
+                        vm.updateDiagnosticsOpen(true)
+                    },
                     onScreenshot = {
                         AppLog.d("player", "screenshot tapped")
                         captureFrame(context, playerView) { result -> hint = result }
@@ -472,6 +480,17 @@ private fun PlayerSurface(
                 duration = duration,
                 tracks = tracks,
                 onDismiss = { vm.updateInfoOpen(false) },
+            )
+        }
+
+        if (diagnosticsOpen) {
+            DiagnosticsDialog(
+                title = title,
+                path = path,
+                tracks = tracks,
+                diagnostics = playbackDiagnostics,
+                device = deviceCapabilities,
+                onDismiss = { vm.updateDiagnosticsOpen(false) },
             )
         }
 

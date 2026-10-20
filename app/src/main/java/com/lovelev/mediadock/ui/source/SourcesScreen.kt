@@ -195,5 +195,5 @@ private fun typeLabel(type: SourceType): String = when (type) {
 /** 分享文本由 ViewModel 拼装，这里只负责写入剪贴板。 */
 private fun copyToClipboard(context: Context, text: String) {
     val manager = context.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
-    manager.setPrimaryClip(ClipData.newPlainText("MediaDock 数据源", text))
+    manager.setPrimaryClip(ClipData.newPlainText("Mooring 数据源", text))
 }

@@ -207,7 +207,7 @@ fun PlaylistDetailScreen(
                 onClick = {
                     val text = vm.shareText()
                     val manager = context.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
-                    manager.setPrimaryClip(ClipData.newPlainText("MediaDock 片单", text))
+                    manager.setPrimaryClip(ClipData.newPlainText("Mooring 片单", text))
                     vm.showHint("片单已复制")
                 },
                 enabled = state.rows.isNotEmpty(),

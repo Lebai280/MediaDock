@@ -5,7 +5,6 @@ import android.content.Intent
 import androidx.media3.common.AudioAttributes
 import androidx.media3.common.C
 import androidx.media3.common.Player
-import androidx.media3.datasource.DefaultDataSource
 import androidx.media3.exoplayer.DefaultLoadControl
 import androidx.media3.exoplayer.ExoPlayer
 import androidx.media3.exoplayer.source.DefaultMediaSourceFactory
@@ -15,7 +14,6 @@ import androidx.media3.session.MediaSessionService
 import com.lovelev.mediadock.MainActivity
 import com.lovelev.mediadock.MediaDockApp
 import com.lovelev.mediadock.data.repo.ProgressRepository
-import com.lovelev.mediadock.data.smb.SmbDataSource
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
@@ -46,19 +44,7 @@ class PlaybackService : MediaSessionService() {
 
         val exo = ExoPlayer.Builder(this)
             .setMediaSourceFactory(
-                DefaultMediaSourceFactory(
-                    // 按 scheme 路由：smb:// 走 SMB 数据源；其余交给 DefaultDataSource
-                    // （它把 file:// / content:// 交给本地/内容数据源，http(s) 落到补鉴权的 factory）。
-                    RoutingDataSource.Factory(
-                        smbFactory = SmbDataSource.Factory { container.sources.cachedAll() },
-                        otherFactory = DefaultDataSource.Factory(
-                            this,
-                            MultiSourceHttpDataSource.Factory(container.mediaOkHttpClient) {
-                                container.sources.cachedAll()
-                            },
-                        ),
-                    ),
-                )
+                DefaultMediaSourceFactory(container.playbackDataSourceFactory)
                     // 默认策略会把 401/429 当作可重试错误（点播默认重试 3 次）——
                     // 那会绕过「401/429 绝不自动重试」的硬约束，一次播放变 4 个失败请求。
                     // 见 WebDavLoadErrorPolicy。
@@ -105,6 +91,11 @@ class PlaybackService : MediaSessionService() {
                 if (isPlaying) startTicker() else stopTickerAndSave()
             }
         })
+        exo.addAnalyticsListener(
+            com.lovelev.mediadock.player.diagnostics.DiagnosticsAnalyticsListener(
+                container.playbackDiagnostics,
+            ),
+        )
 
         // sessionActivity 一设，通知点一下就能回到 App，而且从最近任务里划掉时
         // 服务不会被顺带停掉（后台播放要的就是这个）。

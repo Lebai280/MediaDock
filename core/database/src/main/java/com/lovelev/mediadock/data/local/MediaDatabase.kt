@@ -39,6 +39,7 @@ import androidx.sqlite.db.SupportSQLiteDatabase
         ScanRunEntity::class,
         DirectoryCacheEntity::class,
         ScanQueueEntity::class,
+        StreamInfoEntity::class,
     ],
     views = [
         MediaItemEntity::class,
@@ -64,10 +65,11 @@ abstract class MediaDatabase : RoomDatabase() {
     abstract fun scrapeTaskDao(): ScrapeTaskDao
     abstract fun worksCardDao(): WorksCardDao
     abstract fun sourceDao(): SourceDao
+    abstract fun streamInfoDao(): StreamInfoDao
 
     companion object {
         /** 当前库表版本。**单一来源**：`@Database` 与迁移覆盖单测都读它。 */
-        const val VERSION = 12
+        const val VERSION = 13
 
         /** v3 → v4：加收藏表。纯新增，不动既有数据。 */
         val MIGRATION_3_4 = object : Migration(3, 4) {
@@ -205,12 +207,27 @@ abstract class MediaDatabase : RoomDatabase() {
         }
 
         /**
+         * v12 → v13：StreamInfo 探测结果缓存。纯新增，不动用户数据；
+         * 内容是 app 层序列化 JSON，schema_version 用于后续格式演进。
+         */
+        val MIGRATION_12_13 = object : Migration(12, 13) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL(
+                    "CREATE TABLE IF NOT EXISTS `stream_info_cache` (" +
+                        "`path` TEXT NOT NULL, `size_bytes` INTEGER, " +
+                        "`schema_version` INTEGER NOT NULL, `probed_at` INTEGER NOT NULL, " +
+                        "`payload_json` TEXT NOT NULL, PRIMARY KEY(`path`))",
+                )
+            }
+        }
+
+        /**
          * **所有迁移都放这个数组里，容器整批注册**。
          * 注意数组要放在各迁移定义**之后**（companion 是顺序初始化的）。
          */
         val MIGRATIONS = arrayOf(
             MIGRATION_3_4, MIGRATION_4_5, MIGRATION_5_6, MIGRATION_6_7, MIGRATION_7_8,
-            MIGRATION_8_9, MIGRATION_9_10, MIGRATION_10_11, MIGRATION_11_12,
+            MIGRATION_8_9, MIGRATION_9_10, MIGRATION_10_11, MIGRATION_11_12, MIGRATION_12_13,
         )
     }
 }

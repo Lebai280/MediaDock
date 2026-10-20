@@ -1,8 +1,6 @@
 package com.lovelev.mediadock.ui.player
 
 import android.content.ComponentName
-import android.net.Uri
-import android.provider.DocumentsContract
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
@@ -22,7 +20,6 @@ import com.lovelev.mediadock.core.model.SourceType
 import com.lovelev.mediadock.core.model.TitleParser
 import com.lovelev.mediadock.data.repo.LocalSubtitle
 import com.lovelev.mediadock.data.source.SourceConfig
-import com.lovelev.mediadock.data.smb.SmbUrl
 import com.lovelev.mediadock.data.subtitle.SubtitleHit
 import com.lovelev.mediadock.data.webdav.WebDavClient
 import com.lovelev.mediadock.data.webdav.WebDavUrl
@@ -165,13 +162,13 @@ class PlayerViewModel(private val container: AppContainer) : ViewModel() {
                 if (allLocal) emptyMap() else findSubtitles(byId)
 
             val items = queue.mapNotNull { path ->
-                val url = resolveUrl(path, sourceFor(path, byId, known), known)
+                val url = container.playableUrlResolver.resolve(path, byId, known)
                     ?: return@mapNotNull null
                 // 同作品/同集在其它源的版本，作为播放失败时的备选（按选源规则排序）
                 val alternatives = container.library.versionsOf(path)
                     .map { it.path }
                     .filter { it != path }
-                    .mapNotNull { alt -> resolveUrl(alt, sourceFor(alt, byId, known), known) }
+                    .mapNotNull { alt -> container.playableUrlResolver.resolve(alt, byId, known) }
                 if (alternatives.isNotEmpty()) {
                     synchronized(fallbackUrls) { fallbackUrls[path] = alternatives.toMutableList() }
                 }
@@ -192,56 +189,6 @@ class PlayerViewModel(private val container: AppContainer) : ViewModel() {
             )
         }
     }
-
-    /** 裸路径归旧 WebDAV 源；限定路径按前缀找源。 */
-    private fun sourceFor(
-        path: String,
-        byId: Map<String, SourceConfig>,
-        known: Set<String>,
-    ): SourceConfig? {
-        val parsed = SourcePaths.parseKnown(path, known)
-        return if (parsed != null) byId[parsed.sourceId.value] else byId[SourceId.WEBDAV.value]
-    }
-
-    /**
-     * 一条队列项 → 真正要播的地址。
-     *
-     * 本地条目的地址是**现拼**的：库里存的是「相对目录树根的路径」，
-     * SAF 的 document URI 依赖那次授权拿到的树，存下来重启就会失效（见 [LocalMedia]）。
-     */
-    private suspend fun resolveUrl(
-        path: String,
-        source: SourceConfig?,
-        known: Set<String>,
-    ): String? {
-        // 系统媒体库的条目存的就是它自己的 content:// URI —— 跨重启稳定，直接当地址用
-        if (LocalMedia.isContentUri(path)) return path
-        val relative = LocalMedia.decode(path)
-        if (relative != null) {
-            val tree = container.credentials.loadLocalTree() ?: return null
-            return buildLocalUri(Uri.parse(tree), relative)?.toString()
-        }
-        val key = SourcePaths.parseKnown(path, known)?.key ?: path
-        return when (source?.type) {
-            SourceType.WEBDAV -> WebDavUrl.rootCollection(source.url, source.rootPath)
-                ?.let { WebDavUrl.child(it, key).toString() }
-            SourceType.SMB -> SmbUrl.build(source, key)
-            SourceType.EMBY, SourceType.JELLYFIN -> {
-                val itemId = key.removePrefix("item:")
-                if (itemId.isBlank()) null
-                else "${source.url.trimEnd('/')}/Videos/$itemId/stream?static=true"
-            }
-            else -> null
-        }
-    }
-
-    private fun buildLocalUri(treeUri: Uri, relative: String): Uri? = runCatching {
-        val treeId = DocumentsContract.getTreeDocumentId(treeUri)
-        DocumentsContract.buildDocumentUriUsingTree(
-            treeUri,
-            LocalMedia.childDocumentId(treeId, relative),
-        )
-    }.getOrNull()
 
     /**
      * 找同级目录的字幕：**每个数据源一次 PROPFIND**，本地按文件名配对。
@@ -320,6 +267,15 @@ class PlayerViewModel(private val container: AppContainer) : ViewModel() {
     var searchOpen by mutableStateOf(false)
         private set
 
+    var diagnosticsOpen by mutableStateOf(false)
+        private set
+
+    var deviceCapabilities by mutableStateOf<com.lovelev.mediadock.core.model.DeviceCapabilities?>(null)
+        private set
+
+    val playbackDiagnostics: kotlinx.coroutines.flow.StateFlow<com.lovelev.mediadock.player.diagnostics.PlaybackDiagnostics> =
+        container.playbackDiagnostics.state
+
     fun updateLocked(value: Boolean) {
         locked = value
     }
@@ -330,6 +286,15 @@ class PlayerViewModel(private val container: AppContainer) : ViewModel() {
 
     fun updateSearchOpen(value: Boolean) {
         searchOpen = value
+    }
+
+    fun updateDiagnosticsOpen(value: Boolean) {
+        diagnosticsOpen = value
+        if (value && deviceCapabilities == null) {
+            viewModelScope.launch {
+                deviceCapabilities = container.deviceCapabilities.probe(force = false)
+            }
+        }
     }
 
     // ---- 在线字幕搜索：结果与输入留在 ViewModel，旋屏不丢 ----

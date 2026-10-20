@@ -73,7 +73,9 @@ import androidx.compose.ui.unit.sp
 import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.window.DialogProperties
 import coil3.compose.AsyncImage
-import com.lovelev.mediadock.core.model.MediaTypes
+import com.lovelev.mediadock.core.model.BadgeSupport
+import com.lovelev.mediadock.core.model.MediaSpecBadges
+import com.lovelev.mediadock.core.model.SpecBadge
 import com.lovelev.mediadock.data.local.EpisodeMeta
 import com.lovelev.mediadock.data.local.MediaItemEntity
 import com.lovelev.mediadock.data.local.PlaybackProgress
@@ -118,6 +120,7 @@ fun DetailScreen(
     val detail by vm.detail.collectAsState()
     val cast by vm.cast.collectAsState()
     val versions by vm.versions.collectAsState()
+    val streamProbe by vm.streamProbe.collectAsState()
 
     if (entries.isEmpty()) {
         Box(
@@ -219,7 +222,6 @@ fun DetailScreen(
                             ?: progress[target.path]?.durationMs?.let { formatDurationWords(it) }
                                 ?.takeIf { it.isNotEmpty() }?.let(::add)
                         formatSize(sample.sizeBytes).takeIf { it.isNotEmpty() }?.let(::add)
-                        MediaTypes.resolutionLabel(sample.name)?.let(::add)
                     }
                 }.joinToString("  ")
                 Row(
@@ -229,6 +231,17 @@ fun DetailScreen(
                     sample.rating?.let { RatingBadge(it) }
                     if (metaText.isNotBlank()) {
                         Text(metaText, style = MaterialTheme.typography.bodyMedium, color = OnBackdropDim)
+                    }
+                }
+                (streamProbe as? DetailViewModel.StreamProbeUi.Ready)?.let { probe ->
+                    val badges = MediaSpecBadges.badges(
+                        video = probe.info.video.firstOrNull(),
+                        audio = probe.info.audio,
+                        displayHdr = probe.displayHdr,
+                    )
+                    if (badges.isNotEmpty()) {
+                        Spacer(Modifier.height(8.dp))
+                        SpecBadgesRow(badges)
                     }
                 }
 
@@ -849,13 +862,36 @@ private fun OverviewSection(overview: String) {
     }
 }
 
-/** 版本标签：来源 · 分辨率 · 体积。 */
+/** 版本标签：来源 · 体积。分辨率由真实 StreamInfo 徽标给出，不再从文件名猜。 */
 private fun versionLabel(version: PlayableVersion): String {
-    val resolution = MediaTypes.resolutionLabel(version.name)
     val size = formatSize(version.sizeBytes ?: 0L).takeIf { it.isNotBlank() }
-    return listOfNotNull(version.sourceName, resolution, size)
+    return listOfNotNull(version.sourceName, size)
         .joinToString(" · ")
         .ifBlank { version.name }
+}
+
+@Composable
+private fun SpecBadgesRow(badges: List<SpecBadge>) {
+    Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+        badges.forEach { badge ->
+            val color = when (badge.support) {
+                BadgeSupport.SUPPORTED -> OnBackdrop
+                BadgeSupport.UNSUPPORTED -> Color(0xFFFF8A80)
+                BadgeSupport.UNKNOWN -> OnBackdropDim
+            }
+            Surface(
+                shape = RoundedCornerShape(6.dp),
+                color = Color.White.copy(alpha = 0.12f),
+            ) {
+                Text(
+                    text = badge.text,
+                    style = MaterialTheme.typography.labelSmall,
+                    color = color,
+                    modifier = Modifier.padding(horizontal = 8.dp, vertical = 3.dp),
+                )
+            }
+        }
+    }
 }
 
 @Composable
