@@ -56,14 +56,12 @@ import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
-import androidx.lifecycle.viewmodel.compose.viewModel
 import androidx.paging.LoadState
 import androidx.paging.compose.collectAsLazyPagingItems
 import androidx.paging.compose.itemKey
 import coil3.compose.AsyncImage
 import com.lovelev.mediadock.core.data.WorkCard
 import com.lovelev.mediadock.data.tmdb.TmdbClient
-import com.lovelev.mediadock.di.AppContainer
 
 /**
  * 搜索页：FTS4 + SQL 过滤/排序 + Paging 3。
@@ -71,12 +69,11 @@ import com.lovelev.mediadock.di.AppContainer
  */
 @Composable
 fun SearchScreen(
-    container: AppContainer,
+    vm: SearchViewModel,
     onBack: () -> Unit,
     onOpenDetail: (paths: List<String>) -> Unit,
     modifier: Modifier = Modifier,
 ) {
-    val vm: SearchViewModel = viewModel(factory = SearchViewModel.factory(container))
     val state by vm.state.collectAsState()
     val options = vm.options
     val results = vm.results.collectAsLazyPagingItems()

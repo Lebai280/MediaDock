@@ -9,6 +9,7 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.Row
 import com.lovelev.mediadock.ui.search.SearchScreen
+import com.lovelev.mediadock.ui.search.SearchViewModel
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.graphics.Color
 import androidx.compose.material3.FilledIconButton
@@ -46,8 +47,6 @@ import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableStateOf
-import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.vector.ImageVector
@@ -59,11 +58,12 @@ import androidx.navigation.compose.composable
 import androidx.navigation.compose.currentBackStackEntryAsState
 import androidx.navigation.compose.rememberNavController
 import androidx.compose.runtime.collectAsState
+import com.lovelev.mediadock.ui.AppViewModel
 import com.lovelev.mediadock.ui.history.HistoryScreen
+import com.lovelev.mediadock.ui.history.HistoryViewModel
 import com.lovelev.mediadock.ui.mine.MineScreen
 import com.lovelev.mediadock.ui.theme.resolveDark
 import com.lovelev.mediadock.ui.theme.ThemeMode
-import com.lovelev.mediadock.di.AppContainer
 import com.lovelev.mediadock.ui.browse.BrowserScreen
 import com.lovelev.mediadock.ui.browse.BrowserViewModel
 import com.lovelev.mediadock.ui.detail.DetailScreen
@@ -76,9 +76,13 @@ import com.lovelev.mediadock.ui.nav.PlayerImmersive
 import com.lovelev.mediadock.ui.nav.PlayerOrientation
 import com.lovelev.mediadock.ui.nav.Routes
 import com.lovelev.mediadock.ui.nav.SystemBarAppearance
+import com.lovelev.mediadock.ui.nav.UiFactories
 import com.lovelev.mediadock.ui.playlist.PlaylistDetailScreen
+import com.lovelev.mediadock.ui.playlist.PlaylistDetailViewModel
 import com.lovelev.mediadock.ui.playlist.PlaylistsScreen
+import com.lovelev.mediadock.ui.playlist.PlaylistsViewModel
 import com.lovelev.mediadock.ui.source.SourcesScreen
+import com.lovelev.mediadock.ui.source.SourcesViewModel
 import com.lovelev.mediadock.ui.player.MiniPlayerBar
 import com.lovelev.mediadock.ui.player.NowPlayingViewModel
 import com.lovelev.mediadock.ui.player.PlayerScreen
@@ -96,27 +100,30 @@ class MainActivity : ComponentActivity() {
         super.onCreate(savedInstanceState)
 
         val container = (application as MediaDockApp).container
+        // 组装根：容器只在这里用，用于创建应用级 ViewModel 与页面工厂；
+        // 下面的 composable 只拿 AppViewModel / UiFactories。
+        val appVmFactory = AppViewModel.factory(container)
+        val uiFactories = UiFactories(container)
 
         setContent {
+            val appVm: AppViewModel = viewModel(factory = appVmFactory)
+
             // 主题三态：跟随系统 / 浅色 / 深色（设置 → 外观 里切）
-            val storedMode by container.credentials.themeMode
-                .collectAsState(initial = container.credentials.cachedThemeMode)
+            val storedMode by appVm.themeMode.collectAsState()
             val themeMode = ThemeMode.fromStored(storedMode)
 
             MediaDockTheme(darkTheme = themeMode.resolveDark()) {
                 val navController = rememberNavController()
 
-                // 起始页看本地有没有已保存的数据源。只读 DataStore，不发任何网络请求。
-                var startRoute by remember { mutableStateOf<String?>(null) }
-                LaunchedEffect(Unit) {
-                    val sources = container.sources.refresh()
-                    startRoute =
-                        if (sources.any { it.enabled }) Routes.LIBRARY else Routes.ADD_SOURCE
-                }
-
-                val start = startRoute
+                val start = appVm.startRoute.collectAsState().value
                 if (start != null) {
-                    HomeScaffold(navController, start, container, darkTheme = themeMode.resolveDark())
+                    HomeScaffold(
+                        navController = navController,
+                        start = start,
+                        appVm = appVm,
+                        factories = uiFactories,
+                        darkTheme = themeMode.resolveDark(),
+                    )
                 }
             }
         }
@@ -139,7 +146,8 @@ private val TABS = listOf(
 private fun HomeScaffold(
     navController: NavHostController,
     start: String,
-    container: AppContainer,
+    appVm: AppViewModel,
+    factories: UiFactories,
     darkTheme: Boolean,
 ) {
     val entry by navController.currentBackStackEntryAsState()
@@ -149,7 +157,7 @@ private fun HomeScaffold(
     // 迷你播放条挂在外壳上（活动级），不会因为进出播放页被清掉。
     // 播放页自己不显示它 —— 那里整屏都在播，再挂一条是多余的。
     val nowPlaying: NowPlayingViewModel =
-        viewModel(factory = NowPlayingViewModel.factory(container))
+        viewModel(factory = factories.nowPlaying)
     val showMini = currentRoute != null &&
         currentRoute != Routes.PLAYER &&
         currentRoute != Routes.ADD_SOURCE
@@ -235,7 +243,8 @@ private fun HomeScaffold(
             navController = navController,
             startRoute = start,
             modifier = contentModifier,
-            container = container,
+            appVm = appVm,
+            factories = factories,
         )
     }
 }
@@ -291,20 +300,21 @@ private fun AppNavHost(
     navController: NavHostController,
     startRoute: String,
     modifier: Modifier,
-    container: AppContainer,
+    appVm: AppViewModel,
+    factories: UiFactories,
 ) {
     // 401/429 之后唯一的出口（以及设置页的「退出登录」）：回数据源页重填密码。
     // 用 graph.id 弹整个图 —— 底部 Tab 切换会把根页面从回退栈里弹掉（saveState），
     // 所以不能指望 popUpTo(BROWSE) 能清干净。
     val relogin: () -> Unit = {
-        container.library.reset() // 仓库是应用作用域的，封锁不会自己消失，得显式解开
+        appVm.relogin() // 仓库是应用作用域的，封锁不会自己消失，得显式解开
         navController.navigate(Routes.ADD_SOURCE) {
             popUpTo(navController.graph.id) { inclusive = true }
         }
     }
 
     val openDetail: (List<String>) -> Unit = { paths ->
-        container.detailSelection.set(paths)
+        appVm.selectDetail(paths)
         navController.navigate(Routes.DETAIL)
     }
 
@@ -323,7 +333,7 @@ private fun AppNavHost(
         },
     ) {
         composable(Routes.ADD_SOURCE) {
-            val vm: SourceViewModel = viewModel(factory = SourceViewModel.factory(container))
+            val vm: SourceViewModel = viewModel(factory = factories.sourceForm)
             AddSourceScreen(
                 vm = vm,
                 onConnected = {
@@ -340,8 +350,9 @@ private fun AppNavHost(
         }
 
         composable(Routes.SOURCES) {
+            val vm: SourcesViewModel = viewModel(factory = factories.sources)
             SourcesScreen(
-                container = container,
+                vm = vm,
                 onBack = { navController.popBackStack() },
                 onAdd = { navController.navigate(Routes.ADD_SOURCE) },
                 onEdit = { id -> navController.navigate("edit_source/$id") },
@@ -351,14 +362,14 @@ private fun AppNavHost(
         composable(Routes.EDIT_SOURCE) { entry ->
             val id = entry.arguments?.getString("id")
             if (id != null) {
-                val vm: SourceViewModel = viewModel(factory = SourceViewModel.factory(container))
+                val vm: SourceViewModel = viewModel(factory = factories.sourceForm)
                 LaunchedEffect(id) { vm.loadForEdit(id) }
                 AddSourceScreen(vm = vm, onConnected = { navController.popBackStack() })
             }
         }
 
         composable(Routes.LIBRARY) {
-            val vm: LibraryViewModel = viewModel(factory = LibraryViewModel.factory(container))
+            val vm: LibraryViewModel = viewModel(factory = factories.library)
             LibraryScreen(
                 vm = vm,
                 onOpenDetail = openDetail,
@@ -368,16 +379,16 @@ private fun AppNavHost(
         }
 
         composable(Routes.FAVORITES) {
-            val vm: FavoritesViewModel = viewModel(factory = FavoritesViewModel.factory(container))
+            val vm: FavoritesViewModel = viewModel(factory = factories.favorites)
             FavoritesScreen(vm = vm, onOpenDetail = openDetail)
         }
 
         composable(Routes.BROWSE) {
-            val vm: BrowserViewModel = viewModel(factory = BrowserViewModel.factory(container))
+            val vm: BrowserViewModel = viewModel(factory = factories.browser)
             BrowserScreen(
                 vm = vm,
                 onPlay = { path, queue ->
-                    container.playbackSelection.set(path, queue)
+                    appVm.selectPlayback(path, queue)
                     navController.navigate(Routes.PLAYER)
                 },
                 onRelogin = relogin,
@@ -385,11 +396,9 @@ private fun AppNavHost(
         }
 
         composable(Routes.SETTINGS) {
-            val vm: SettingsViewModel = viewModel(factory = SettingsViewModel.factory(container))
-            val sourceList by container.sources.sources.collectAsState()
+            val vm: SettingsViewModel = viewModel(factory = factories.settings)
             SettingsScreen(
                 vm = vm,
-                sourceCount = sourceList.size,
                 onOpenSources = { navController.navigate(Routes.SOURCES) },
                 onLoggedOut = relogin,
                 onOpenLogs = { navController.navigate(Routes.LOGS) },
@@ -401,8 +410,9 @@ private fun AppNavHost(
         }
 
         composable(Routes.MINE) {
+            val vm: LibraryViewModel = viewModel(factory = factories.library)
             MineScreen(
-                container = container,
+                vm = vm,
                 onOpenFavorites = { navController.switchTab(Routes.FAVORITES) },
                 onOpenHistory = { navController.navigate(Routes.HISTORY) },
                 onOpenPlaylists = { navController.navigate(Routes.PLAYLISTS) },
@@ -413,27 +423,30 @@ private fun AppNavHost(
         }
 
         composable(Routes.SEARCH) {
+            val vm: SearchViewModel = viewModel(factory = factories.search)
             SearchScreen(
-                container = container,
+                vm = vm,
                 onBack = { navController.popBackStack() },
                 onOpenDetail = openDetail,
             )
         }
 
         composable(Routes.HISTORY) {
+            val vm: HistoryViewModel = viewModel(factory = factories.history)
             HistoryScreen(
-                container = container,
+                vm = vm,
                 onBack = { navController.popBackStack() },
                 onPlay = { path, queue ->
-                    container.playbackSelection.set(path, queue)
+                    appVm.selectPlayback(path, queue)
                     navController.navigate(Routes.PLAYER)
                 },
             )
         }
 
         composable(Routes.PLAYLISTS) {
+            val vm: PlaylistsViewModel = viewModel(factory = factories.playlists)
             PlaylistsScreen(
-                container = container,
+                vm = vm,
                 onBack = { navController.popBackStack() },
                 onOpen = { id -> navController.navigate("playlist/$id") },
             )
@@ -442,12 +455,13 @@ private fun AppNavHost(
         composable(Routes.PLAYLIST) { entry ->
             val id = entry.arguments?.getString("id")?.toLongOrNull()
             if (id != null) {
+                val vm: PlaylistDetailViewModel =
+                    viewModel(factory = factories.playlistDetail(id))
                 PlaylistDetailScreen(
-                    container = container,
-                    id = id,
+                    vm = vm,
                     onBack = { navController.popBackStack() },
                     onPlay = { path, queue ->
-                        container.playbackSelection.set(path, queue)
+                        appVm.selectPlayback(path, queue)
                         navController.navigate(Routes.PLAYER)
                     },
                 )
@@ -455,11 +469,11 @@ private fun AppNavHost(
         }
 
         composable(Routes.DETAIL) {
-            val vm: DetailViewModel = viewModel(factory = DetailViewModel.factory(container))
+            val vm: DetailViewModel = viewModel(factory = factories.detail)
             DetailScreen(
                 vm = vm,
                 onPlay = { path, queue ->
-                    container.playbackSelection.set(path, queue)
+                    appVm.selectPlayback(path, queue)
                     navController.navigate(Routes.PLAYER)
                 },
                 onBack = { navController.popBackStack() },
@@ -467,7 +481,7 @@ private fun AppNavHost(
         }
 
         composable(Routes.PLAYER) {
-            val vm: PlayerViewModel = viewModel(factory = PlayerViewModel.factory(container))
+            val vm: PlayerViewModel = viewModel(factory = factories.player)
             PlayerScreen(vm)
         }
     }

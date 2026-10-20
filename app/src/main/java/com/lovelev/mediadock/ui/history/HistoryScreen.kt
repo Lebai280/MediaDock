@@ -42,7 +42,6 @@ import coil3.compose.AsyncImage
 import com.lovelev.mediadock.data.local.MediaItemEntity
 import com.lovelev.mediadock.data.local.PlaybackProgress
 import com.lovelev.mediadock.data.tmdb.TmdbClient
-import com.lovelev.mediadock.di.AppContainer
 import com.lovelev.mediadock.ui.formatClock
 
 /**
@@ -55,23 +54,21 @@ import com.lovelev.mediadock.ui.formatClock
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun HistoryScreen(
-    container: AppContainer,
+    vm: HistoryViewModel,
     onBack: () -> Unit,
     onPlay: (path: String, queue: List<String>) -> Unit,
     modifier: Modifier = Modifier,
 ) {
-    val recent by container.progress.observeRecent().collectAsState(initial = emptyList())
-    val items by container.library.items.collectAsState(initial = emptyList())
-    val byPath: Map<String, MediaItemEntity> = items.associateBy { it.path }
+    val ui by vm.ui.collectAsState()
 
     // 媒体库查不到的条目（历史比库老、或库里已经重扫过）要有个像样的标题。
     // `content://media/.../12345` 的最后一段是**数字 id**，直接拿来当标题就是一行乱码般的数字 ——
     // 所以这里一次性把它们的显示名从 ContentResolver 查出来（不在每行 composition 里查）。
     val context = androidx.compose.ui.platform.LocalContext.current
     var resolvedNames by androidx.compose.runtime.remember { androidx.compose.runtime.mutableStateOf<Map<String, String>>(emptyMap()) }
-    androidx.compose.runtime.LaunchedEffect(recent) {
-        val missing = recent.map { it.path }
-            .filter { it.startsWith("content://") && it !in byPath }
+    androidx.compose.runtime.LaunchedEffect(ui.recent) {
+        val missing = ui.recent.map { it.path }
+            .filter { it.startsWith("content://") && it !in ui.byPath }
             .distinct()
         if (missing.isEmpty()) {
             resolvedNames = emptyMap()
@@ -104,7 +101,7 @@ fun HistoryScreen(
             )
         },
     ) { insets ->
-        if (recent.isEmpty()) {
+        if (ui.recent.isEmpty()) {
             Box(Modifier.padding(insets).fillMaxSize(), contentAlignment = Alignment.Center) {
                 Text(
                     text = "暂无记录",
@@ -116,19 +113,13 @@ fun HistoryScreen(
         }
 
         LazyColumn(modifier = Modifier.padding(insets).fillMaxSize()) {
-            items(recent, key = { it.path }) { entry ->
+            items(ui.recent, key = { it.path }) { entry ->
                 HistoryRow(
                     entry = entry,
-                    item = byPath[entry.path],
+                    item = ui.byPath[entry.path],
                     fallbackName = resolvedNames[entry.path],
                     onClick = {
-                        // 同目录的视频当队列 —— 和从浏览页点进来的行为一致（自动下一集）
-                        val folder = entry.path.substringBeforeLast('/', "")
-                        val queue = items
-                            .filter { it.path.substringBeforeLast('/', "") == folder }
-                            .map { it.path }
-                            .ifEmpty { listOf(entry.path) }
-                        onPlay(entry.path, queue)
+                        onPlay(entry.path, vm.queueFor(entry.path))
                     },
                 )
                 HorizontalDivider()

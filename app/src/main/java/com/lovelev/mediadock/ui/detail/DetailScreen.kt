@@ -139,7 +139,10 @@ fun DetailScreen(
         .maxByOrNull { progress.getValue(it.path).updatedAt }
     val target = resumable ?: sample
 
-    var chosenVersionPath by remember(entries) { mutableStateOf<String?>(null) }
+    // 选中项放在 ViewModel 里，旋屏后不丢；失效的选择回退到默认目标。
+    val chosenVersionPath = vm.chosenVersionPath?.takeIf { chosen ->
+        entries.any { it.path == chosen }
+    }
     val playPath = chosenVersionPath ?: target.path
     val playPosition = progress[playPath]?.positionMs ?: 0L
     val playQueue = if (isSeries) queue else listOf(playPath)
@@ -149,11 +152,9 @@ fun DetailScreen(
     val multiSeason = seasons.size >= 2
     // 没有季信息时也给一个「第 1 季」标签，这样也能点它展开全部
     val seasonTabs = seasons.ifEmpty { listOf(1) }
-    var selectedSeason by remember(entries) {
-        mutableStateOf(seasonOf(target) ?: seasonTabs.first())
-    }
+    val selectedSeason = vm.selectedSeason ?: seasonOf(target) ?: seasonTabs.first()
     // 默认横滑；再点一次当前季标签 → 展开成双列全量（用户要求结合两种）
-    var showAllEpisodes by remember(entries) { mutableStateOf(false) }
+    val showAllEpisodes = vm.showAllEpisodes
     val currentSeason = selectedSeason.takeIf { it in seasonTabs } ?: seasonTabs.first()
     val episodeMeta = vm.episodeMeta
 
@@ -281,7 +282,7 @@ fun DetailScreen(
                             VersionChip(
                                 text = versionLabel(version),
                                 selected = playPath == version.path,
-                            ) { chosenVersionPath = version.path }
+                            ) { vm.chooseVersion(version.path) }
                         }
                     }
                 }
@@ -302,10 +303,9 @@ fun DetailScreen(
                         selected = currentSeason,
                         onSelect = { picked ->
                             if (picked == currentSeason) {
-                                showAllEpisodes = !showAllEpisodes
+                                vm.toggleShowAll()
                             } else {
-                                selectedSeason = picked
-                                showAllEpisodes = false
+                                vm.selectSeason(picked)
                             }
                         },
                     )

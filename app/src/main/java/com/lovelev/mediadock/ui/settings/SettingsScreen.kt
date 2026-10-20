@@ -51,16 +51,9 @@ import com.lovelev.mediadock.data.log.AppLog
 import com.lovelev.mediadock.BuildConfig
 import kotlinx.coroutines.launch
 
-/** 需要二次确认的不可逆操作。 */
-private enum class Confirmable(val title: String, val detail: String) {
-    ClearLibrary("清空媒体库", "将清空媒体库并需要重新扫描；进度与收藏保留。"),
-    Logout("退出登录", "将清除数据源登录信息。"),
-}
-
 @Composable
 fun SettingsScreen(
     vm: SettingsViewModel,
-    sourceCount: Int,
     onOpenSources: () -> Unit,
     onLoggedOut: () -> Unit,
     onOpenLogs: () -> Unit,
@@ -73,13 +66,12 @@ fun SettingsScreen(
         vm.checkUpdate(manual = false)
     }
 
-    var confirming by remember { mutableStateOf<Confirmable?>(null) }
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
-    var shareHint by remember { mutableStateOf<String?>(null) }
     val saved = vm.tmdbSecret.isNotBlank()
     val host = vm.sourceHost
     val itemCount by vm.itemCount.collectAsState()
+    val sourceCount by vm.sourceCount.collectAsState()
 
     // 该步骤无法自动化验证：系统选择器不接受 adb 注入点击（WORKLOG 问题 56），需要用户手动操作。
     val pickLocalFolder = rememberLauncherForActivityResult(
@@ -260,7 +252,7 @@ fun SettingsScreen(
                 )
             }
             HorizontalDivider()
-            DestructiveRow("清空媒体库") { confirming = Confirmable.ClearLibrary }
+            DestructiveRow("清空媒体库") { vm.requestConfirm(Confirmable.ClearLibrary) }
         }
 
         // ---- 关于 ----
@@ -345,15 +337,15 @@ fun SettingsScreen(
         Spacer(Modifier.height(16.dp))
     }
 
-    confirming?.let { action ->
+    vm.confirming?.let { action ->
         AlertDialog(
-            onDismissRequest = { confirming = null },
+            onDismissRequest = vm::dismissConfirm,
             title = { Text(action.title) },
             text = { Text(action.detail) },
             confirmButton = {
                 TextButton(
                     onClick = {
-                        confirming = null
+                        vm.dismissConfirm()
                         when (action) {
                             Confirmable.ClearLibrary -> vm.clearLibrary()
                             Confirmable.Logout -> {
@@ -367,7 +359,7 @@ fun SettingsScreen(
                 }
             },
             dismissButton = {
-                TextButton(onClick = { confirming = null }) { Text("取消") }
+                TextButton(onClick = vm::dismissConfirm) { Text("取消") }
             },
         )
     }

@@ -2448,6 +2448,41 @@ E1.5 中首页 `RECENT` 首屏 p95 356.7 ms，是当前最慢查询。
 - 失败切换只覆盖「换一个版本再试」，未做网络分级；401/429 保持零重试。
 - 片单导入未实现（本轮只做导出/分享）；版本 pin 的入口未做，但查询与排序已支持 pinned。
 
+### 2026-10-20 · E1.7：UI 去容器与旋转状态迁移
+
+**背景**：架构要求 composable 不碰 `AppContainer`，但 `SourcesScreen`、`HistoryScreen`、
+`PlaylistsScreen`、`PlaylistDetailScreen` 仍没有 ViewModel，`MineScreen` / `SearchScreen`
+只是拿容器造 VM，`NavHost` 也直接读容器；同时若干对话框与选择状态放在 `remember` 里，
+旋屏即丢，`AddSourceScreen` 还会在重建时重新读取剪贴板覆盖用户输入。
+
+**变更**：
+- 新增 `AppViewModel`（主题、起始路由、播放/详情选择桥、重新登录）与 `UiFactories`
+  （页面 ViewModel 工厂集合）；`MainActivity.onCreate` 保留容器，`HomeScaffold` /
+  `AppNavHost` 不再接收 `AppContainer`。
+- 新增 `SourcesViewModel`、`HistoryViewModel`、`PlaylistsViewModel`、
+  `PlaylistDetailViewModel`；`MineScreen` / `SearchScreen` 改为接收 ViewModel。
+- 旋转状态迁移：数据源详情/删除影响数、片单新建草稿/排序/分享提示、设置确认框、
+  详情选中版本/季/展开、播放器锁定/信息/字幕搜索均进入 ViewModel。
+- `SourceViewModel.applySharedOnce`：自动识别剪贴板每个 ViewModel 只应用一次；
+  手动「粘贴分享配置」仍可重复应用。
+- 抽出纯函数 `initialRoute`、`historyPlayQueue`、`sortPlaylistRows`、
+  `buildPlaylistShareText`，便于单测。
+
+**验证**：
+- 单元测试 **102 条通过**（新增 11 条：初始路由、历史队列、片单排序/分享）；debug 与签名
+  release 构建均通过。
+- 真机 SM-G998U1 覆盖安装 release 包（versionCode 32）：启动落在媒体库；我的页扫描/刮削/补齐、
+  搜索筛选与结果、设置页「1 个」数据源正常；数据源详情与删除对话框显示「影响 280 个文件」，
+  横屏后对话框与影响数保留；播放历史列表与续看入口正常；片单新建时草稿名横屏保留，
+  加入条目、排序菜单、分享提示、删除片单均通过；详情页打开与版本区正常；播放 15:06 文件
+  position 推进至 1:09，字幕在线搜索预填「皆为爱」；日志无 FATAL。
+- 验证用临时片单已删除，未改动数据库/迁移与 401/429 策略。
+
+**备注**：
+- 容器仍由 `MediaDockApp`、`ScanWorker`、`ScrapeWorker`、`PlaybackService` 使用；
+  `ui/` 下仅 ViewModel 构造函数引用 `AppContainer`，屏幕 composable 已完全不接触容器。
+- 未新增 Hilt/Robolectric/coroutines-test/Turbine 依赖；未提升版本号，未 push。
+
 ---
 
 ## 8. 待办

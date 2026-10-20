@@ -137,6 +137,14 @@ pinned > 优先级 > 本地 > 体积排序，详情页版本标签显示来源�
 真机：双源扫描后《千与千寻》仍为单条目、两个来源版本，切到 Second 版本 `PLAYING`；
 删除第二源复扫回到 280。片单导入与版本 pin 入口待做。
 
+**2026-10-20 E1.7 完成（未提升版本号）**：新增 `AppViewModel` 与 `UiFactories`，
+`MainActivity` 的 `HomeScaffold` / `AppNavHost` 不再接收 `AppContainer`；新增
+`SourcesViewModel`、`HistoryViewModel`、`PlaylistsViewModel`、`PlaylistDetailViewModel`，
+`MineScreen` / `SearchScreen` 改为接收 ViewModel。数据源/片单/设置/详情/播放器的对话框与
+选择状态已迁入 ViewModel，AddSource 剪贴板改为每个 ViewModel 只自动应用一次。
+单元测试 **102 条通过**，真机逐屏回归通过；`ui/` 下仅 ViewModel 构造函数引用容器。
+剩余：`LibraryRepository` 拆分（627 行）与 `DetailScreen` 等超长文件仍待治理。
+
 **版本沿革**：0.3.0 首个正式签名版 · 0.3.1 播放页压暗 · 0.3.2 取消提示修正与分享携带 TMDB · 0.3.3 迷你播放条 · 0.3.4 底栏与搜索栏尺寸调整 · 0.3.5 音轨切换 · 0.3.6 本地媒体 · 0.3.7 日志落盘 · 0.4.0 新图标 · 0.4.1 本地媒体性能修复与系统媒体库扫描 · 0.5.0 主题三态、「我的」页、上一集/下一集、播放历史、搜索移至底部 · 0.6.0 Phase 0a 数据层 · 0.7.0 Phase 0b 网络/数据模块 · 0.8.0 Phase 1 E1.1 增量扫描 · 0.9.0 Phase 1 E1.2 持久刮削 · 0.10.0 Phase 1 E1.3 works 分页 · 0.11.0 Phase 1 E1.4 FTS 搜索 · 0.12.0 无解码器音轨提示 · 0.12.1 同队列重选条目修复 ·
 0.13.0 多数据源并存（Phase 2 代码接入）· 0.13.1 SMB 目录浏览 ·
 0.13.2 TMDB 匹配精度与首屏索引 · 0.13.3 片单增强与 E2.5 跨源合并。

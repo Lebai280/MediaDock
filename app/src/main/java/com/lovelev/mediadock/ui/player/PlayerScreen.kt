@@ -137,15 +137,15 @@ private fun PlayerSurface(
 
     var message by remember { mutableStateOf<String?>(null) }
     var controlsVisible by remember { mutableStateOf(true) }
-    var locked by remember { mutableStateOf(false) }
+    val locked = vm.locked
     var unlockHintVisible by remember { mutableStateOf(false) }
     var position by remember { mutableLongStateOf(0L) }
     var duration by remember { mutableLongStateOf(0L) }
     var playing by remember { mutableStateOf(false) }
     var tracks by remember { mutableStateOf<Tracks?>(null) }
     var hint by remember { mutableStateOf<String?>(null) }
-    var infoOpen by remember { mutableStateOf(false) }
-    var searchOpen by remember { mutableStateOf(false) }
+    val infoOpen = vm.infoOpen
+    val searchOpen = vm.searchOpen
     var playerView by remember { mutableStateOf<PlayerView?>(null) }
     val scope = rememberCoroutineScope()
 
@@ -401,11 +401,11 @@ private fun PlayerSurface(
                     onClick = {
                         if (locked) {
                             AppLog.d("player", "unlock tapped")
-                            locked = false
+                            vm.updateLocked(false)
                             controlsVisible = true
                         } else {
                             AppLog.d("player", "lock tapped")
-                            locked = true
+                            vm.updateLocked(true)
                             controlsVisible = false
                         }
                     },
@@ -437,7 +437,7 @@ private fun PlayerSurface(
                     },
                     onInfo = {
                         AppLog.d("player", "info tapped")
-                        infoOpen = true
+                        vm.updateInfoOpen(true)
                     },
                     onScreenshot = {
                         AppLog.d("player", "screenshot tapped")
@@ -449,7 +449,7 @@ private fun PlayerSurface(
                     },
                     onSearchSubtitles = {
                         AppLog.d("player", "search subtitles tapped")
-                        searchOpen = true
+                        vm.updateSearchOpen(true)
                     },
                     onBack = {
                         AppLog.d("player", "back tapped")
@@ -471,7 +471,7 @@ private fun PlayerSurface(
                 position = position,
                 duration = duration,
                 tracks = tracks,
-                onDismiss = { infoOpen = false },
+                onDismiss = { vm.updateInfoOpen(false) },
             )
         }
 
@@ -488,9 +488,9 @@ private fun PlayerSurface(
                     } catch (e: Exception) {
                         hint = e.message ?: "挂载字幕失败"
                     }
-                    searchOpen = false
+                    vm.updateSearchOpen(false)
                 },
-                onDismiss = { searchOpen = false },
+                onDismiss = { vm.updateSearchOpen(false) },
             )
         }
 

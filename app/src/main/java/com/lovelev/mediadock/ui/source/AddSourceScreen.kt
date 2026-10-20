@@ -43,9 +43,9 @@ fun AddSourceScreen(
     val context = LocalContext.current
 
     // **自动识别、自动填入**：进这个页面时读取剪贴板，像分享配置就直接填好。
-    // 认不出来什么都不做（不会乱动用户的输入）。
+    // 每个 ViewModel 只应用一次，旋屏重建不会覆盖用户已改的输入。
     LaunchedEffect(Unit) {
-        vm.applyShared(clipboardText(context))
+        vm.applySharedOnce(clipboardText(context))
     }
 
     Column(

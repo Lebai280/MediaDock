@@ -243,6 +243,31 @@ class DetailViewModel(private val container: AppContainer) : ViewModel() {
         viewModelScope.launch { container.favorites.toggle(path) }
     }
 
+    /** 用户当前选中的版本（多源合并后同一部片可能有多个文件）。 */
+    var chosenVersionPath by mutableStateOf<String?>(null)
+        private set
+
+    /** 用户当前选中的季；null = 沿用「继续播放」目标的季。 */
+    var selectedSeason by mutableStateOf<Int?>(null)
+        private set
+
+    /** 当前季是否展开成双列全量。 */
+    var showAllEpisodes by mutableStateOf(false)
+        private set
+
+    fun chooseVersion(path: String) {
+        chosenVersionPath = path
+    }
+
+    fun selectSeason(season: Int) {
+        selectedSeason = season
+        showAllEpisodes = false
+    }
+
+    fun toggleShowAll() {
+        showAllEpisodes = !showAllEpisodes
+    }
+
     companion object {
         fun factory(container: AppContainer): ViewModelProvider.Factory = viewModelFactory {
             initializer { DetailViewModel(container) }

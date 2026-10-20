@@ -19,6 +19,7 @@ import com.lovelev.mediadock.core.model.MediaTypes
 import com.lovelev.mediadock.core.model.SourceId
 import com.lovelev.mediadock.core.model.SourcePaths
 import com.lovelev.mediadock.core.model.SourceType
+import com.lovelev.mediadock.core.model.TitleParser
 import com.lovelev.mediadock.data.repo.LocalSubtitle
 import com.lovelev.mediadock.data.source.SourceConfig
 import com.lovelev.mediadock.data.smb.SmbUrl
@@ -26,6 +27,7 @@ import com.lovelev.mediadock.data.subtitle.SubtitleHit
 import com.lovelev.mediadock.data.webdav.WebDavClient
 import com.lovelev.mediadock.data.webdav.WebDavUrl
 import com.lovelev.mediadock.di.AppContainer
+import com.lovelev.mediadock.data.log.AppLog
 import com.lovelev.mediadock.player.PlaybackService
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.CancellationException
@@ -306,6 +308,117 @@ class PlayerViewModel(private val container: AppContainer) : ViewModel() {
 
     /** 本地选来的字幕字节，存到应用目录再挂载。 */
     fun saveSubtitle(name: String, bytes: ByteArray): LocalSubtitle = container.subtitles.save(name, bytes)
+
+    // ---- 旋转后仍需保留的界面状态 ----
+
+    var locked by mutableStateOf(false)
+        private set
+
+    var infoOpen by mutableStateOf(false)
+        private set
+
+    var searchOpen by mutableStateOf(false)
+        private set
+
+    fun updateLocked(value: Boolean) {
+        locked = value
+    }
+
+    fun updateInfoOpen(value: Boolean) {
+        infoOpen = value
+    }
+
+    fun updateSearchOpen(value: Boolean) {
+        searchOpen = value
+    }
+
+    // ---- 在线字幕搜索：结果与输入留在 ViewModel，旋屏不丢 ----
+
+    var subtitleQuery by mutableStateOf("")
+        private set
+
+    var subtitleLanguages by mutableStateOf("zh-cn,en")
+        private set
+
+    var subtitleBusy by mutableStateOf(false)
+        private set
+
+    var subtitleResults by mutableStateOf<List<SubtitleHit>>(emptyList())
+        private set
+
+    var subtitleNotice by mutableStateOf<String?>(null)
+        private set
+
+    var subtitlesConfigured by mutableStateOf(true)
+        private set
+
+    private var subtitlePath: String? = null
+
+    /** 新文件才重新预填；同一文件旋屏回来保留用户已输入的查询。 */
+    fun prepareSubtitleSearch(path: String) {
+        if (subtitlePath == path) return
+        subtitlePath = path
+        val parsed = parseTitle(path)
+        subtitleQuery = parsed.title
+        subtitleLanguages = "zh-cn,en"
+        subtitleResults = emptyList()
+        subtitleNotice = null
+        subtitleBusy = false
+    }
+
+    fun updateSubtitleQuery(value: String) {
+        subtitleQuery = value
+    }
+
+    fun updateSubtitleLanguages(value: String) {
+        subtitleLanguages = value
+    }
+
+    fun showSubtitleNotice(text: String?) {
+        subtitleNotice = text
+    }
+
+    fun updateSubtitleBusy(busy: Boolean) {
+        subtitleBusy = busy
+    }
+
+    fun loadSubtitlesConfigured() {
+        viewModelScope.launch { subtitlesConfigured = container.subtitles.isConfigured() }
+    }
+
+    fun searchSubtitlesNow(path: String) {
+        val keyword = subtitleQuery.trim()
+        if (keyword.isEmpty()) return
+        val parsed = parseTitle(path)
+        viewModelScope.launch {
+            subtitleBusy = true
+            subtitleNotice = null
+            subtitleResults = emptyList()
+            try {
+                subtitleResults = searchSubtitles(
+                    query = keyword,
+                    year = parsed.year,
+                    season = parsed.season,
+                    episode = parsed.episode,
+                    languages = subtitleLanguages,
+                )
+                if (subtitleResults.isEmpty()) subtitleNotice = "未找到匹配字幕"
+                AppLog.d("player", "subtitle search '$keyword' -> ${subtitleResults.size}")
+            } catch (e: CancellationException) {
+                throw e
+            } catch (e: Exception) {
+                subtitleNotice = e.message ?: "搜索失败"
+            } finally {
+                subtitleBusy = false
+            }
+        }
+    }
+
+    private fun parseTitle(path: String) = TitleParser.parse(
+        fileName = path.substringAfterLast('/'),
+        folderName = path.substringBeforeLast('/', "").substringAfterLast('/'),
+        inSeasonDir = TitleParser.seasonOfPath(path) != null,
+    )
 
     companion object {
         fun factory(container: AppContainer): ViewModelProvider.Factory = viewModelFactory {

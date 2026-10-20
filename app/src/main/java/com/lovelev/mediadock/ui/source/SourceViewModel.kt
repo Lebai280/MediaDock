@@ -67,6 +67,19 @@ class SourceViewModel(private val container: AppContainer) : ViewModel() {
     var sharedHint by mutableStateOf<String?>(null)
         private set
 
+    private var sharedApplied = false
+
+    /**
+     * 进页面时自动应用剪贴板里的分享配置。**每个 ViewModel 只应用一次**：
+     * 旋屏重建时 AddSourceScreen 会再次读到剪贴板，不能覆盖用户已经改过的输入。
+     * 手动「粘贴分享配置」仍走 [pasteShared]，可以重复应用。
+     */
+    fun applySharedOnce(text: String?) {
+        if (sharedApplied) return
+        sharedApplied = true
+        applyShared(text)
+    }
+
     /**
      * 把一段文本当分享配置填进来。**认不出来就什么都不动**，返回 false。
      * 认出来了返回 true（界面据此提示「已填入」）。

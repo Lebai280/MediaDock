@@ -84,12 +84,29 @@ class SettingsViewModel(private val container: AppContainer) : ViewModel() {
         .map { it.size }
         .stateIn(viewModelScope, SharingStarted.Eagerly, 0)
 
+    /** 数据源数量。和影片数一样用 Eagerly，设置页打开时必须有值。 */
+    val sourceCount: StateFlow<Int> = container.sources.sources
+        .map { it.size }
+        .stateIn(viewModelScope, SharingStarted.Eagerly, 0)
+
     /** 本地媒体目录显示成什么（取最后一段路径，不得将完整 content:// 字符串直接展示给用户）。 */
     var localFolderLabel by mutableStateOf("")
         private set
 
     var localHint by mutableStateOf<String?>(null)
         private set
+
+    /** 二次确认框。放在 ViewModel 里，旋屏后仍保留。 */
+    var confirming by mutableStateOf<Confirmable?>(null)
+        private set
+
+    fun requestConfirm(action: Confirmable) {
+        confirming = action
+    }
+
+    fun dismissConfirm() {
+        confirming = null
+    }
 
     init {
         viewModelScope.launch {

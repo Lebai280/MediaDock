@@ -59,7 +59,7 @@ import com.lovelev.mediadock.ui.library.LibraryViewModel
  */
 @Composable
 fun MineScreen(
-    container: com.lovelev.mediadock.di.AppContainer,
+    vm: LibraryViewModel,
     onOpenFavorites: () -> Unit,
     onOpenHistory: () -> Unit,
     onOpenPlaylists: () -> Unit,
@@ -68,8 +68,6 @@ fun MineScreen(
     onOpenLogs: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
-    val vm: LibraryViewModel =
-        androidx.lifecycle.viewmodel.compose.viewModel(factory = LibraryViewModel.factory(container))
     val scan by vm.scan.collectAsState()
     val scrape by vm.scrape.collectAsState()
     val fill by vm.fill.collectAsState()

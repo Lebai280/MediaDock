@@ -116,21 +116,17 @@ internal fun SubtitleSearchDialog(
     onDismiss: () -> Unit,
 ) {
     val scope = rememberCoroutineScope()
-    val parsed = remember(path) {
-        TitleParser.parse(
-            fileName = path.substringAfterLast('/'),
-            folderName = path.substringBeforeLast('/', "").substringAfterLast('/'),
-            inSeasonDir = TitleParser.seasonOfPath(path) != null,
-        )
-    }
-    var query by remember { mutableStateOf(parsed.title) }
-    var languages by remember { mutableStateOf("zh-cn,en") }
-    var busy by remember { mutableStateOf(false) }
-    var results by remember { mutableStateOf<List<SubtitleHit>>(emptyList()) }
-    var notice by remember { mutableStateOf<String?>(null) }
-    var configured by remember { mutableStateOf(true) }
+    val query = vm.subtitleQuery
+    val languages = vm.subtitleLanguages
+    val busy = vm.subtitleBusy
+    val results = vm.subtitleResults
+    val notice = vm.subtitleNotice
+    val configured = vm.subtitlesConfigured
 
-    LaunchedEffect(Unit) { configured = vm.subtitlesConfigured() }
+    LaunchedEffect(path) {
+        vm.prepareSubtitleSearch(path)
+        vm.loadSubtitlesConfigured()
+    }
 
     // 用自定义 Dialog 而不是 AlertDialog：后者的 text 槽在横屏会被压得很矮，
     // 搜到的字幕列表只能露出半行（用户反馈「详细看搜到哪些字幕的时候有问题」）。
@@ -182,7 +178,7 @@ internal fun SubtitleSearchDialog(
                 } else {
                     OutlinedTextField(
                         value = query,
-                        onValueChange = { query = it },
+                        onValueChange = vm::updateSubtitleQuery,
                         label = { Text("片名") },
                         singleLine = true,
                         modifier = Modifier.fillMaxWidth(),
@@ -190,7 +186,7 @@ internal fun SubtitleSearchDialog(
                     Row(verticalAlignment = Alignment.CenterVertically) {
                         LANGUAGES.forEach { (label, value) ->
                             TextButton(
-                                onClick = { languages = value },
+                                onClick = { vm.updateSubtitleLanguages(value) },
                                 colors = ButtonDefaults.textButtonColors(
                                     contentColor = if (languages == value) {
                                         MaterialTheme.colorScheme.primary
@@ -202,32 +198,7 @@ internal fun SubtitleSearchDialog(
                         }
                         Spacer(Modifier.weight(1f))
                         TextButton(
-                            onClick = {
-                                val keyword = query.trim()
-                                if (keyword.isEmpty()) return@TextButton
-                                scope.launch {
-                                    busy = true
-                                    notice = null
-                                    results = emptyList()
-                                    try {
-                                        results = vm.searchSubtitles(
-                                            query = keyword,
-                                            year = parsed.year,
-                                            season = parsed.season,
-                                            episode = parsed.episode,
-                                            languages = languages,
-                                        )
-                                        if (results.isEmpty()) notice = "未找到匹配字幕"
-                                        AppLog.d("player", "subtitle search '$keyword' -> ${results.size}")
-                                    } catch (e: CancellationException) {
-                                        throw e
-                                    } catch (e: Exception) {
-                                        notice = e.message ?: "搜索失败"
-                                    } finally {
-                                        busy = false
-                                    }
-                                }
-                            },
+                            onClick = { vm.searchSubtitlesNow(path) },
                             enabled = !busy,
                         ) { Text(if (busy) "…" else "搜索") }
                     }
@@ -247,16 +218,16 @@ internal fun SubtitleSearchDialog(
                                         .fillMaxWidth()
                                         .clickable(enabled = !busy) {
                                             scope.launch {
-                                                busy = true
-                                                notice = null
+                                                vm.updateSubtitleBusy(true)
+                                                vm.showSubtitleNotice(null)
                                                 try {
                                                     onDownloaded(vm.downloadSubtitle(hit))
                                                 } catch (e: CancellationException) {
                                                     throw e
                                                 } catch (e: Exception) {
-                                                    notice = e.message ?: "下载失败"
+                                                    vm.showSubtitleNotice(e.message ?: "下载失败")
                                                 } finally {
-                                                    busy = false
+                                                    vm.updateSubtitleBusy(false)
                                                 }
                                             }
                                         }
