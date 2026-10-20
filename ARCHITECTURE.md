@@ -1712,7 +1712,7 @@ DB 约 5.7 MB。**选定 FTS4 + `search_text`**，详见 WORKLOG 与 ADR-024。
   `MultiSourceStoreTest`、`SourceRegistryTest` 通过；0.13.0 真机覆盖安装与凭据迁移通过。
 - **真机双源验收（2026-10-20）**：双源扫描 560（280+280）；两个源分别播放 `PLAYING`；
   删除第二源后复扫回到 280，作品与进度保留。
-- **待补验收**：SMB 与 Emby/Jellyfin 需测试环境；浏览页暂只列 WebDAV 源。
+- **待补验收**：SMB 与 Emby/Jellyfin 需测试环境；浏览页已支持 WebDAV 与 SMB（0.13.1）。
 
 ### 15.10 启动门槛
 

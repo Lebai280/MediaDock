@@ -47,7 +47,7 @@ class BrowserViewModel(private val container: AppContainer) : ViewModel() {
     var state by mutableStateOf<BrowseState>(BrowseState.Loading)
         private set
 
-    /** 可浏览的 WebDAV 源；多源时界面顶部可切换。 */
+    /** 可浏览的文件型源（WebDAV / SMB）；多源时界面顶部可切换。 */
     var sources by mutableStateOf<List<SourceConfig>>(emptyList())
         private set
 
@@ -124,16 +124,20 @@ class BrowserViewModel(private val container: AppContainer) : ViewModel() {
         request(path)
     }
 
-    /** 失败后重试；若连凭据都没读到，则整个重新初始化。 */
+    /** 失败后重试；WebDAV 若连根地址都没建成，则整个重新初始化。 */
     fun retry() {
         if (blocked) return
-        if (root == null) bootstrap() else request(path)
+        if (root == null && selectedSource?.type == SourceType.WEBDAV) bootstrap() else request(path)
     }
+
+    private val selectedSource: SourceConfig?
+        get() = sources.firstOrNull { it.id == selectedSourceId }
 
     private fun bootstrap() {
         viewModelScope.launch {
             val list = container.sources.refresh().filter {
-                it.type == SourceType.WEBDAV && it.enabled && it.credentialOk
+                it.enabled && it.credentialOk &&
+                    (it.type == SourceType.WEBDAV || it.type == SourceType.SMB)
             }
             sources = list
             val chosen = list.firstOrNull { it.id == selectedSourceId } ?: list.firstOrNull()
@@ -153,14 +157,26 @@ class BrowserViewModel(private val container: AppContainer) : ViewModel() {
     }
 
     private fun applySource(source: SourceConfig) {
-        val base = WebDavUrl.rootCollection(source.url, source.rootPath)
-        if (base == null) {
+        val base = when (source.type) {
+            SourceType.WEBDAV -> WebDavUrl.rootCollection(source.url, source.rootPath)
+            SourceType.SMB -> null
+            else -> null
+        }
+        if (source.type == SourceType.WEBDAV && base == null) {
             state = BrowseState.Failed("数据源地址无效，请重新填写")
+            return
+        }
+        if (source.type == SourceType.SMB && source.share.isBlank()) {
+            state = BrowseState.Failed("SMB 共享名为空，请编辑数据源")
             return
         }
         selectedSourceId = source.id
         root = base
-        authHeader = WebDavClient.basicAuth(source.username, source.password)
+        authHeader = if (source.type == SourceType.WEBDAV) {
+            WebDavClient.basicAuth(source.username, source.password)
+        } else {
+            null
+        }
         blocked = false
         path = ""
         cache.clear()
@@ -168,9 +184,9 @@ class BrowserViewModel(private val container: AppContainer) : ViewModel() {
     }
 
     private fun request(target: String) {
-        val base = root ?: return
-        val header = authHeader ?: return
+        val source = selectedSource ?: return
         if (blocked || target in inFlight) return
+        if (source.type == SourceType.WEBDAV && (root == null || authHeader == null)) return
 
         nav++
         val token = nav
@@ -179,20 +195,25 @@ class BrowserViewModel(private val container: AppContainer) : ViewModel() {
 
         viewModelScope.launch {
             try {
-                val entries = container.webDavClient
-                    .propfind(
-                        collection = WebDavUrl.child(base, target, isCollection = true),
-                        root = base,
-                        basicAuthHeader = header,
+                val entries = when (source.type) {
+                    SourceType.WEBDAV -> container.webDavClient.propfind(
+                        collection = WebDavUrl.child(root!!, target, isCollection = true),
+                        root = root!!,
+                        basicAuthHeader = authHeader!!,
                     )
-                    // 文件夹优先，再按名字
-                    .sortedWith(compareByDescending<WebDavEntry> { it.isDirectory }.thenBy { it.name })
+
+                    SourceType.SMB -> com.lovelev.mediadock.data.smb.SmbBrowser.list(source, target)
+                    else -> emptyList()
+                }.sortedWith(compareByDescending<WebDavEntry> { it.isDirectory }.thenBy { it.name })
 
                 cache[target] = entries
                 if (token == nav) {
                     path = target
                     state = BrowseState.Ready(entries)
                 }
+            } catch (e: com.lovelev.mediadock.data.smb.SmbAuthException) {
+                blocked = true
+                state = BrowseState.Blocked(e.message ?: "账号或密码不正确")
             } catch (e: WebDavException) {
                 // 单次尝试即返回，绝不重试
                 when (e) {
@@ -204,6 +225,10 @@ class BrowserViewModel(private val container: AppContainer) : ViewModel() {
 
                     else -> if (token == nav) state = BrowseState.Failed(e.userMessage)
                 }
+            } catch (e: kotlinx.coroutines.CancellationException) {
+                throw e
+            } catch (e: java.io.IOException) {
+                if (token == nav) state = BrowseState.Failed(e.message ?: "无法连接服务器")
             } finally {
                 inFlight -= target
             }
