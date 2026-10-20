@@ -48,6 +48,8 @@ import android.content.Intent
 import android.net.Uri
 import com.lovelev.mediadock.ui.formatSize
 import com.lovelev.mediadock.data.log.AppLog
+import com.lovelev.mediadock.data.prefs.AudioChannelCap
+import com.lovelev.mediadock.data.prefs.RefreshMatchingMode
 import com.lovelev.mediadock.BuildConfig
 import kotlinx.coroutines.launch
 
@@ -96,6 +98,38 @@ fun SettingsScreen(
         // ---- 外观 ----
         Section("外观") {
             ThemeModeRow(current = vm.themeMode, onPick = vm::pickThemeMode)
+        }
+
+        // ---- 播放 ----
+        Section("播放") {
+            PlaybackChoiceRow(
+                label = "帧率匹配",
+                options = listOf(
+                    "自动" to (vm.refreshMatchingMode == RefreshMatchingMode.AUTO),
+                    "关闭" to (vm.refreshMatchingMode == RefreshMatchingMode.OFF),
+                ),
+                onPick = { index ->
+                    vm.pickRefreshMatching(
+                        if (index == 0) RefreshMatchingMode.AUTO else RefreshMatchingMode.OFF,
+                    )
+                },
+            )
+            HorizontalDivider()
+            PlaybackChoiceRow(
+                label = "音频声道上限",
+                options = listOf(
+                    "自动" to (vm.audioChannelCap == AudioChannelCap.AUTO),
+                    "5.1" to (vm.audioChannelCap == AudioChannelCap.SURROUND),
+                    "立体声" to (vm.audioChannelCap == AudioChannelCap.STEREO),
+                ),
+                onPick = { index -> vm.pickAudioChannelCap(AudioChannelCap.entries[index]) },
+            )
+            Text(
+                text = "下次播放生效；声道上限只限制轨道选择，实际下混由系统/解码器处理。",
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                modifier = Modifier.padding(horizontal = 16.dp, vertical = 10.dp),
+            )
         }
 
         // ---- 数据源 ----
@@ -378,6 +412,33 @@ fun SettingsScreen(
  * 图标是手画的三个矢量（`res/drawable/ic_theme_*.xml`）：Material 核心图标里没有太阳月亮，
  * 而为了三个图标引 `material-icons-extended` 会把包撑大二十多 MB，不值。
  */
+@Composable
+private fun PlaybackChoiceRow(
+    label: String,
+    options: List<Pair<String, Boolean>>,
+    onPick: (Int) -> Unit,
+) {
+    Column(
+        modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 10.dp),
+    ) {
+        Text(label, style = MaterialTheme.typography.bodyLarge)
+        Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+            options.forEachIndexed { index, (text, selected) ->
+                TextButton(onClick = { onPick(index) }) {
+                    Text(
+                        text = if (selected) "● $text" else text,
+                        color = if (selected) {
+                            MaterialTheme.colorScheme.primary
+                        } else {
+                            MaterialTheme.colorScheme.onSurfaceVariant
+                        },
+                    )
+                }
+            }
+        }
+    }
+}
+
 @Composable
 private fun ThemeModeRow(current: ThemeMode, onPick: (ThemeMode) -> Unit) {
     Row(

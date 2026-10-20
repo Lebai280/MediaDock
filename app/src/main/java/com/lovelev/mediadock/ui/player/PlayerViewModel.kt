@@ -276,6 +276,13 @@ class PlayerViewModel(private val container: AppContainer) : ViewModel() {
     val playbackDiagnostics: kotlinx.coroutines.flow.StateFlow<com.lovelev.mediadock.player.diagnostics.PlaybackDiagnostics> =
         container.playbackDiagnostics.state
 
+    val refreshMatching: Boolean
+        get() = container.playbackSettings.refreshMatching() ==
+            com.lovelev.mediadock.data.prefs.RefreshMatchingMode.AUTO
+
+    val maxAudioChannels: Int
+        get() = container.playbackSettings.audioChannelCap().max
+
     fun updateLocked(value: Boolean) {
         locked = value
     }

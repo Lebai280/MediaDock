@@ -5,6 +5,7 @@ import androidx.media3.common.MediaItem
 import androidx.media3.common.PlaybackException
 import androidx.media3.exoplayer.DecoderReuseEvaluation
 import androidx.media3.exoplayer.analytics.AnalyticsListener
+import com.lovelev.mediadock.player.probe.toHdrFormat
 
 /** 只写诊断 store；不改轨道选择、缓冲、音频焦点或错误策略。 */
 class DiagnosticsAnalyticsListener(
@@ -42,7 +43,15 @@ class DiagnosticsAnalyticsListener(
         format: Format,
         decoderReuseEvaluation: DecoderReuseEvaluation?,
     ) {
-        store.update { it.copy(videoFormat = summary(format)) }
+        store.update {
+            it.copy(
+                videoFormat = summary(format),
+                videoHdr = format.toHdrFormat(),
+                videoWidth = format.width.takeIf { width -> width > 0 },
+                videoHeight = format.height.takeIf { height -> height > 0 },
+                videoFrameRate = format.frameRate.takeIf { fps -> fps > 0f },
+            )
+        }
     }
 
     override fun onAudioInputFormatChanged(
@@ -50,7 +59,13 @@ class DiagnosticsAnalyticsListener(
         format: Format,
         decoderReuseEvaluation: DecoderReuseEvaluation?,
     ) {
-        store.update { it.copy(audioFormat = summary(format)) }
+        store.update {
+            it.copy(
+                audioFormat = summary(format),
+                audioMime = format.sampleMimeType,
+                audioChannels = format.channelCount.takeIf { channels -> channels > 0 },
+            )
+        }
     }
 
     override fun onRenderedFirstFrame(

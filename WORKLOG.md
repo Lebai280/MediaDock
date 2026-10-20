@@ -2575,6 +2575,54 @@ E1.5 中首页 `RECENT` 首屏 p95 356.7 ms，是当前最慢查询。
 - StreamInfo 缓存 schema 版本当前为 3；旧探测结果会在升级后自动失效。
 - SMB/Emby 探针复用同一数据源工厂，代码路径已接入，但无环境实测。
 
+### 2026-10-20 · Phase 3B（E3.2）：HDR/刷新率/音频策略与诊断
+
+**背景**：3A 已建立能力与流信息。3B 原计划 HDR 直出、刷新率匹配、音频直通/下混。核实
+Media3 1.11.1 后确认：HDR 直出与帧率匹配在默认路径已生效，音频直通由系统按输出设备自动决定；
+`preferredDisplayModeId` 在手机上通常被忽略，tunneling/自定义 AudioSink 风险高且无验收环境。
+因此采用保守方案：不强制底层路径，补计划/实际诊断与两个安全开关。
+
+**变更**：
+- `core:model` 新增 `PlaybackPlan`/`PlaybackPlanInput`/`PlaybackPlanner`，按设备能力与设置
+  计算 HDR 直出/SDR/不支持、音频直通/解码/无解码器、硬件解码与声道上限，附可解释 notes。
+- 新增 `PlaybackSettingsStore`（SharedPreferences，服务可同步读取）：
+  帧率匹配 自动/关闭、音频声道上限 自动/5.1/立体声；默认等于原行为。
+- `PlaybackService` 仅在创建时读取上述设置：`setMaxAudioChannelCount` 与
+  `setVideoChangeFrameRateStrategy`；渲染器、LoadControl、AudioAttributes、音频焦点、
+  错误策略均未改。设置变更下次播放生效。
+- `DeviceCapabilityProbe` 新增 `passthroughMimes`：用 `AudioCapabilities.isPassthroughPlaybackSupported`
+  对固定 MIME 集合探测；能力页显示“直通/仅解码”。
+- `PlaybackDiagnostics` 增加结构化字段（HDR、宽高、帧率、音频 MIME/声道）；
+  `DiagnosticsAnalyticsListener` 填充，`CapabilitiesReport` 展示。
+- 播放页「诊断」增加计划 vs 实际：计划 HDR/音频/解码/帧率匹配、当前刷新率、实际解码器/格式/丢帧。
+- 设置页新增「播放」区：帧率匹配、音频声道上限，注明下次播放生效与上限只约束轨道选择。
+
+**验证**：
+- 单测：core:model **58** 条、app **125** 条全部通过；debug 与签名 release 构建通过。
+- 真机 SM-G998U1：S4 `Gamma.Movie.2022.mp4`（4K60 HDR10）诊断显示
+  **计划 直出·HDR10 / 硬件 / 60fps / 匹配开**，实际解码器 `c2.qti.hevc.decoder`，
+  **丢帧 0**、首帧已渲染，当前刷新率 120Hz；EAC3 样本在扬声器上为解码。
+- 发现并修复真实 bug：Media3 的 `COLOR_TRANSFER_HLG=7` 与 Android `MediaFormat` 的 `HLG=3`
+  不同，导致 HLG 样本初次被计划为 SDR；已在 `FormatSpec` 使用 Media3 常量，并在
+  `StreamExtractor` 边界归一化。修复后未再复测 HLG（用户要求停止设备验证）。
+- 刷新率：60fps/24fps 内容下显示仍为 120Hz；120 是 24/60 的整数倍，属于无缝匹配，
+  系统未暴露面板 VRR 实际值。未强制 `preferredDisplayModeId`。
+
+**备注**：
+- 音频直通/Atmos、HDMI/eARC、DV 直出未验证，也不承诺；等外部设备矩阵。
+- 未启用 tunneling、未自定义 AudioSink、未做 tone mapping（3C）。
+- 应用版本 0.14.0（versionCode 34）；显示名仍为 Mooring。
+
+### 2026-10-20 · 0.14.0 发布
+
+**发布**：`versionCode 34` / `versionName 0.14.0`；签名 APK 5,091,876 B，
+sha256 `1f8437a6104e7e3d77b0b0e42bee5bf1fa9baec32544a55e8a62fd82bf6724ee`
+（本地与服务器一致）。站点 `/var/www/portal/mediadock/` 已更新
+`MediaDock-0.14.0.apk`、`version.json` 与 `index.html`；服务器侧 HTTPS 验证
+`version.json` 为 vc34、APK HTTP 200 / `content-length: 5091876` /
+`application/vnd.android.package-archive`。本机 curl 受网络重置影响，改用服务器回环验证。
+GitHub `master` 与 `v0.14.0` tag 推送后由 CI 构建并发布 Release。
+
 ---
 
 ## 8. 待办

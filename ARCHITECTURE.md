@@ -750,7 +750,7 @@ media_fts USING FTS4(title, aliases, people, tokenize=unicode61)
 | 2 | E2.4 源管理 UI | 添加/编辑/停用/健康/删除影响 | 凭据隔离、401 不串源 |
 | 2 | E2.5 合并/版本 | `work_versions` + 失败切换 + 选源规则 | 同作品多源合并；转码有提示 |
 | 3 | E3.1 能力模型 | `DeviceCapabilities` + `StreamInfo` + 诊断 | 规格徽标正确（2026-10-20 完成：v13 缓存、全源探测、设置/播放页诊断、真实徽标） |
-| 3 | E3.2 HDR 直出 | HDR10/HDR10+/HLG + 刷新率 + 音频 | 真机直出/直通 |
+| 3 | E3.2 HDR 直出 | HDR10/HDR10+/HLG + 刷新率 + 音频 | 真机直出/直通（2026-10-20 保守完成：默认直出+帧率匹配、计划/实际诊断、帧率与声道设置；音频直通/DV 待 HDMI 环境） |
 | 3 | E3.3 降级/软解 | 色调映射 + DV 基础层 + FFmpeg | 不支持时明确降级 |
 | 3 | E3.4 体验 | PiP / 投屏 / 字幕样式 / 跳过 | 真机通过 |
 | 4 | E4.1 TV | TV feature + 焦点 + 10-foot UI | 遥控器可用 |

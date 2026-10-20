@@ -44,7 +44,7 @@ data class AudioOutputDevice(
 
 data class AudioOutputCapabilities(
     val maxChannelCount: Int?,
-    val encodings: List<String>,
+    val passthroughMimes: Set<String>,
 )
 
 data class DeviceIdentity(

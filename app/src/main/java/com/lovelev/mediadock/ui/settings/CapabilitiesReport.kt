@@ -55,6 +55,12 @@ object CapabilitiesReport {
             device.audioOutputCapabilities.maxChannelCount?.let {
                 appendLine("Media3 最大声道 $it")
             }
+            appendLine(
+                "直通：" +
+                    device.audioOutputCapabilities.passthroughMimes
+                        .joinToString(", ")
+                        .ifBlank { "仅解码（当前输出不支持直通）" },
+            )
         }
         appendLine()
         appendLine("== 最近播放 ==")
@@ -63,6 +69,12 @@ object CapabilitiesReport {
         appendLine("音频解码器 ${playback.audioDecoder ?: "未记录"}")
         appendLine("视频格式 ${playback.videoFormat ?: "未记录"}")
         appendLine("音频格式 ${playback.audioFormat ?: "未记录"}")
+        playback.videoWidth?.let { width ->
+            playback.videoHeight?.let { height -> appendLine("分辨率 ${width}×${height}") }
+        }
+        playback.videoFrameRate?.let { appendLine("帧率 ${it}fps") }
+        playback.videoHdr?.let { appendLine("HDR ${it.name}") }
+        playback.audioChannels?.let { appendLine("声道 ${it}") }
         appendLine("丢帧 ${playback.droppedFrames} · 首帧 ${if (playback.firstFrameRendered) "已渲染" else "未渲染"}")
         appendLine("错误 ${playback.errorCode ?: "无"}")
         appendLine()

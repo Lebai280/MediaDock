@@ -16,6 +16,8 @@ import androidx.lifecycle.viewModelScope
 import androidx.lifecycle.viewmodel.initializer
 import androidx.lifecycle.viewmodel.viewModelFactory
 import com.lovelev.mediadock.ui.theme.ThemeMode
+import com.lovelev.mediadock.data.prefs.AudioChannelCap
+import com.lovelev.mediadock.data.prefs.RefreshMatchingMode
 import com.lovelev.mediadock.data.repo.ScanState
 import com.lovelev.mediadock.BuildConfig
 import com.lovelev.mediadock.data.subtitle.OpenSubtitlesCredentials
@@ -60,6 +62,22 @@ class SettingsViewModel(private val container: AppContainer) : ViewModel() {
     fun pickThemeMode(mode: ThemeMode) {
         themeMode = mode
         viewModelScope.launch { container.credentials.saveThemeMode(mode.stored) }
+    }
+
+    var refreshMatchingMode by mutableStateOf(container.playbackSettings.refreshMatching())
+        private set
+
+    var audioChannelCap by mutableStateOf(container.playbackSettings.audioChannelCap())
+        private set
+
+    fun pickRefreshMatching(mode: RefreshMatchingMode) {
+        refreshMatchingMode = mode
+        container.playbackSettings.setRefreshMatching(mode)
+    }
+
+    fun pickAudioChannelCap(cap: AudioChannelCap) {
+        audioChannelCap = cap
+        container.playbackSettings.setAudioChannelCap(cap)
     }
 
     /** 数据源那一行显示的主机名（只显示 host，不显示账号密码）。 */

@@ -41,6 +41,7 @@ class PlaybackService : MediaSessionService() {
         super.onCreate()
         val container = (application as MediaDockApp).container
         progress = container.progress
+        val playbackSettings = container.playbackSettings
 
         val exo = ExoPlayer.Builder(this)
             .setMediaSourceFactory(
@@ -57,6 +58,9 @@ class PlaybackService : MediaSessionService() {
                 DefaultTrackSelector(this).apply {
                     parameters = buildUponParameters()
                         .setSelectUndeterminedTextLanguage(true)
+                        // 设置项只约束轨道选择范围；实际下混由系统/解码器处理。
+                        // AUTO 的 max 是 Int.MAX_VALUE，等价于原默认行为。
+                        .setMaxAudioChannelCount(playbackSettings.audioChannelCap().max)
                         .build()
                 },
             )
@@ -84,6 +88,18 @@ class PlaybackService : MediaSessionService() {
             )
             .setHandleAudioBecomingNoisy(true)
             .build()
+
+        // 帧率匹配默认 ONLY_IF_SEAMLESS（Media3 走 Surface.setFrameRate）。
+        // 这里只提供用户关闭开关；设置变更在下次播放/服务重建时生效。
+        exo.setVideoChangeFrameRateStrategy(
+            if (playbackSettings.refreshMatching() ==
+                com.lovelev.mediadock.data.prefs.RefreshMatchingMode.OFF
+            ) {
+                C.VIDEO_CHANGE_FRAME_RATE_STRATEGY_OFF
+            } else {
+                C.VIDEO_CHANGE_FRAME_RATE_STRATEGY_ONLY_IF_SEAMLESS
+            },
+        )
 
         // 播放中就每 5 秒记一次位置；一暂停立刻补记一次并把计时器停掉（不播放时不空转）
         exo.addListener(object : Player.Listener {

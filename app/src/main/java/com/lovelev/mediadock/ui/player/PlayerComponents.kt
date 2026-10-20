@@ -54,9 +54,13 @@ import androidx.media3.common.C
 import androidx.media3.common.Format
 import androidx.media3.common.Tracks
 import com.lovelev.mediadock.data.log.AppLog
+import com.lovelev.mediadock.core.model.AudioMode
 import com.lovelev.mediadock.core.model.DeviceCapabilities
 import com.lovelev.mediadock.core.model.HdrFormat
+import com.lovelev.mediadock.core.model.HdrMode
+import com.lovelev.mediadock.core.model.PlaybackPlanner
 import com.lovelev.mediadock.player.diagnostics.PlaybackDiagnostics
+import com.lovelev.mediadock.player.probe.planInputFrom
 import com.lovelev.mediadock.ui.formatClock
 import com.lovelev.mediadock.ui.formatSize
 import com.lovelev.mediadock.ui.nav.findActivity
@@ -133,6 +137,8 @@ internal fun DiagnosticsDialog(
     tracks: Tracks?,
     diagnostics: PlaybackDiagnostics,
     device: DeviceCapabilities?,
+    refreshMatching: Boolean,
+    maxAudioChannels: Int,
     onDismiss: () -> Unit,
 ) {
     val videoGroup = remember(tracks) {
@@ -144,6 +150,19 @@ internal fun DiagnosticsDialog(
     }
     val videoFormat = videoGroup?.getTrackFormat(0)
     val audioFormat = audioGroup?.getTrackFormat(0)
+    val context = LocalContext.current
+    @Suppress("DEPRECATION")
+    val currentRefreshRate = remember {
+        context.findActivity()?.windowManager?.defaultDisplay?.refreshRate
+    }
+    val plan = device?.let {
+        PlaybackPlanner.plan(
+            input = planInputFrom(videoFormat, audioFormat),
+            device = it,
+            refreshMatching = refreshMatching,
+            maxAudioChannels = maxAudioChannels,
+        )
+    }
 
     AlertDialog(
         onDismissRequest = onDismiss,
@@ -154,6 +173,29 @@ internal fun DiagnosticsDialog(
                 verticalArrangement = Arrangement.spacedBy(6.dp),
             ) {
                 InfoRow("文件", title.ifBlank { path.substringAfterLast('/') })
+                plan?.let {
+                    InfoRow("计划 HDR", "${hdrModeLabel(it.hdrMode)} · ${hdrLabel(it.hdrFormat)}")
+                    InfoRow("计划音频", audioModeLabel(it.audioMode))
+                    InfoRow(
+                        "解码",
+                        when (it.hardwareVideoDecoder) {
+                            true -> "硬件"
+                            false -> "软件"
+                            null -> "未知"
+                        },
+                    )
+                    InfoRow(
+                        "帧率",
+                        listOfNotNull(
+                            it.frameRate?.let { fps -> "${fps}fps" },
+                            if (it.refreshMatching) "匹配开" else "匹配关",
+                        ).joinToString(" · ").ifBlank { "未知" },
+                    )
+                    it.notes.takeIf { notes -> notes.isNotEmpty() }?.let { notes ->
+                        InfoRow("说明", notes.joinToString("；"))
+                    }
+                }
+                InfoRow("当前刷新率", currentRefreshRate?.let { "${it}Hz" } ?: "未知")
                 InfoRow("视频格式", formatSummary(videoFormat))
                 InfoRow("视频支持", supportLabel(videoGroup))
                 InfoRow("视频解码", diagnostics.videoDecoder ?: "未记录")
@@ -167,9 +209,6 @@ internal fun DiagnosticsDialog(
                         "显示 HDR",
                         it.display.hdrFormats.joinToString(", ") { hdr -> hdrLabel(hdr) }.ifBlank { "无" },
                     )
-                    it.display.currentMode?.let { mode ->
-                        InfoRow("显示模式", "${mode.width}×${mode.height}@${mode.refreshRate}Hz")
-                    }
                 }
                 diagnostics.errorCode?.let { InfoRow("错误", it) }
                 Text(
@@ -211,6 +250,20 @@ private fun hdrLabel(hdr: HdrFormat): String = when (hdr) {
     HdrFormat.DOLBY_VISION -> "DV"
     HdrFormat.SDR -> "SDR"
     HdrFormat.UNKNOWN -> "未知"
+}
+
+private fun hdrModeLabel(mode: HdrMode): String = when (mode) {
+    HdrMode.DIRECT -> "直出"
+    HdrMode.SDR -> "SDR"
+    HdrMode.UNSUPPORTED -> "不支持"
+    HdrMode.UNKNOWN -> "未知"
+}
+
+private fun audioModeLabel(mode: AudioMode): String = when (mode) {
+    AudioMode.PASSTHROUGH -> "直通"
+    AudioMode.DECODE -> "解码"
+    AudioMode.NO_DECODER -> "无解码器"
+    AudioMode.UNKNOWN -> "未知"
 }
 
 /**

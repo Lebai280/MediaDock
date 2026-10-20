@@ -20,7 +20,7 @@ class CapabilitiesReportTest {
             videoDecoders = emptyList(),
             audioDecoders = emptyList(),
             audioOutputs = emptyList(),
-            audioOutputCapabilities = AudioOutputCapabilities(8, emptyList()),
+            audioOutputCapabilities = AudioOutputCapabilities(8, emptySet()),
             probedAt = 1,
         )
         val playback = PlaybackDiagnostics(

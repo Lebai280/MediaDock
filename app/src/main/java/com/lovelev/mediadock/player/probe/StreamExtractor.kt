@@ -106,6 +106,18 @@ internal class StreamExtractor(
         }
     }
 
+    /**
+     * Media3 的 COLOR_TRANSFER 常量与 Android MediaFormat 不同（HLG: 7 vs 3，
+     * SDR: 3 vs 1）。StreamInfoMapper 用的是 MediaFormat 语义，这里统一转换。
+     */
+    private fun normalizeColorTransfer(value: Int?): Int? = when (value) {
+        null -> null
+        C.COLOR_TRANSFER_HLG -> 3
+        C.COLOR_TRANSFER_ST2084 -> 6
+        C.COLOR_TRANSFER_SDR -> 1
+        else -> value
+    }
+
     private fun Format.toRawTrack(): RawTrack = RawTrack(
         mime = sampleMimeType,
         codec = codecs,
@@ -113,7 +125,7 @@ internal class StreamExtractor(
         height = height.takeIf { it != Format.NO_VALUE },
         frameRate = frameRate.takeIf { it != Format.NO_VALUE.toFloat() },
         bitrate = bitrate.takeIf { it > 0 },
-        colorTransfer = colorInfo?.colorTransfer,
+        colorTransfer = normalizeColorTransfer(colorInfo?.colorTransfer),
         colorStandard = colorInfo?.colorSpace,
         hasHdrStaticInfo = colorInfo?.hdrStaticInfo != null,
         channels = channelCount.takeIf { it > 0 },

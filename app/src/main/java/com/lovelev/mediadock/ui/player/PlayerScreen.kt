@@ -490,6 +490,8 @@ private fun PlayerSurface(
                 tracks = tracks,
                 diagnostics = playbackDiagnostics,
                 device = deviceCapabilities,
+                refreshMatching = vm.refreshMatching,
+                maxAudioChannels = vm.maxAudioChannels,
                 onDismiss = { vm.updateDiagnosticsOpen(false) },
             )
         }

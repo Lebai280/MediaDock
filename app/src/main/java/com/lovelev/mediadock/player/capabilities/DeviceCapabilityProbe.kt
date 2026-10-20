@@ -6,6 +6,7 @@ import android.media.AudioManager
 import android.media.MediaCodecList
 import android.os.Build
 import android.view.Display
+import androidx.media3.common.Format
 import androidx.media3.exoplayer.audio.AudioCapabilities
 import com.lovelev.mediadock.core.model.AudioDecoderCapability
 import com.lovelev.mediadock.core.model.AudioOutputCapabilities
@@ -178,12 +179,39 @@ class DeviceCapabilityProbe(private val context: Context) {
     }
 
     private fun audioOutputCapabilities(): AudioOutputCapabilities {
-        val maxChannels = runCatching {
-            AudioCapabilities.getCapabilities(context).maxChannelCount
-        }.getOrNull()
+        val caps = runCatching { AudioCapabilities.getCapabilities(context) }.getOrNull()
+        val passthrough = if (caps == null) {
+            emptySet()
+        } else {
+            PASSTHROUGH_MIMES.filter { mime ->
+                runCatching {
+                    caps.isPassthroughPlaybackSupported(
+                        Format.Builder()
+                            .setSampleMimeType(mime)
+                            .setChannelCount(6)
+                            .setSampleRate(48_000)
+                            .build(),
+                    )
+                }.getOrDefault(false)
+            }.toSet()
+        }
         return AudioOutputCapabilities(
-            maxChannelCount = maxChannels,
-            encodings = emptyList(),
+            maxChannelCount = caps?.maxChannelCount,
+            passthroughMimes = passthrough,
+        )
+    }
+
+    private companion object {
+        val PASSTHROUGH_MIMES = listOf(
+            "audio/ac3",
+            "audio/eac3",
+            "audio/eac3-joc",
+            "audio/truehd",
+            "audio/vnd.dts",
+            "audio/vnd.dts.hd",
+            "audio/mp4a-latm",
+            "audio/opus",
+            "audio/flac",
         )
     }
 }

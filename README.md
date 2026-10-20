@@ -69,15 +69,16 @@ compileSdk 37.2 / targetSdk 36 / minSdk 26
 
 8 个功能阶段（构建链、数据源、浏览、播放、媒体库、TMDB 刮削、播放体验、字幕与设置）已完成，并通过真机逐屏验证；界面按 VidHub 版式与产品配色完成改造。
 
-当前版本 `0.11.0`（versionCode 26）：Phase 0a 数据层、Phase 0b 网络/数据模块、
-Phase 1 E1.1 增量扫描、E1.2 持久刮削、E1.3 works 分页、E1.4 FTS 搜索。
+当前版本 `0.14.0`（versionCode 34）：Phase 0a/0b 数据层、Phase 1 扫描/刮削/分页/FTS、
+Phase 2 多数据源与跨源合并、Phase 3A 设备能力与真实规格徽标、Phase 3B HDR/刷新率/音频诊断
+与播放设置。应用显示名为 **Mooring**，包名仍为 `com.lovelev.mediadock`，更新链不变。
 应用内「设置 → 关于 → 检查更新」可用。
 
 > 构建 release 变体需要签名材料：密码配置在 `local.properties`（已 gitignore），密钥库位于仓库之外。缺少签名材料时仅可构建 debug 变体。签名材料丢失后无法继续发布同一应用的更新。
 
 ## 仓库
 
-`https://github.com/Lebai280/MediaDock`（私有，分支 `master`）。
+`https://github.com/Lebai280/MediaDock`（公开，分支 `master`）。
 
 > 仓库托管于 GitHub；禁止将运维信息（WebDAV 地址、服务器地址、SSH 信息、账号）写入任何文件。
 > `.gitignore` 已排除 `local.properties`、`*.keystore` 与 `*.apk`。

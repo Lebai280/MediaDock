@@ -9,6 +9,7 @@ import com.lovelev.mediadock.data.local.LocalScanner
 import com.lovelev.mediadock.data.local.MigrationGuard
 import com.lovelev.mediadock.data.local.MediaDatabase
 import com.lovelev.mediadock.data.prefs.SecureCredentialStore
+import com.lovelev.mediadock.data.prefs.PlaybackSettingsStore
 import com.lovelev.mediadock.data.repo.FavoriteRepository
 import com.lovelev.mediadock.data.repo.DetailsRepository
 import com.lovelev.mediadock.data.repo.LibraryRepository
@@ -197,6 +198,9 @@ class AppContainer(context: Context) {
 
     /** 最近一次播放的运行时诊断。 */
     val playbackDiagnostics: PlaybackDiagnosticsStore = PlaybackDiagnosticsStore()
+
+    /** 播放质量设置（帧率匹配、声道上限）；服务创建时同步读取。 */
+    val playbackSettings: PlaybackSettingsStore = PlaybackSettingsStore(appContext)
 
     val favorites: FavoriteRepository by lazy { FavoriteRepository(database, libraryStore) }
 
