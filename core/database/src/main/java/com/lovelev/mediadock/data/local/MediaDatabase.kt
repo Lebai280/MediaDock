@@ -67,7 +67,7 @@ abstract class MediaDatabase : RoomDatabase() {
 
     companion object {
         /** 当前库表版本。**单一来源**：`@Database` 与迁移覆盖单测都读它。 */
-        const val VERSION = 11
+        const val VERSION = 12
 
         /** v3 → v4：加收藏表。纯新增，不动既有数据。 */
         val MIGRATION_3_4 = object : Migration(3, 4) {
@@ -192,12 +192,25 @@ abstract class MediaDatabase : RoomDatabase() {
         }
 
         /**
+         * v11 → v12：首页「最近」分页索引。added_at 相同的条目按 id 倒序，
+         * 使 `ORDER BY added_at DESC, id DESC LIMIT 30` 可以只读前 N 条索引。
+         */
+        val MIGRATION_11_12 = object : Migration(11, 12) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL(
+                    "CREATE INDEX IF NOT EXISTS `index_works_added_at_id` " +
+                        "ON `works` (`added_at`, `id`)",
+                )
+            }
+        }
+
+        /**
          * **所有迁移都放这个数组里，容器整批注册**。
          * 注意数组要放在各迁移定义**之后**（companion 是顺序初始化的）。
          */
         val MIGRATIONS = arrayOf(
             MIGRATION_3_4, MIGRATION_4_5, MIGRATION_5_6, MIGRATION_6_7, MIGRATION_7_8,
-            MIGRATION_8_9, MIGRATION_9_10, MIGRATION_10_11,
+            MIGRATION_8_9, MIGRATION_9_10, MIGRATION_10_11, MIGRATION_11_12,
         )
     }
 }

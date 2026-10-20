@@ -154,7 +154,8 @@ object WorksCardSql {
         WorksSort.TITLE -> "COALESCE(o.title, w.title) COLLATE NOCASE, w.id"
         WorksSort.RATING -> "COALESCE(w.rating, -1) DESC, COALESCE(o.title, w.title) COLLATE NOCASE"
         WorksSort.YEAR -> "COALESCE(w.year, 0) DESC, COALESCE(o.title, w.title) COLLATE NOCASE"
-        WorksSort.RECENT -> "w.added_at DESC, COALESCE(o.title, w.title) COLLATE NOCASE"
+        // 与 index_works_added_at_id 一致：同时间戳按 id 倒序，首页首屏可只读前 30 条索引
+        WorksSort.RECENT -> "w.added_at DESC, w.id DESC"
     }
 }
 

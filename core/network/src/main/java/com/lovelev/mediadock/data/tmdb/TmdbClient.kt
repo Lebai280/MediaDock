@@ -72,36 +72,63 @@ class TmdbAuthException(message: String) : Exception(message)
 class TmdbClient(private val client: OkHttpClient) {
 
     suspend fun searchMovie(query: String, year: Int?, secret: TmdbSecret): TmdbMatch? =
-        searchMovieCandidates(query, year, secret)
-            .let { results -> results.firstOrNull { it.posterPath != null } ?: results.firstOrNull() }
+        TmdbScoring.pick(
+            query,
+            year,
+            collectResults("/search/movie", query, year, secret, "year", includeAdult = true),
+        )?.toMatch()
 
     /** 手动匹配用：把所有候选都返回，让用户挑正确的那一条。 */
-    suspend fun searchMovieCandidates(query: String, year: Int?, secret: TmdbSecret): List<TmdbMatch> {
-        val params = mutableMapOf("query" to query, "language" to LANGUAGE, "include_adult" to "false")
-        year?.let { params["year"] = it.toString() }
-        var results = search("/search/movie", params, secret)
-        // 年份猜错是常事（片名本身带年份、或发行年与检索年不一致）→ 去掉年份再试一次
-        if (results.isEmpty() && year != null) {
-            params.remove("year")
-            results = search("/search/movie", params, secret)
-        }
-        return results.map { it.toMatch() }
-    }
+    suspend fun searchMovieCandidates(query: String, year: Int?, secret: TmdbSecret): List<TmdbMatch> =
+        collectResults("/search/movie", query, year, secret, "year", includeAdult = true)
+            .map { it.toMatch() }
 
     suspend fun searchTv(query: String, year: Int?, secret: TmdbSecret): TmdbMatch? =
-        searchTvCandidates(query, year, secret)
-            .let { results -> results.firstOrNull { it.posterPath != null } ?: results.firstOrNull() }
+        TmdbScoring.pick(
+            query,
+            year,
+            collectResults("/search/tv", query, year, secret, "first_air_date_year"),
+        )?.toMatch()
 
     /** 手动匹配用：把所有候选都返回，让用户挑正确的那一条。 */
-    suspend fun searchTvCandidates(query: String, year: Int?, secret: TmdbSecret): List<TmdbMatch> {
-        val params = mutableMapOf("query" to query, "language" to LANGUAGE)
-        year?.let { params["first_air_date_year"] = it.toString() }
-        var results = search("/search/tv", params, secret)
-        if (results.isEmpty() && year != null) {
-            params.remove("first_air_date_year")
-            results = search("/search/tv", params, secret)
+    suspend fun searchTvCandidates(query: String, year: Int?, secret: TmdbSecret): List<TmdbMatch> =
+        collectResults("/search/tv", query, year, secret, "first_air_date_year")
+            .map { it.toMatch() }
+
+    /**
+     * 搜索并按标题变体/去年份补搜；结果按 id 去重。
+     *
+     * 首次查询无「可接受匹配」时才尝试变体与去年份，避免每条都多发请求。
+     */
+    private suspend fun collectResults(
+        path: String,
+        query: String,
+        year: Int?,
+        secret: TmdbSecret,
+        yearKey: String,
+        includeAdult: Boolean = false,
+    ): List<SearchResult> {
+        val all = LinkedHashMap<Int, SearchResult>()
+
+        suspend fun run(q: String, y: Int?) {
+            val params = mutableMapOf("query" to q, "language" to LANGUAGE)
+            if (includeAdult) params["include_adult"] = "false"
+            if (y != null) params[yearKey] = y.toString()
+            search(path, params, secret).forEach { result ->
+                if (result.id != 0) all.putIfAbsent(result.id, result)
+            }
         }
-        return results.map { it.toMatch() }
+
+        run(query, year)
+        if (TmdbScoring.pick(query, year, all.values) == null) {
+            for (variant in TmdbScoring.queryVariants(query).drop(1).take(2)) {
+                run(variant, year)
+            }
+        }
+        if (TmdbScoring.pick(query, year, all.values) == null && year != null) {
+            run(query, null)
+        }
+        return all.values.toList()
     }
 
     /** 拉一季的分集元数据（剧照/分集名/时长）。详情页按需调用，调用方负责缓存。 */
@@ -329,13 +356,17 @@ private data class CrewDto(
 private data class SearchResponse(val results: List<SearchResult> = emptyList())
 
 @Serializable
-private data class SearchResult(
+internal data class SearchResult(
     val id: Int = 0,
     val title: String? = null,
     val name: String? = null,
+    val original_title: String? = null,
+    val original_name: String? = null,
     val release_date: String? = null,
     val first_air_date: String? = null,
     val vote_average: Double? = null,
+    val vote_count: Int? = null,
+    val popularity: Double? = null,
     val poster_path: String? = null,
     val backdrop_path: String? = null,
     val overview: String? = null,

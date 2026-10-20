@@ -105,6 +105,12 @@ class ScrapeEngine(
 
                 val now2 = System.currentTimeMillis()
                 if (match == null) {
+                    // 记录未匹配的检索词，便于按真实片名继续改进匹配规则
+                    android.util.Log.w(
+                        "MediaDock",
+                        "[scrape] unmatched title=\"${work.title}\" year=${work.year} " +
+                            "tv=${work.type == "tv"}",
+                    )
                     store.applyScrapeToWork(
                         workId = work.id,
                         tmdbId = null,
@@ -121,6 +127,11 @@ class ScrapeEngine(
                     if (outcomeById[task.id] == null) failed++
                     outcomeById[task.id] = false
                 } else {
+                    android.util.Log.i(
+                        "MediaDock",
+                        "[scrape] matched \"${work.title}\" -> \"${match.title}\" " +
+                            "tmdb=${match.tmdbId} year=${match.year}",
+                    )
                     store.applyScrapeToWork(
                         workId = work.id,
                         tmdbId = match.tmdbId,

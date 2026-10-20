@@ -12,15 +12,27 @@ import com.lovelev.mediadock.data.tmdb.TmdbSecret
  */
 class MetadataScraper(private val tmdb: TmdbClient) {
 
+    /**
+     * 匹配一个作品：按类型搜索；没有可接受结果时**跨类型兜底一次**
+     * （文件名解析常把电影/剧集判错）。凭据/网络错误原样抛出。
+     */
     suspend fun match(
         title: String,
         year: Int?,
         isEpisode: Boolean,
         secret: TmdbSecret,
-    ): TmdbMatch? = if (isEpisode) {
-        tmdb.searchTv(title, year, secret)
-    } else {
-        tmdb.searchMovie(title, year, secret)
+    ): TmdbMatch? {
+        val primary = if (isEpisode) {
+            tmdb.searchTv(title, year, secret)
+        } else {
+            tmdb.searchMovie(title, year, secret)
+        }
+        if (primary != null) return primary
+        return if (isEpisode) {
+            tmdb.searchMovie(title, year, secret)
+        } else {
+            tmdb.searchTv(title, year, secret)
+        }
     }
 
     /** 手动匹配的候选：剧集走 tv，电影走 movie。 */

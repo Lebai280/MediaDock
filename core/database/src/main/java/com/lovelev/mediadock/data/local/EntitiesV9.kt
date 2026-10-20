@@ -54,7 +54,11 @@ data class MediaFileEntity(
 
 @Entity(
     tableName = "works",
-    indices = [Index(value = ["logical_key"], unique = true)],
+    indices = [
+        Index(value = ["logical_key"], unique = true),
+        // 首页「最近」分页按 (added_at, id) 直接走索引，避免对 5k 作品整表排序
+        Index(value = ["added_at", "id"]),
+    ],
 )
 data class WorkEntity(
     @PrimaryKey @ColumnInfo(name = "id") val id: String,
