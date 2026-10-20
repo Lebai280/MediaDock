@@ -14,6 +14,7 @@ import com.lovelev.mediadock.data.local.MediaItemEntity
 import com.lovelev.mediadock.data.local.Playlist
 import com.lovelev.mediadock.data.local.PlaybackProgress
 import com.lovelev.mediadock.data.local.TitleDetail
+import com.lovelev.mediadock.data.repo.PlayableVersion
 import com.lovelev.mediadock.data.tmdb.CastMember
 import com.lovelev.mediadock.data.tmdb.TmdbClient
 import com.lovelev.mediadock.data.tmdb.TmdbMatch
@@ -76,7 +77,7 @@ class DetailViewModel(private val container: AppContainer) : ViewModel() {
      * 同一部电影/同一集在各数据源的版本，按选源规则排序（pinned > 优先级 > 本地 > 体积）。
      * 剧集不在详情页展示版本切换。
      */
-    val versions: StateFlow<List<com.lovelev.mediadock.data.repo.LibraryRepository.PlayableVersion>> =
+    val versions: StateFlow<List<PlayableVersion>> =
         entries.map { eps ->
             val first = eps.firstOrNull() ?: return@map emptyList()
             if (eps.any { it.episode != null || it.season != null }) return@map emptyList()

@@ -737,7 +737,7 @@ media_fts USING FTS4(title, aliases, people, tokenize=unicode61)
 | 0a | E0.3 v9 表与回填 | 映射表 + sources/works/episodes/file_episodes/logicalId | v8 数据完整迁移 |
 | 0a | E0.4 迁移验证 | 脱敏 v8 fixture + 逐键校验 + shadow compare + 回滚演练 | 数据零丢失 |
 | 0b | E0.5 网络/数据模块 | `:core:network` / `:core:data` 骨架 | 依赖方向单向 |
-| 1 | E1.6 仓库拆分 | Scanner（随 Phase 1 重写）/ Scraper / QueryRepository | 现有行为不变 |
+| 1 | E1.6 仓库拆分 | Scanner（随 Phase 1 重写）/ Scraper / QueryRepository | 现有行为不变（2026-10-20 完成：门面 175 行 + Scan/Scrape/Match/Version 四组件） |
 | 1 | E1.7 UI 状态统一 | 页面 ViewModel + UiState | composable 不再拿 AppContainer（2026-10-20 完成；`ui/` 仅 ViewModel 引用容器） |
 | 1 | E1.1 增量扫描 | 目录缓存 + WorkManager + 续跑 | 20k 扫描可中断续跑 |
 | 1 | E1.2 持久刮削 | `scrape_tasks` + Worker + 预算 | 可暂停/恢复/限速 |
@@ -1113,7 +1113,7 @@ data class LibraryFilter(
 
 | 项 | 位置 / 原因 | 动作 | 验收 |
 |---|---|---|---|
-| 拆 `LibraryRepository` | 约 650 行：扫描/刮削/状态机/映射 | `MediaScanner`（WebDAV/本地/MediaStore）、`MetadataScraper`、`LibraryQueryRepository` | 单类 <300 行；职责单一 |
+| 拆 `LibraryRepository` | ~~约 650 行：扫描/刮削/状态机/映射~~（2026-10-20 E1.6 完成：门面 175 行 + `ScanCoordinator` / `ScrapeCoordinator` / `MetadataMatchService` / `PlaybackVersionRepository`） | `MediaScanner`（WebDAV/本地/MediaStore）、`MetadataScraper`、`LibraryQueryRepository` | 单类 <300 行；职责单一 |
 | UI 状态统一 | ~~Mine/Search/Playlist/History 直接拿 `AppContainer`~~（2026-10-20 E1.7 已完成；剩余超长文件与 `LibraryRepository` 拆分） | 全部 ViewModel + UiState；composable 不碰容器 | 无 `AppContainer` 出现在 `ui/` |
 | 全量列表 | `observeAll()` + 内存 `groupWall` / 搜索 | `works` 表 + Paging 3 + SQL 筛选 + FTS | 20k 列表不卡 |
 | 错误模型 | 字符串 message + `catch(Exception)` | typed error + 统一映射 + `CancellationException` 规则 | UI 不再解析字符串 |

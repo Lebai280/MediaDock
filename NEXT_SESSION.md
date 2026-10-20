@@ -143,7 +143,15 @@ pinned > 优先级 > 本地 > 体积排序，详情页版本标签显示来源�
 `MineScreen` / `SearchScreen` 改为接收 ViewModel。数据源/片单/设置/详情/播放器的对话框与
 选择状态已迁入 ViewModel，AddSource 剪贴板改为每个 ViewModel 只自动应用一次。
 单元测试 **102 条通过**，真机逐屏回归通过；`ui/` 下仅 ViewModel 构造函数引用容器。
-剩余：`LibraryRepository` 拆分（627 行）与 `DetailScreen` 等超长文件仍待治理。
+剩余：`DetailScreen` 等超长文件仍待治理。
+
+**2026-10-20 E1.6 完成（未提升版本号）**：`LibraryRepository` 从 627 行缩为 175 行门面，
+拆出 `ScanCoordinator`（270）、`ScrapeCoordinator`（125）、`MetadataMatchService`（125）、
+`PlaybackVersionRepository`（73）；`ScanState`/`ScrapeState` 移到 `LibraryStates.kt`，
+`PlayableVersion` 改为顶层类型。新增本地文件映射与版本排序单测，**109 条单测通过**；
+真机扫描 280、自动刮削、详情版本区与播放 `PLAYING` 均正常，无 FATAL。
+v1.0 门槛（Phase 0 + Phase 1）至此达成；下一步转入 Phase 2 环境验收。
+剩余治理：`DetailScreen` 等超长文件与 UI 层持续拆分。
 
 **版本沿革**：0.3.0 首个正式签名版 · 0.3.1 播放页压暗 · 0.3.2 取消提示修正与分享携带 TMDB · 0.3.3 迷你播放条 · 0.3.4 底栏与搜索栏尺寸调整 · 0.3.5 音轨切换 · 0.3.6 本地媒体 · 0.3.7 日志落盘 · 0.4.0 新图标 · 0.4.1 本地媒体性能修复与系统媒体库扫描 · 0.5.0 主题三态、「我的」页、上一集/下一集、播放历史、搜索移至底部 · 0.6.0 Phase 0a 数据层 · 0.7.0 Phase 0b 网络/数据模块 · 0.8.0 Phase 1 E1.1 增量扫描 · 0.9.0 Phase 1 E1.2 持久刮削 · 0.10.0 Phase 1 E1.3 works 分页 · 0.11.0 Phase 1 E1.4 FTS 搜索 · 0.12.0 无解码器音轨提示 · 0.12.1 同队列重选条目修复 ·
 0.13.0 多数据源并存（Phase 2 代码接入）· 0.13.1 SMB 目录浏览 ·

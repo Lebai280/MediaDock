@@ -2483,6 +2483,44 @@ E1.5 中首页 `RECENT` 首屏 p95 356.7 ms，是当前最慢查询。
   `ui/` 下仅 ViewModel 构造函数引用 `AppContainer`，屏幕 composable 已完全不接触容器。
 - 未新增 Hilt/Robolectric/coroutines-test/Turbine 依赖；未提升版本号，未 push。
 
+### 2026-10-20 · E1.6：拆分 LibraryRepository（627 行 → 门面 + 4 个协作者）
+
+**背景**：`LibraryRepository` 同时承担扫描状态机（远程 WorkManager + 本地 SAF/MediaStore）、
+刮削状态机与自动触发、TMDB 手动匹配、版本排序、查询委托和清库，约 627 行；架构 E1.6 要求
+单类 <300 行、职责单一，同时保持现有行为不变。
+
+**变更**：
+- `LibraryRepository` 缩为门面（175 行）：只保留装配、查询委托、`cancelAll`/`reset`/
+  `clearLibrary` 等生命周期入口。
+- 新增 `ScanCoordinator`（270 行）：远程按源观察 WorkManager、本地 SAF/MediaStore 扫描、
+  401/429 封锁集合、启动/取消/`resetBlocked`，远程与本地共用同一个 `ScanState`。
+- 新增 `ScrapeCoordinator`（125 行）：刮削状态机、自动触发、手动开始/取消、凭据变更；
+  扫描/刮削互斥通过 `isScanActive` / `isScanRequested` lambda 查询，不复制标志。
+- 新增 `MetadataMatchService`（125 行）：手工匹配、单条/整剧重刮、片名覆盖。
+- 新增 `PlaybackVersionRepository`（73 行）：版本查询与排序；纯比较器 `VersionRank`
+  单独抽出。
+- 新增 `LocalFileMapper`：本地文件 → `ScannedFile` 的映射原样搬出。
+- `ScanState` / `ScrapeState` 移到 `LibraryStates.kt`（包名不变）；`PlayableVersion`
+  改为顶层类型，只更新详情页两处 import。
+- 清理无调用方的 `matchedCount` 与单路径 `saveOverride` 重载。
+- 应用作用域仍由门面创建并注入两个 coordinator；WorkManager unique work 名、键与
+  401/429 策略未改动。
+
+**验证**：
+- 单元测试 **109 条通过**（新增 7 条：本地文件映射 3、版本排序 4）；debug 与签名 release
+  构建均通过。
+- 真机 SM-G998U1 覆盖安装 release 包：我的页扫描完成「共 280 个视频」，自动刮削进入
+  并结束（匹配 0 条 · 24 条未匹配）；详情页版本区显示
+  「files.lovelev.eu.cc · 2.2 GB」；从详情播放 `PLAYING`，position 推进到 228s；
+  日志无 FATAL。
+- 为避免破坏真实数据，本轮未执行「清空媒体库」「退出登录」与删除数据源；
+  对应代码路径仅为委托，`cancelScanFor` 的取消顺序在 `ScanCoordinator` 内保持不变。
+
+**备注**：
+- 扫描/刮削状态仍为应用作用域单例；ViewModel 调用方式未变，`container.library` 公开 API
+  除死代码外保持一致。
+- 未改数据库、迁移、Worker 名称与 401/429 策略；未提升版本号，未 push。
+
 ---
 
 ## 8. 待办

@@ -77,6 +77,7 @@ import com.lovelev.mediadock.core.model.MediaTypes
 import com.lovelev.mediadock.data.local.EpisodeMeta
 import com.lovelev.mediadock.data.local.MediaItemEntity
 import com.lovelev.mediadock.data.local.PlaybackProgress
+import com.lovelev.mediadock.data.repo.PlayableVersion
 import com.lovelev.mediadock.data.tmdb.CastMember
 import com.lovelev.mediadock.core.model.TitleParser
 import com.lovelev.mediadock.data.tmdb.TmdbClient
@@ -849,7 +850,7 @@ private fun OverviewSection(overview: String) {
 }
 
 /** 版本标签：来源 · 分辨率 · 体积。 */
-private fun versionLabel(version: com.lovelev.mediadock.data.repo.LibraryRepository.PlayableVersion): String {
+private fun versionLabel(version: PlayableVersion): String {
     val resolution = MediaTypes.resolutionLabel(version.name)
     val size = formatSize(version.sizeBytes ?: 0L).takeIf { it.isNotBlank() }
     return listOfNotNull(version.sourceName, resolution, size)
