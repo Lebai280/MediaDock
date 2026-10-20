@@ -456,7 +456,7 @@ private fun HeroArt(
     ) {
         if (art != null) {
             AsyncImage(
-                model = TmdbClient.posterUrl(art, width = 780),
+                model = TmdbClient.posterModel(art, width = 780),
                 contentDescription = null,
                 contentScale = if (isBackdrop) ContentScale.Crop else ContentScale.Fit,
                 modifier = Modifier.matchParentSize(),
@@ -744,7 +744,7 @@ private fun MatchDialog(
                             val matchPoster = match.posterPath
                             if (matchPoster != null) {
                                 AsyncImage(
-                                    model = TmdbClient.posterUrl(matchPoster, width = 92),
+                                    model = TmdbClient.posterModel(matchPoster, width = 92),
                                     contentDescription = null,
                                     contentScale = ContentScale.Crop,
                                     modifier = Modifier
@@ -1107,7 +1107,7 @@ private fun CastItem(member: CastMember) {
             val memberProfile = member.profilePath
             if (memberProfile != null) {
                 AsyncImage(
-                    model = TmdbClient.posterUrl(memberProfile, width = 185),
+                    model = TmdbClient.posterModel(memberProfile, width = 185),
                     contentDescription = null,
                     contentScale = ContentScale.Crop,
                     modifier = Modifier.fillMaxSize(),

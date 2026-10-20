@@ -107,7 +107,7 @@ class DetailViewModel(private val container: AppContainer) : ViewModel() {
             // 背景主色：取海报底部一条的均值（w92 只有几 KB），拿不到就算了
             item.heroArt()?.let { art ->
                 heroTint = PosterTint.bottomAverage(
-                    url = TmdbClient.posterUrl(art, width = 92),
+                    url = TmdbClient.posterModel(art, width = 92),
                     client = container.okHttpClient,
                 )
             }

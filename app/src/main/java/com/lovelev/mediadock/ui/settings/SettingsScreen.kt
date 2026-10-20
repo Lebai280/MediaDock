@@ -60,6 +60,8 @@ private enum class Confirmable(val title: String, val detail: String) {
 @Composable
 fun SettingsScreen(
     vm: SettingsViewModel,
+    sourceCount: Int,
+    onOpenSources: () -> Unit,
     onLoggedOut: () -> Unit,
     onOpenLogs: () -> Unit,
     modifier: Modifier = Modifier,
@@ -106,16 +108,22 @@ fun SettingsScreen(
         // ---- 数据源 ----
         Section("数据源") {
             Row(
-                modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 14.dp),
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .clickable(onClick = onOpenSources)
+                    .padding(horizontal = 16.dp, vertical = 14.dp),
                 verticalAlignment = Alignment.CenterVertically,
             ) {
-                Text("WebDAV", style = MaterialTheme.typography.bodyLarge, modifier = Modifier.weight(1f))
+                Text("数据源", style = MaterialTheme.typography.bodyLarge, modifier = Modifier.weight(1f))
                 Text(
-                    text = host.ifBlank { "未配置" },
+                    text = "$sourceCount 个",
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis,
+                )
+                Text(
+                    text = " ›",
+                    style = MaterialTheme.typography.bodyLarge,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
             }
             HorizontalDivider()
@@ -173,36 +181,6 @@ fun SettingsScreen(
                 )
             }
             HorizontalDivider()
-            // 分享配置：将地址、账号与密码拼接为一段文本并复制，其他设备可在「添加数据源」页自动填入。
-            Text(
-                text = "分享给朋友",
-                style = MaterialTheme.typography.bodyLarge,
-                color = MaterialTheme.colorScheme.onSurface,
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .clickable {
-                        scope.launch {
-                            val text = vm.buildShareText()
-                            shareHint = if (text == null) {
-                                "没有可分享的数据源"
-                            } else {
-                                copyToClipboard(context, text)
-                                "已复制"
-                            }
-                        }
-                    }
-                    .padding(horizontal = 16.dp, vertical = 14.dp),
-            )
-            shareHint?.let {
-                Text(
-                    text = it,
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    modifier = Modifier.padding(start = 16.dp, end = 16.dp, bottom = 12.dp),
-                )
-            }
-            HorizontalDivider()
-            DestructiveRow("退出登录") { confirming = Confirmable.Logout }
         }
 
         // ---- 刮削 ----

@@ -1699,6 +1699,20 @@ DB 约 5.7 MB。**选定 FTS4 + `search_text`**，详见 WORKLOG 与 ADR-024。
   全部达标。`RECENT` 排序是当前最慢查询，列为可选优化项。
 - **剩余 Phase 1**：无。E1.1–E1.5 全部完成。
 
+**Phase 2 实施结果（0.13.0，2026-10-20）**：
+
+- **多源模型**：`SourcePaths` 限定路径（旧源/本地保持裸路径，额外源 `source:<id>/<key>`）；
+  `SourceConfig` + 加密注册表（`sources_v2`，旧单源迁移为 id=`webdav`）；`SourceDao`；
+  按源扫描/聚合进度/401 隔离；删除源清理文件与目录缓存，保留作品与用户数据。
+- **源类型**：WebDAV 多账号、SMB（SMBJ 随机读）、Emby/Jellyfin（Catalog 分页同步、Direct Play、
+  服务端元数据与海报）。
+- **播放**：按路径前缀选源；HTTP 鉴权按根路径最长前缀匹配；`smb://` 路由到 SMB DataSource。
+- **不合并**：额外源的 TMDB 键追加 `@<sourceId>`，同标题扫描匹配也按源隔离；E2.5 推迟。
+- **验证**：单元测试（SourcePaths/ScopedKey/URL 匹配/SMB URL/Catalog 映射）与
+  `MultiSourceStoreTest`、`SourceRegistryTest` 通过；0.13.0 真机覆盖安装与凭据迁移通过。
+- **待补验收**：双 WebDAV 源在线扫描/播放（测试时设备网络到服务器连接被重置，PC 侧 207）；
+  SMB 与 Emby/Jellyfin 需测试环境；浏览页暂只列 WebDAV 源。
+
 ### 15.10 启动门槛
 
 1. 提交当前 54 个文件为基线（文档第二版 + 注释/文案）；确认 98 单测 + release。
@@ -1713,6 +1727,8 @@ DB 约 5.7 MB。**选定 FTS4 + `search_text`**，详见 WORKLOG 与 ADR-024。
 10. Phase 1 E1.4 已完成（2026-10-19）：FTS4 搜索、SQL 筛选与分页。
 11. Phase 1 E1.5 已完成（2026-10-19）：20k 合成库压测，§15.8 目标全部达标。
     **Phase 1 完成。**
+12. Phase 2 代码已接入（2026-10-20，0.13.0）：WebDAV 多账号、SMB、Emby/Jellyfin；
+    跨源合并（E2.5）推迟；双源真机与 SMB/媒体服务器验收待网络/环境。
 
 ### 15.11 仍需确认
 

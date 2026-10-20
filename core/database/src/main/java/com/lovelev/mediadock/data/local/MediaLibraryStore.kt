@@ -5,6 +5,7 @@ import com.lovelev.mediadock.core.model.ContentIds
 import com.lovelev.mediadock.core.model.DEFAULT_USER_ID
 import com.lovelev.mediadock.core.model.LogicalKeyCodec
 import com.lovelev.mediadock.core.model.SourceId
+import com.lovelev.mediadock.core.model.SourcePaths
 import com.lovelev.mediadock.core.model.normalizeRemoteKey
 
 /**
@@ -25,7 +26,7 @@ class MediaLibraryStore(private val db: MediaDatabase) {
         val segmentCount: Int,
     )
 
-    /** 扫描器交给写层的文件事实（标题等由 app 层解析后传入）。 */
+    /** 目录型源的扫描文件事实。 */
     data class ScannedFile(
         val path: String,
         val name: String,
@@ -35,7 +36,49 @@ class MediaLibraryStore(private val db: MediaDatabase) {
         val year: Int?,
         val season: Int?,
         val episode: Int?,
+        /**
+         * 跨源唯一的路径。留空时等于 [path]（旧 WebDAV / 本地）。
+         * 新数据源由扫描器写成 `source:<sourceId>/<remoteKey>` 形式。
+         */
+        val legacyPath: String? = null,
+        /** Emby/Jellyfin 等服务端条目 id；目录型源为 null。 */
+        val providerItemId: String? = null,
     )
+
+    /** 媒体服务器条目的元数据（直接写作品字段，不改逻辑键）。 */
+    data class CatalogMetaEntry(
+        val path: String,
+        val title: String,
+        val year: Int?,
+        val posterUrl: String?,
+        val overview: String?,
+        val rating: Double?,
+    )
+
+    /**
+     * Emby/Jellyfin 的服务端元数据：写作品字段但**不改逻辑键**，
+     * 因此不会触发跨源合并；同时标记为已匹配，避免再走 TMDB 刮削。
+     */
+    suspend fun applyCatalogMetadata(entries: List<CatalogMetaEntry>) = db.withTransaction {
+        val now = System.currentTimeMillis()
+        entries.forEach { entry ->
+            val resolved = resolveLocked(entry.path) ?: return@forEach
+            val work = w.workById(resolved.workId) ?: return@forEach
+            w.updateWork(
+                work.copy(
+                    title = entry.title,
+                    year = entry.year ?: work.year,
+                    posterPath = entry.posterUrl,
+                    overview = entry.overview,
+                    rating = entry.rating,
+                    scrapeState = ScrapeStatus.MATCHED,
+                    scrapedAt = now,
+                    updatedAt = now,
+                ),
+            )
+            search.refreshLocked(work.id)
+        }
+    }
 
     suspend fun resolve(path: String): Resolved? = db.withTransaction { resolveLocked(path) }
 
@@ -70,7 +113,7 @@ class MediaLibraryStore(private val db: MediaDatabase) {
     ) = db.withTransaction {
         val now = System.currentTimeMillis()
         if (missingPrefix != null) {
-            w.markMissingByPrefix(missingPrefix, now)
+            w.markMissingByPrefix(sourceId.value, missingPrefix, now)
         } else {
             w.markMissingBySource(sourceId.value, now)
         }
@@ -132,7 +175,8 @@ class MediaLibraryStore(private val db: MediaDatabase) {
                 id = fileId,
                 sourceId = sourceId.value,
                 remoteKey = remoteKey,
-                legacyPath = file.path,
+                legacyPath = file.legacyPath ?: file.path,
+                providerItemId = file.providerItemId,
                 mediaKind = "main",
                 name = file.name,
                 sizeBytes = file.sizeBytes,
@@ -156,8 +200,8 @@ class MediaLibraryStore(private val db: MediaDatabase) {
         val now = System.currentTimeMillis()
         val isEpisode = file.season != null || file.episode != null
         return if (isEpisode) {
-            val work = w.matchedWorkByTitle(file.title, file.year, "tv")
-                ?: w.anyWorkByTitle(file.title, file.year, "tv")
+            val work = w.matchedWorkByTitle(file.title, file.year, "tv", sourceId.value)
+                ?: w.anyWorkByTitle(file.title, file.year, "tv", sourceId.value)
                 ?: run {
                     val key = LogicalKeyCodec.file(
                         sourceId,
@@ -210,8 +254,8 @@ class MediaLibraryStore(private val db: MediaDatabase) {
             w.upsertSegment(FileSegmentEntity(fileId, ep.id, 0, 0L, null))
             Resolved(work.id, ep.id, fileId, 1)
         } else {
-            val work = w.matchedWorkByTitle(file.title, file.year, "movie")
-                ?: w.anyWorkByTitle(file.title, file.year, "movie")
+            val work = w.matchedWorkByTitle(file.title, file.year, "movie", sourceId.value)
+                ?: w.anyWorkByTitle(file.title, file.year, "movie", sourceId.value)
                 ?: run {
                     val key = LogicalKeyCodec.file(
                         sourceId,
@@ -250,6 +294,17 @@ class MediaLibraryStore(private val db: MediaDatabase) {
         w.deleteAllEpisodeVersions()
         w.deleteAllSegments()
         w.deleteAllFiles()
+    }
+
+    /**
+     * 删除一个数据源的文件与版本/分段（删除数据源时调用）。
+     * 作品与用户数据（进度/收藏/片单/改名）保留；没有文件的作品会被查询层过滤掉。
+     */
+    suspend fun removeSourceData(sourceId: SourceId) = db.withTransaction {
+        w.deleteMovieVersionsBySource(sourceId.value)
+        w.deleteEpisodeVersionsBySource(sourceId.value)
+        w.deleteSegmentsBySource(sourceId.value)
+        w.deleteFilesBySource(sourceId.value)
     }
 
     // ---------------------------------------------------------------- 进度
@@ -455,10 +510,12 @@ class MediaLibraryStore(private val db: MediaDatabase) {
             return
         }
         val id = tmdbId
+        // 多数据源：额外源的作品键带 @sourceId 后缀，同一影片不会跨源自动合并
+        val scope = w.sourceIdOfWork(work.id)?.let(::SourceId)
         val targetKey = if (work.type == "tv") {
-            LogicalKeyCodec.show(id)
+            LogicalKeyCodec.show(id, scope)
         } else {
-            LogicalKeyCodec.movie(id)
+            LogicalKeyCodec.movie(id, scope)
         }
         val target = w.workByLogicalKey(targetKey)
         if (target != null && target.id != work.id) {
@@ -580,8 +637,8 @@ class MediaLibraryStore(private val db: MediaDatabase) {
         episode: Int?,
     ): Resolved {
         resolveLocked(path)?.let { return it }
-        val sourceId = sourceOf(path)
-        val remoteKey = normalizeRemoteKey(path)
+        val sourceId = sourceOfPath(path)
+        val remoteKey = normalizeRemoteKey(SourcePaths.keyOf(path))
         val fileId = ContentIds.file(sourceId, remoteKey)
         val name = path.substringAfterLast('/').ifBlank { path }
         w.upsertFile(
@@ -603,7 +660,7 @@ class MediaLibraryStore(private val db: MediaDatabase) {
             sourceId = sourceId,
             fileId = fileId,
             file = ScannedFile(
-                path = path,
+                path = remoteKey,
                 name = name,
                 sizeBytes = null,
                 mtime = null,
@@ -611,12 +668,18 @@ class MediaLibraryStore(private val db: MediaDatabase) {
                 year = year,
                 season = season,
                 episode = episode,
+                legacyPath = path,
             ),
         )
     }
 
-    private fun sourceOf(path: String): SourceId =
-        if (path.startsWith("local/") || path.startsWith("content://")) SourceId.LOCAL else SourceId.WEBDAV
+    private fun sourceOfPath(path: String): SourceId =
+        SourcePaths.parse(path)?.sourceId
+            ?: if (path.startsWith("local/") || path.startsWith("content://")) {
+                SourceId.LOCAL
+            } else {
+                SourceId.WEBDAV
+            }
 
     private fun fallbackTitle(path: String): String =
         path.substringAfterLast('/').substringBeforeLast('.').ifBlank { path }

@@ -8,6 +8,10 @@ import androidx.lifecycle.ViewModelProvider
 import androidx.lifecycle.viewModelScope
 import androidx.lifecycle.viewmodel.initializer
 import androidx.lifecycle.viewmodel.viewModelFactory
+import com.lovelev.mediadock.core.model.SourceId
+import com.lovelev.mediadock.core.model.SourcePaths
+import com.lovelev.mediadock.core.model.SourceType
+import com.lovelev.mediadock.data.source.SourceConfig
 import com.lovelev.mediadock.data.webdav.WebDavClient
 import com.lovelev.mediadock.data.webdav.WebDavEntry
 import com.lovelev.mediadock.data.webdav.WebDavException
@@ -43,8 +47,19 @@ class BrowserViewModel(private val container: AppContainer) : ViewModel() {
     var state by mutableStateOf<BrowseState>(BrowseState.Loading)
         private set
 
+    /** 可浏览的 WebDAV 源；多源时界面顶部可切换。 */
+    var sources by mutableStateOf<List<SourceConfig>>(emptyList())
+        private set
+
+    var selectedSourceId by mutableStateOf<String?>(null)
+        private set
+
     private var root: HttpUrl? = null
     private var authHeader: String? = null
+
+    /** 源内相对路径 → 跨源唯一路径（播放队列用）。 */
+    fun qualify(key: String): String =
+        selectedSourceId?.let { SourcePaths.qualify(SourceId(it), key) } ?: key
 
     /** 收到 401/429 后置位：此后不再自动发任何请求，直到用户重新登录（重建本 VM）。 */
     private var blocked = false
@@ -63,7 +78,9 @@ class BrowserViewModel(private val container: AppContainer) : ViewModel() {
 
     val canGoUp: Boolean get() = path.isNotEmpty()
 
-    val rootLabel: String get() = root?.host.orEmpty()
+    val rootLabel: String
+        get() = sources.firstOrNull { it.id == selectedSourceId }?.name
+            ?: root?.host.orEmpty()
 
     init {
         bootstrap()
@@ -115,17 +132,39 @@ class BrowserViewModel(private val container: AppContainer) : ViewModel() {
 
     private fun bootstrap() {
         viewModelScope.launch {
-            val saved = container.credentials.load()
-            val base = saved?.let { WebDavUrl.rootCollection(it.url, it.rootPath) }
-            if (saved == null || base == null) {
+            val list = container.sources.refresh().filter {
+                it.type == SourceType.WEBDAV && it.enabled && it.credentialOk
+            }
+            sources = list
+            val chosen = list.firstOrNull { it.id == selectedSourceId } ?: list.firstOrNull()
+            if (chosen == null) {
                 state = BrowseState.Failed("数据源不可用，请重新添加")
                 return@launch
             }
-            root = base
-            authHeader = WebDavClient.basicAuth(saved.username, saved.password)
-            cache.clear()
-            request(path)
+            applySource(chosen)
         }
+    }
+
+    /** 切换浏览源：重置路径、缓存与 401 封锁状态，从该源根目录重新开始。 */
+    fun selectSource(id: String) {
+        val chosen = sources.firstOrNull { it.id == id } ?: return
+        if (chosen.id == selectedSourceId) return
+        applySource(chosen)
+    }
+
+    private fun applySource(source: SourceConfig) {
+        val base = WebDavUrl.rootCollection(source.url, source.rootPath)
+        if (base == null) {
+            state = BrowseState.Failed("数据源地址无效，请重新填写")
+            return
+        }
+        selectedSourceId = source.id
+        root = base
+        authHeader = WebDavClient.basicAuth(source.username, source.password)
+        blocked = false
+        path = ""
+        cache.clear()
+        request("")
     }
 
     private fun request(target: String) {

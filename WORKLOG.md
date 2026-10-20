@@ -2300,6 +2300,49 @@ E1.4 改为 FTS4 + SQL 过滤/排序 + Paging。
 - 片单页用 `container.library.items` 做海报/标题解析，属于全量读取；20k 库下建议改为
   `observeByPaths` 有界查询（已具备该接口），列入后续优化。
 
+### 2026-10-20 · 0.13.0：多数据源并存（Phase 2）
+
+**背景**：Phase 2 要求 WebDAV 多账号、本地、SMB、Emby/Jellyfin 同时可用；本轮**不做跨源合并**
+（同一作品在不同源各自成卡，E2.5 推迟）。数据库身份层已支持多源，主要改造在应用层的
+路径键、单凭据链路与界面。
+
+**变更**：
+- `SourcePaths`（`:core:model`）：旧 WebDAV 与本地保持裸路径；额外源写成
+  `source:<sourceId>/<remoteKey>`。`ScannedFile` 增加 `legacyPath` / `providerItemId`，
+  写层删除 `sourceOf()` 猜测、改为显式 sourceId。
+- 多源注册表：`SourceConfig` + `SourceRepository`；凭据以 `sources_v2` 加密 JSON 存放，
+  首次启动把旧的单源四键迁移为 id=`webdav`；`SourceDao` 维护 `sources` 表；
+  支持按源启用/停用/删除（删除同时清理该源文件、目录缓存与队列，保留作品与用户数据）。
+- 扫描：`ScanWorker` 按源类型分派（WebDAV / SMB / Emby / Jellyfin）；
+  Emby/Jellyfin 走 `CatalogSyncEngine` 分页同步（伪文件 `item:<id>`）并写服务端元数据；
+  `LibraryRepository` 汇总各源进度，401/429 只封锁对应源。
+- 播放：`PlayerViewModel` 按路径前缀选源；`MultiSourceHttpDataSource` 以**根路径最长前缀**
+  匹配并补 Basic/`X-Emby-Token`；`RoutingDataSource` 把 `smb://` 交给新增的
+  `SmbDataSource`（SMBJ 随机读）；字幕发现按源分组。
+- 刮削：额外源的 TMDB 键追加 `@<sourceId>`，同标题作品匹配也按源隔离，避免跨源自动合并；
+  媒体服务器海报支持完整 URL（`TmdbClient.posterModel`）。
+- 界面：数据源管理页（列表/启停/编辑/分享/删除影响统计）、添加页支持四种类型、
+  启动路由改为看注册表、浏览页新增源选择器、设置页数据源入口。
+- 构建：SMBJ 转为主依赖（APK 约 +1.4MB）；R8 对 SMBJ 引用的 Java GSS / javax.el 缺失类豁免。
+
+**验证**：
+- 单元测试：`SourcePathsTest`、`ScopedLogicalKeyTest`、`SourceUrlMatcherTest`、`SmbUrlTest`、
+  `CatalogMappingTest` 等；app 91 条与 core:model 全部通过。
+- Instrumentation（`.debug`）：`MultiSourceStoreTest` 验证同一相对路径来自两个源可共存、
+  文件/作品身份不同；core:database 全部测试通过；`SourceRegistryTest` 验证注册表加密往返、
+  按 id 删除与停用。
+- 真机（SM-G998U1）：0.13.0 覆盖安装成功；升级后设置页显示「数据源 · 1 个」，
+  原凭据完成迁移；数据源管理页、四类型添加表单可用。
+- **双源在线扫描/播放未完成验证**：测试时设备到服务器的连接被重置（PC 侧同一账号
+  PROPFIND 返回 207，且现有源浏览同样失败），判定为设备网络问题而非代码回归；
+  待网络恢复后补验（添加第二个源 → 双源扫描 → 分别播放 → 删除源恢复）。
+
+**备注**：
+- 浏览页目前只列 WebDAV 源；SMB 与媒体服务器通过媒体库扫描/同步进入（SMB 目录浏览后置）。
+- Emby/Jellyfin 登录成功后把 AccessToken 作为 apiKey 加密保存，令牌过期需重新编辑并测试。
+- 本地与旧 WebDAV 仍共享不带后缀的 TMDB 键，保持既有合并行为；额外源带 `@sourceId`。
+- SMB / Emby / Jellyfin 均无真机测试环境，验收清单待环境到位后补跑。
+
 ---
 
 ## 8. 待办
@@ -2336,14 +2379,20 @@ E1.4 改为 FTS4 + SQL 过滤/排序 + Paging。
     修改数据库后需重启 OpenList 才生效。
 16. **同一队列重新选择条目**：已修复（2026-10-20，0.12.1）——选择令牌区分新选择与配置变更；
     真机验证 A→B 切换、配置变更不重设、迷你条恢复不回退。详见同名条目。
+17. **多源双源真机验收（待网络）**：添加第二个 WebDAV 源 → 双源扫描 → 分别播放/收藏/片单 →
+    删除该源恢复。2026-10-20 设备到服务器连接被重置（PC 侧 207），待网络恢复补验。
+18. **SMB / Emby / Jellyfin 真机验收（待环境）**：代码与单测完成；需 SMB 共享与媒体服务器后
+    按「添加源 → 扫描/同步 → 播放 → 删除源」验收。
+19. **SMB 目录浏览**：浏览页目前只列 WebDAV 源；SMB 通过媒体库扫描进入，目录浏览后置。
 
 ### 8.2 功能路线图（按优先级）
 
 1. **播放格式兼容**：FFmpeg 视频软解经 S4 评估后**后置**——官方 Media3 扩展仅音频，
    nextlib 为 GPL-3.0（+7.5 MiB/arm64）。若确需 RMVB 等格式，需自建 LGPL 视频解码器
    或接受 GPL；当前优先补「无音频解码器」提示。
-2. **多数据源并存**：当前仅支持单个 WebDAV 数据源与本地媒体；支持同时挂载多个数据源，
-   并在媒体库中合并展示。
+2. **多数据源并存**：已完成（2026-10-20，0.13.0）——WebDAV 多账号、SMB、Emby/Jellyfin 代码接入；
+   不做跨源合并（E2.5 推迟）。待补：设备网络恢复后的双源真机验收、SMB/媒体服务器环境验收、
+   SMB 目录浏览与 E2.5 合并/选源。
 3. **刮削深度**：分集标题与剧照已完成；后续可补预告片、演员页、季海报。
    豆瓣评分无公开 API，暂以 TMDB 评分代替。
 4. **播放体验**：字幕样式（字号 / 颜色 / 背景 / 延迟微调）、画中画、投屏

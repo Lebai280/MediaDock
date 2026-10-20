@@ -16,8 +16,12 @@ import androidx.media3.session.MediaController
 import androidx.media3.session.SessionToken
 import com.lovelev.mediadock.data.local.LocalMedia
 import com.lovelev.mediadock.core.model.MediaTypes
-import com.lovelev.mediadock.data.prefs.StoredSource
+import com.lovelev.mediadock.core.model.SourceId
+import com.lovelev.mediadock.core.model.SourcePaths
+import com.lovelev.mediadock.core.model.SourceType
 import com.lovelev.mediadock.data.repo.LocalSubtitle
+import com.lovelev.mediadock.data.source.SourceConfig
+import com.lovelev.mediadock.data.smb.SmbUrl
 import com.lovelev.mediadock.data.subtitle.SubtitleHit
 import com.lovelev.mediadock.data.webdav.WebDavClient
 import com.lovelev.mediadock.data.webdav.WebDavUrl
@@ -25,7 +29,6 @@ import com.lovelev.mediadock.di.AppContainer
 import com.lovelev.mediadock.player.PlaybackService
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.CancellationException
-import okhttp3.HttpUrl
 
 /** 队列里的一条：媒体 id 必须是 [path]，进度就是按它落的库。 */
 data class Playable(
@@ -133,29 +136,22 @@ class PlayerViewModel(private val container: AppContainer) : ViewModel() {
         }
 
         viewModelScope.launch {
-            // 这一步顺带把凭据刷进 credentials.cached，媒体请求用它补 Authorization 头
-            val saved = container.credentials.load()
-            val root = saved?.let { WebDavUrl.rootCollection(it.url, it.rootPath) }
-            // 本地条目不需要 WebDAV 数据源 —— 整队都是本地的就不该因为没配数据源而拒绝播放
+            // 刷新注册表：DataSource 用的是同一份内存快照
+            val allSources = container.sources.refresh().filter { it.enabled && it.credentialOk }
+            val byId = allSources.associateBy { it.id }
+            val known = byId.keys
+            // 本地条目不需要数据源 —— 整队都是本地的就不该因为没配数据源而拒绝播放
             val allLocal = queue.all(LocalMedia::isLocal)
-            if (!allLocal && (saved == null || root == null)) {
+            if (!allLocal && byId.isEmpty()) {
                 state = PlayerState.Unavailable("数据源不可用，请重新添加")
                 return@launch
             }
 
-            // 本地没有「同级目录 PROPFIND」这回事，字幕由用户自己从本地文件挂。
-            // 提到外面算成「相对路径 → 绝对地址」的表，避免在下面的 lambda 里再碰可空 root。
             val subtitleUrls: Map<String, List<String>> =
-                if (allLocal || root == null || saved == null) {
-                    emptyMap()
-                } else {
-                    findSubtitles(root, saved).mapValues { (_, subs) ->
-                        subs.map { WebDavUrl.child(root, it).toString() }
-                    }
-                }
+                if (allLocal) emptyMap() else findSubtitles(byId)
 
             val items = queue.mapNotNull { path ->
-                resolveUrl(path, root)?.let { url ->
+                resolveUrl(path, sourceFor(path, byId, known), known)?.let { url ->
                     Playable(
                         path = path,
                         url = url,
@@ -175,13 +171,27 @@ class PlayerViewModel(private val container: AppContainer) : ViewModel() {
         }
     }
 
+    /** 裸路径归旧 WebDAV 源；限定路径按前缀找源。 */
+    private fun sourceFor(
+        path: String,
+        byId: Map<String, SourceConfig>,
+        known: Set<String>,
+    ): SourceConfig? {
+        val parsed = SourcePaths.parseKnown(path, known)
+        return if (parsed != null) byId[parsed.sourceId.value] else byId[SourceId.WEBDAV.value]
+    }
+
     /**
      * 一条队列项 → 真正要播的地址。
      *
      * 本地条目的地址是**现拼**的：库里存的是「相对目录树根的路径」，
      * SAF 的 document URI 依赖那次授权拿到的树，存下来重启就会失效（见 [LocalMedia]）。
      */
-    private suspend fun resolveUrl(path: String, root: HttpUrl?): String? {
+    private suspend fun resolveUrl(
+        path: String,
+        source: SourceConfig?,
+        known: Set<String>,
+    ): String? {
         // 系统媒体库的条目存的就是它自己的 content:// URI —— 跨重启稳定，直接当地址用
         if (LocalMedia.isContentUri(path)) return path
         val relative = LocalMedia.decode(path)
@@ -189,7 +199,18 @@ class PlayerViewModel(private val container: AppContainer) : ViewModel() {
             val tree = container.credentials.loadLocalTree() ?: return null
             return buildLocalUri(Uri.parse(tree), relative)?.toString()
         }
-        return root?.let { WebDavUrl.child(it, path).toString() }
+        val key = SourcePaths.parseKnown(path, known)?.key ?: path
+        return when (source?.type) {
+            SourceType.WEBDAV -> WebDavUrl.rootCollection(source.url, source.rootPath)
+                ?.let { WebDavUrl.child(it, key).toString() }
+            SourceType.SMB -> SmbUrl.build(source, key)
+            SourceType.EMBY, SourceType.JELLYFIN -> {
+                val itemId = key.removePrefix("item:")
+                if (itemId.isBlank()) null
+                else "${source.url.trimEnd('/')}/Videos/$itemId/stream?static=true"
+            }
+            else -> null
+        }
     }
 
     private fun buildLocalUri(treeUri: Uri, relative: String): Uri? = runCatching {
@@ -201,39 +222,50 @@ class PlayerViewModel(private val container: AppContainer) : ViewModel() {
     }.getOrNull()
 
     /**
-     * 找同级目录的字幕：**一次 PROPFIND** 拿整个目录，本地按文件名配对。
+     * 找同级目录的字幕：**每个数据源一次 PROPFIND**，本地按文件名配对。
      *
      * 为什么在播放时现查、而不是扫描时存进库：
      *  - 从「浏览」Tab 直接播的文件可能压根没进过媒体库，存库那条路够不着；
      *  - 一次用户触发的请求，不是高频轮询；
      *  - 不会留下过期的字幕记录。
-     * 拿不到就算了（超时/401/目录没了都不该挡住播放）。
+     * 拿不到就算了（超时/401/目录没了都不该挡住播放）。SMB/媒体服务器暂不做同级发现。
      */
     private suspend fun findSubtitles(
-        root: HttpUrl,
-        saved: StoredSource,
+        sourcesById: Map<String, SourceConfig>,
     ): Map<String, List<String>> {
-        val folder = queue.first().substringBeforeLast('/', "")
-        return try {
-            val siblings = container.webDavClient.propfind(
-                collection = WebDavUrl.child(root, folder, isCollection = true),
-                root = root,
-                basicAuthHeader = WebDavClient.basicAuth(saved.username, saved.password),
-            )
-            val subtitles = siblings.filter { !it.isDirectory && MediaTypes.isSubtitleFile(it.name) }
-            if (subtitles.isEmpty()) {
-                emptyMap()
-            } else {
-                queue.associateWith { videoPath ->
-                    val videoName = videoPath.substringAfterLast('/')
-                    subtitles.filter { MediaTypes.matchesSubtitle(videoName, it.name) }.map { it.path }
-                }
+        val result = mutableMapOf<String, List<String>>()
+        val groups = queue
+            .filter { !LocalMedia.isLocal(it) }
+            .groupBy { path ->
+                SourcePaths.parseKnown(path, sourcesById.keys)?.sourceId?.value
+                    ?: SourceId.WEBDAV.value
             }
-        } catch (e: CancellationException) {
-            throw e   // 取消要原样抛出，不得作为业务失败吞掉
-        } catch (e: Exception) {
-            emptyMap()
+        for ((sourceId, paths) in groups) {
+            val source = sourcesById[sourceId] ?: continue
+            if (source.type != SourceType.WEBDAV || !source.credentialOk) continue
+            val root = WebDavUrl.rootCollection(source.url, source.rootPath) ?: continue
+            val folder = SourcePaths.keyOf(paths.first()).substringBeforeLast('/', "")
+            try {
+                val siblings = container.webDavClient.propfind(
+                    collection = WebDavUrl.child(root, folder, isCollection = true),
+                    root = root,
+                    basicAuthHeader = WebDavClient.basicAuth(source.username, source.password),
+                )
+                val subtitles = siblings.filter { !it.isDirectory && MediaTypes.isSubtitleFile(it.name) }
+                if (subtitles.isEmpty()) continue
+                paths.forEach { videoPath ->
+                    val videoName = SourcePaths.keyOf(videoPath).substringAfterLast('/')
+                    result[videoPath] = subtitles
+                        .filter { MediaTypes.matchesSubtitle(videoName, it.name) }
+                        .map { WebDavUrl.child(root, it.path).toString() }
+                }
+            } catch (e: CancellationException) {
+                throw e   // 取消要原样抛出，不得作为业务失败吞掉
+            } catch (e: Exception) {
+                // 该源取不到字幕不影响播放
+            }
         }
+        return result
     }
 
     /** 当前字幕源的展示名（现在只有 OpenSubtitles）。 */

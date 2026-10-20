@@ -37,6 +37,7 @@ import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
@@ -79,6 +80,7 @@ sealed interface ScrapeState {
 class LibraryRepository(
     private val db: MediaDatabase,
     private val credentials: SecureCredentialStore,
+    private val sources: com.lovelev.mediadock.data.source.SourceRepository,
     private val localScanner: LocalScanner,
     private val mediaStoreScanner: MediaStoreScanner,
     private val store: MediaLibraryStore,
@@ -101,46 +103,80 @@ class LibraryRepository(
     private var workScanRequested = false
     private var workScrapeRequested = false
 
+    /** 本轮扫描涉及的源，以及各源最近一次 WorkInfo。 */
+    private var requestedSourceIds: Set<String> = emptySet()
+    private val sourceStates = mutableMapOf<String, WorkInfo?>()
+    private val observationJobs = mutableListOf<Job>()
+
+    /** 401/429 封锁只作用于对应源；其它源仍可扫描。 */
+    private val blockedSourceIds = mutableSetOf<String>()
+
     init {
         scope.launch {
-            scanScheduler.observe(SourceId.WEBDAV).collect { info ->
-                if (!workScanRequested || info == null) return@collect
-                when (info.state) {
-                    WorkInfo.State.ENQUEUED, WorkInfo.State.BLOCKED -> {
-                        _scan.value = ScanState.Running(
-                            directories = info.progress.getInt(ScanWorker.KEY_DIRS, 0),
-                            files = info.progress.getInt(ScanWorker.KEY_FILES, 0),
-                        )
-                    }
-                    WorkInfo.State.RUNNING -> {
-                        _scan.value = ScanState.Running(
-                            directories = info.progress.getInt(ScanWorker.KEY_DIRS, 0),
-                            files = info.progress.getInt(ScanWorker.KEY_FILES, 0),
-                        )
-                    }
-                    WorkInfo.State.SUCCEEDED -> {
-                        workScanRequested = false
-                        // 增量扫描的 files 是“本轮处理数”；界面要显示库的总条目数。
-                        val total = db.mediaDao().allItems().size
-                        _scan.value = ScanState.Done(
-                            files = total,
-                            truncated = info.outputData.getBoolean(ScanWorker.KEY_TRUNCATED, false),
-                        )
-                        triggerAutoScrape()
-                    }
-                    WorkInfo.State.FAILED -> {
-                        workScanRequested = false
-                        _scan.value = ScanState.Failed(
-                            message = info.outputData.getString(ScanWorker.KEY_MESSAGE) ?: "扫描失败",
-                            blocked = info.outputData.getBoolean(ScanWorker.KEY_BLOCKED, false),
-                        )
-                    }
-                    WorkInfo.State.CANCELLED -> {
-                        workScanRequested = false
-                        _scan.value = ScanState.Idle
+            sources.refresh()
+            sources.sources.collectLatest { list ->
+                observationJobs.forEach { it.cancel() }
+                observationJobs.clear()
+                list.filter { it.isScannable && it.enabled }.forEach { config ->
+                    observationJobs += scope.launch {
+                        scanScheduler.observe(SourceId(config.id)).collect { info ->
+                            sourceStates[config.id] = info
+                            onRemoteScanUpdate()
+                        }
                     }
                 }
             }
+        }
+    }
+
+    /** 汇总各源扫描进度；全部结束时再落到 Done/Failed。 */
+    private suspend fun onRemoteScanUpdate() {
+        if (!workScanRequested) return
+        val infos = requestedSourceIds.mapNotNull { sourceStates[it] }
+        val running = infos.filter {
+            it.state == WorkInfo.State.ENQUEUED ||
+                it.state == WorkInfo.State.BLOCKED ||
+                it.state == WorkInfo.State.RUNNING
+        }
+        if (running.isNotEmpty()) {
+            _scan.value = ScanState.Running(
+                directories = running.sumOf { it.progress.getInt(ScanWorker.KEY_DIRS, 0) },
+                files = running.sumOf { it.progress.getInt(ScanWorker.KEY_FILES, 0) },
+            )
+            return
+        }
+        // 还没见到某个源的 WorkInfo 时不能判定“结束”，否则刚入队就报完成
+        val finished = requestedSourceIds.all { sourceStates[it]?.state?.isFinished == true }
+        if (!finished) return
+
+        workScanRequested = false
+        val failed = requestedSourceIds.mapNotNull { id ->
+            sourceStates[id]?.takeIf { it.state == WorkInfo.State.FAILED }?.let { id to it }
+        }
+        val succeeded = requestedSourceIds.any {
+            sourceStates[it]?.state == WorkInfo.State.SUCCEEDED
+        }
+        if (failed.isNotEmpty()) {
+            failed.forEach { (id, info) ->
+                if (info.outputData.getBoolean(ScanWorker.KEY_BLOCKED, false)) blockedSourceIds += id
+            }
+            if (!succeeded) {
+                val (_, first) = failed.first()
+                _scan.value = ScanState.Failed(
+                    message = first.outputData.getString(ScanWorker.KEY_MESSAGE) ?: "扫描失败",
+                    blocked = failed.all { (_, info) ->
+                        info.outputData.getBoolean(ScanWorker.KEY_BLOCKED, false)
+                    },
+                )
+            }
+        }
+        if (succeeded) {
+            val truncated = requestedSourceIds.any {
+                sourceStates[it]?.outputData?.getBoolean(ScanWorker.KEY_TRUNCATED, false) == true
+            }
+            // 增量扫描的 files 是“本轮处理数”；界面要显示库的总条目数。
+            _scan.value = ScanState.Done(files = db.mediaDao().allItems().size, truncated = truncated)
+            triggerAutoScrape()
         }
     }
 
@@ -296,18 +332,20 @@ class LibraryRepository(
         if (scanJob?.isActive == true) return
         // 刮削在跑时不并发扫描：扫描是整表替换 media_items，会把刮削中的结果一起换掉
         if (workScrapeRequested) return
-        // 401/429 之后不许再试 —— 那会连累所有设备的 WebDAV
-        if ((_scan.value as? ScanState.Failed)?.blocked == true) return
 
         scope.launch {
-            val saved = credentials.load()
-            if (saved == null) {
-                _scan.value = ScanState.Failed("数据源不可用，请重新添加", blocked = false)
+            val list = sources.refresh().filter {
+                it.enabled && it.credentialOk && it.isScannable && it.id !in blockedSourceIds
+            }
+            if (list.isEmpty()) {
+                _scan.value = ScanState.Failed("没有可扫描的数据源", blocked = false)
                 return@launch
             }
             workScanRequested = true
+            requestedSourceIds = list.map { it.id }.toSet()
+            sourceStates.keys.retainAll(requestedSourceIds)
             _scan.value = ScanState.Running(directories = 0, files = 0)
-            scanScheduler.start(SourceId.WEBDAV)
+            list.forEach { scanScheduler.start(SourceId(it.id)) }
         }
     }
 
@@ -476,9 +514,26 @@ class LibraryRepository(
     fun cancelScan() {
         scanJob?.cancel()
         scanJob = null
-        scanScheduler.cancel(SourceId.WEBDAV)
+        val ids = if (requestedSourceIds.isNotEmpty()) {
+            requestedSourceIds
+        } else {
+            sources.cachedAll().filter { it.isScannable }.map { it.id }.toSet()
+        }
+        ids.forEach { scanScheduler.cancel(SourceId(it)) }
+        requestedSourceIds = emptySet()
         workScanRequested = false
         _scan.value = ScanState.Idle
+    }
+
+    /** 删除数据源前先停掉该源的扫描，避免 Worker 在删除后把文件写回来。 */
+    fun cancelScanFor(sourceId: String) {
+        scanScheduler.cancel(SourceId(sourceId))
+        requestedSourceIds = requestedSourceIds - sourceId
+        sourceStates.remove(sourceId)
+        if (requestedSourceIds.isEmpty() && workScanRequested) {
+            workScanRequested = false
+            _scan.value = ScanState.Idle
+        }
     }
 
     /** 取消刮削：只动刮削，**不会**把扫描结果提示（「共 N 个视频」）一起抹掉。 */
@@ -502,6 +557,8 @@ class LibraryRepository(
      */
     fun reset() {
         cancelAll()
+        blockedSourceIds.clear()
+        scope.launch { sources.refresh() }
     }
 
     /** 凭据改过了：把「没凭据」造成的封锁也解开。 */

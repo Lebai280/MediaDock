@@ -14,6 +14,7 @@ import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.Button
 import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.material3.FilterChip
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Text
@@ -29,6 +30,7 @@ import androidx.compose.ui.unit.dp
 import android.content.ClipboardManager
 import android.content.Context
 import android.content.Context.CLIPBOARD_SERVICE
+import com.lovelev.mediadock.core.model.SourceType
 
 @Composable
 fun AddSourceScreen(
@@ -53,31 +55,88 @@ fun AddSourceScreen(
             .padding(24.dp),
         verticalArrangement = Arrangement.spacedBy(16.dp),
     ) {
-        Text("添加 WebDAV 数据源", style = MaterialTheme.typography.headlineSmall)
+        Text(
+            if (vm.editingId != null) {
+                "编辑 ${typeLabel(vm.type)} 数据源"
+            } else {
+                "添加 ${typeLabel(vm.type)} 数据源"
+            },
+            style = MaterialTheme.typography.headlineSmall,
+        )
 
-        // 分享配置的提示 + 手动粘贴入口（自动识别没赶上时可再次点击）
-        Row(verticalAlignment = Alignment.CenterVertically) {
-            vm.sharedHint?.let { hint ->
-                Text(
-                    text = hint,
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.tertiary,
-                    modifier = Modifier.weight(1f),
-                )
-            } ?: Spacer(Modifier.weight(1f))
-            TextButton(onClick = { vm.pasteShared(clipboardText(context)) }) {
-                Text("粘贴分享配置")
+        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            SourceType.entries
+                .filter { it != SourceType.LOCAL }
+                .forEach { type ->
+                    FilterChip(
+                        selected = vm.type == type,
+                        onClick = { vm.selectType(type) },
+                        label = { Text(typeLabel(type)) },
+                    )
+                }
+        }
+
+        if (vm.type == SourceType.WEBDAV) {
+            // 分享配置的提示 + 手动粘贴入口（自动识别没赶上时可再次点击）
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                vm.sharedHint?.let { hint ->
+                    Text(
+                        text = hint,
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.tertiary,
+                        modifier = Modifier.weight(1f),
+                    )
+                } ?: Spacer(Modifier.weight(1f))
+                TextButton(onClick = { vm.pasteShared(clipboardText(context)) }) {
+                    Text("粘贴分享配置")
+                }
             }
         }
 
         OutlinedTextField(
-            value = vm.url,
-            onValueChange = vm::editUrl,
-            label = { Text("服务器地址") },
-            placeholder = { Text("https://example.com/dav") },
+            value = vm.name,
+            onValueChange = vm::editName,
+            label = { Text("名称（用于区分多个源）") },
+            placeholder = { Text("默认使用服务器域名") },
             singleLine = true,
             modifier = Modifier.fillMaxWidth(),
         )
+
+        OutlinedTextField(
+            value = vm.url,
+            onValueChange = vm::editUrl,
+            label = {
+                Text(
+                    when (vm.type) {
+                        SourceType.SMB -> "主机地址"
+                        SourceType.EMBY, SourceType.JELLYFIN -> "服务器地址"
+                        else -> "服务器地址"
+                    },
+                )
+            },
+            placeholder = {
+                Text(
+                    when (vm.type) {
+                        SourceType.SMB -> "192.168.1.10 或 host:445"
+                        SourceType.EMBY, SourceType.JELLYFIN -> "http://192.168.1.10:8096"
+                        else -> "https://example.com/dav"
+                    },
+                )
+            },
+            singleLine = true,
+            modifier = Modifier.fillMaxWidth(),
+        )
+
+        if (vm.type == SourceType.SMB) {
+            OutlinedTextField(
+                value = vm.share,
+                onValueChange = vm::editShare,
+                label = { Text("共享名") },
+                placeholder = { Text("movies") },
+                singleLine = true,
+                modifier = Modifier.fillMaxWidth(),
+            )
+        }
 
         OutlinedTextField(
             value = vm.username,
@@ -97,14 +156,26 @@ fun AddSourceScreen(
             modifier = Modifier.fillMaxWidth(),
         )
 
-        OutlinedTextField(
-            value = vm.rootPath,
-            onValueChange = vm::editRootPath,
-            label = { Text("根路径（可选）") },
-            placeholder = { Text("默认使用地址中的路径") },
-            singleLine = true,
-            modifier = Modifier.fillMaxWidth(),
-        )
+        if (vm.type == SourceType.WEBDAV) {
+            OutlinedTextField(
+                value = vm.rootPath,
+                onValueChange = vm::editRootPath,
+                label = { Text("根路径（可选）") },
+                placeholder = { Text("默认使用地址中的路径") },
+                singleLine = true,
+                modifier = Modifier.fillMaxWidth(),
+            )
+        }
+
+        if (vm.type == SourceType.EMBY || vm.type == SourceType.JELLYFIN) {
+            OutlinedTextField(
+                value = vm.apiKey,
+                onValueChange = vm::editApiKey,
+                label = { Text("API Key（可选，替代账号密码）") },
+                singleLine = true,
+                modifier = Modifier.fillMaxWidth(),
+            )
+        }
 
         Button(
             onClick = vm::test,
@@ -135,7 +206,7 @@ fun AddSourceScreen(
                     Text("· $it", style = MaterialTheme.typography.bodySmall)
                 }
                 Button(onClick = onConnected, modifier = Modifier.fillMaxWidth()) {
-                    Text("进入浏览")
+                    Text(if (vm.editingId != null) "完成" else "进入浏览")
                 }
             }
 
@@ -168,4 +239,12 @@ private fun clipboardText(context: Context): String? {
     val clip = manager.primaryClip ?: return null
     if (clip.itemCount <= 0) return null
     return runCatching { clip.getItemAt(0).coerceToText(context).toString() }.getOrNull()
+}
+
+private fun typeLabel(type: SourceType): String = when (type) {
+    SourceType.WEBDAV -> "WebDAV"
+    SourceType.LOCAL -> "本地"
+    SourceType.SMB -> "SMB"
+    SourceType.EMBY -> "Emby"
+    SourceType.JELLYFIN -> "Jellyfin"
 }

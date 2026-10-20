@@ -18,11 +18,17 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.material3.Button
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ButtonDefaults
+import androidx.compose.material3.DropdownMenu
+import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.style.TextAlign
@@ -55,7 +61,7 @@ fun BrowserScreen(
                         Text("空目录", style = MaterialTheme.typography.bodyMedium)
                     }
                 } else {
-                    EntryList(s.entries, onOpen = vm::open, onPlay = onPlay)
+                    EntryList(s.entries, onOpen = vm::open, onPlay = onPlay, qualify = vm::qualify)
                 }
 
             is BrowseState.Failed -> Center { Notice(s.message, "重试", vm::retry) }
@@ -80,6 +86,36 @@ private fun Header(vm: BrowserViewModel) {
                 .horizontalScroll(rememberScrollState()),
             verticalAlignment = Alignment.CenterVertically,
         ) {
+            if (vm.sources.size > 1) {
+                var expanded by remember { mutableStateOf(false) }
+                Box {
+                    TextButton(onClick = { expanded = true }) {
+                        Text("源：${vm.rootLabel}", maxLines = 1)
+                    }
+                    DropdownMenu(
+                        expanded = expanded,
+                        onDismissRequest = { expanded = false },
+                    ) {
+                        vm.sources.forEach { source ->
+                            DropdownMenuItem(
+                                text = {
+                                    Text(
+                                        if (source.id == vm.selectedSourceId) {
+                                            "● ${source.name}"
+                                        } else {
+                                            source.name
+                                        },
+                                    )
+                                },
+                                onClick = {
+                                    expanded = false
+                                    vm.selectSource(source.id)
+                                },
+                            )
+                        }
+                    }
+                }
+            }
             val crumbs = vm.crumbs()
             crumbs.forEachIndexed { i, c ->
                 if (i > 0) {
@@ -124,9 +160,12 @@ private fun EntryList(
     entries: List<WebDavEntry>,
     onOpen: (String) -> Unit,
     onPlay: (path: String, queue: List<String>) -> Unit,
+    qualify: (String) -> String,
 ) {
-    // 同目录的视频就是播放队列 —— 有了它才有「自动播放下一集」
-    val videos = entries.filter { !it.isDirectory && MediaTypes.isVideoFile(it.name) }.map { it.path }
+    // 同目录的视频就是播放队列 —— 有了它才有「自动播放下一集」；路径按源限定
+    val videos = entries
+        .filter { !it.isDirectory && MediaTypes.isVideoFile(it.name) }
+        .map { qualify(it.path) }
 
     LazyColumn(modifier = Modifier.fillMaxSize()) {
         items(entries, key = { it.path }) { entry ->
@@ -134,7 +173,11 @@ private fun EntryList(
                 modifier = Modifier
                     .fillMaxWidth()
                     .clickable {
-                        if (entry.isDirectory) onOpen(entry.path) else onPlay(entry.path, videos)
+                        if (entry.isDirectory) {
+                            onOpen(entry.path)
+                        } else {
+                            onPlay(qualify(entry.path), videos)
+                        }
                     }
                     .padding(horizontal = 16.dp, vertical = 14.dp),
                 verticalAlignment = Alignment.CenterVertically,

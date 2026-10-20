@@ -66,10 +66,20 @@ class AppContainer(context: Context) {
 
     val webDavClient: WebDavClient = WebDavClient(okHttpClient)
 
+    /** Emby / Jellyfin 客户端（登录与条目同步）。 */
+    val embyClient: com.lovelev.mediadock.data.emby.EmbyClient by lazy {
+        com.lovelev.mediadock.data.emby.EmbyClient(okHttpClient)
+    }
+
     /** TMDB 走同一个普通客户端：它是短请求，跟媒体流不是一回事，可以带 callTimeout。 */
     val tmdbClient: TmdbClient = TmdbClient(okHttpClient)
 
     val credentials: SecureCredentialStore = SecureCredentialStore(appContext)
+
+    /** 多数据源注册表（加密配置 + 内存快照 + `sources` 表镜像）。 */
+    val sources: com.lovelev.mediadock.data.source.SourceRepository by lazy {
+        com.lovelev.mediadock.data.source.SourceRepository(credentials, database.sourceDao(), libraryStore)
+    }
 
     /** 「下一个要播的文件」，由浏览页/媒体库写入、播放页读取。 */
     val playbackSelection: PlaybackSelection = PlaybackSelection()
@@ -137,7 +147,7 @@ class AppContainer(context: Context) {
 
     val library: LibraryRepository by lazy {
         LibraryRepository(
-            database, credentials,
+            database, credentials, sources,
             LocalScanner(appContext), MediaStoreScanner(appContext), libraryStore,
             libraryQuery, metadataScraper, scanScheduler, scrapeScheduler,
         )

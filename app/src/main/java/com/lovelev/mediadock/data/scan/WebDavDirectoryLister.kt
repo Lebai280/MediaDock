@@ -3,7 +3,7 @@ package com.lovelev.mediadock.data.scan
 import com.lovelev.mediadock.core.data.scan.DirectoryLister
 import com.lovelev.mediadock.core.data.scan.DirectoryListing
 import com.lovelev.mediadock.core.data.scan.RemoteEntry
-import com.lovelev.mediadock.data.prefs.StoredSource
+import com.lovelev.mediadock.data.source.SourceConfig
 import com.lovelev.mediadock.data.webdav.WebDavClient
 import com.lovelev.mediadock.data.webdav.WebDavException
 import com.lovelev.mediadock.data.webdav.WebDavUrl
@@ -15,7 +15,7 @@ import com.lovelev.mediadock.data.webdav.WebDavUrl
  */
 class WebDavDirectoryLister(
     private val client: WebDavClient,
-    private val source: () -> StoredSource?,
+    private val source: () -> SourceConfig?,
 ) : DirectoryLister {
 
     override suspend fun list(
@@ -23,7 +23,8 @@ class WebDavDirectoryLister(
         etag: String?,
         lastModified: String?,
     ): DirectoryListing {
-        val saved = source() ?: throw WebDavException.Config("数据源不可用，请重新添加")
+        val saved = source()?.takeIf { it.credentialOk }
+            ?: throw WebDavException.Config("数据源不可用，请重新添加")
         val root = WebDavUrl.rootCollection(saved.url, saved.rootPath)
             ?: throw WebDavException.Config("数据源地址无效，请重新填写")
         val collection = WebDavUrl.child(root, remoteKey, isCollection = true)

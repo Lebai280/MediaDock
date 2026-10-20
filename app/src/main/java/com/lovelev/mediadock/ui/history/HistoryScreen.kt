@@ -210,7 +210,7 @@ private fun Poster(posterPath: String?, title: String) {
     ) {
         if (posterPath != null) {
             AsyncImage(
-                model = TmdbClient.posterUrl(posterPath, width = 92),
+                model = TmdbClient.posterModel(posterPath, width = 92),
                 contentDescription = null,
                 contentScale = ContentScale.Crop,
                 modifier = Modifier.fillMaxSize(),

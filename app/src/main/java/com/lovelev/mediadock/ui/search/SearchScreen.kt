@@ -277,7 +277,7 @@ private fun SearchCard(card: WorkCard, onClick: () -> Unit) {
         ) {
             card.posterPath?.let { poster ->
                 AsyncImage(
-                    model = TmdbClient.posterUrl(poster),
+                    model = TmdbClient.posterModel(poster),
                     contentDescription = card.title,
                     contentScale = ContentScale.Crop,
                     modifier = Modifier.fillMaxSize(),

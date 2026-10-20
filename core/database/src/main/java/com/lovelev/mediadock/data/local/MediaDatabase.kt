@@ -63,6 +63,7 @@ abstract class MediaDatabase : RoomDatabase() {
     abstract fun scanDao(): ScanDao
     abstract fun scrapeTaskDao(): ScrapeTaskDao
     abstract fun worksCardDao(): WorksCardDao
+    abstract fun sourceDao(): SourceDao
 
     companion object {
         /** 当前库表版本。**单一来源**：`@Database` 与迁移覆盖单测都读它。 */

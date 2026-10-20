@@ -71,6 +71,8 @@ class ScanEngine(
         sourceId: SourceId,
         mode: String,
         lister: DirectoryLister,
+        /** 源内相对键 → 跨源唯一路径；旧源与本地直接用相对键。 */
+        legacyPathFor: (String) -> String = { it },
         onProgress: suspend (ScanProgress) -> Unit = {},
     ): ScanOutcome {
         val dao = db.scanDao()
@@ -168,7 +170,10 @@ class ScanEngine(
                     .filter { !it.isDirectory && !isIgnoredDirectory(it.name) }
                     .filter { MediaTypes.isVideoFile(it.name) }
                     .filter { (it.sizeBytes ?: 0L) > 0L }
-                    .map { it.toScannedFile() }
+                    .map { entry ->
+                        val file = entry.toScannedFile()
+                        file.copy(legacyPath = legacyPathFor(file.path))
+                    }
                     .toList()
                 store.applyDirectoryListing(sourceId, next.remoteKey, videoFiles, scanRun.id)
 

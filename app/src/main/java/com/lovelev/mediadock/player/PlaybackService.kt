@@ -15,6 +15,7 @@ import androidx.media3.session.MediaSessionService
 import com.lovelev.mediadock.MainActivity
 import com.lovelev.mediadock.MediaDockApp
 import com.lovelev.mediadock.data.repo.ProgressRepository
+import com.lovelev.mediadock.data.smb.SmbDataSource
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
@@ -46,14 +47,16 @@ class PlaybackService : MediaSessionService() {
         val exo = ExoPlayer.Builder(this)
             .setMediaSourceFactory(
                 DefaultMediaSourceFactory(
-                    // 外面包一层 DefaultDataSource：它把 file:// / content:// 交给本地/内容数据源，
-                    // 其余（http(s) 的片子、WebDAV 字幕）才落到下面这层补鉴权的 factory。
-                    // **不包这层的话，本地字幕文件（file://）读不了。**
-                    DefaultDataSource.Factory(
-                        this,
-                        WebDavMediaDataSource.Factory(container.mediaOkHttpClient) {
-                            container.credentials.cached
-                        },
+                    // 按 scheme 路由：smb:// 走 SMB 数据源；其余交给 DefaultDataSource
+                    // （它把 file:// / content:// 交给本地/内容数据源，http(s) 落到补鉴权的 factory）。
+                    RoutingDataSource.Factory(
+                        smbFactory = SmbDataSource.Factory { container.sources.cachedAll() },
+                        otherFactory = DefaultDataSource.Factory(
+                            this,
+                            MultiSourceHttpDataSource.Factory(container.mediaOkHttpClient) {
+                                container.sources.cachedAll()
+                            },
+                        ),
                     ),
                 )
                     // 默认策略会把 401/429 当作可重试错误（点播默认重试 3 次）——

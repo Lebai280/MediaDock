@@ -3,6 +3,10 @@ package com.lovelev.mediadock.ui.nav
 object Routes {
     const val ADD_SOURCE = "add_source"
 
+    /** 数据源管理与编辑。 */
+    const val SOURCES = "sources"
+    const val EDIT_SOURCE = "edit_source/{id}"
+
     /** 四个 Tab（照用户给的 VidHub 参考）：媒体库 / 收藏 / 浏览 / 设置。 */
     const val LIBRARY = "library"
     const val FAVORITES = "favorites"

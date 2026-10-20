@@ -10,8 +10,14 @@ import androidx.datastore.preferences.core.Preferences
 import androidx.datastore.preferences.core.edit
 import androidx.datastore.preferences.core.stringPreferencesKey
 import androidx.datastore.preferences.preferencesDataStore
+import com.lovelev.mediadock.core.model.SourceType
+import com.lovelev.mediadock.data.source.SourceConfig
 import com.lovelev.mediadock.data.subtitle.OpenSubtitlesCredentials
+import com.lovelev.mediadock.data.webdav.WebDavUrl
 import kotlinx.coroutines.flow.first
+import kotlinx.serialization.Serializable
+import kotlinx.serialization.encodeToString
+import kotlinx.serialization.json.Json
 import java.security.KeyStore
 import javax.crypto.Cipher
 import javax.crypto.KeyGenerator
@@ -27,6 +33,22 @@ data class StoredSource(
     val username: String,
     val password: String,
     val rootPath: String,
+)
+
+/** 落盘的源条目：密码/API Key 只存密文。 */
+@Serializable
+private data class StoredSourceEntry(
+    val id: String,
+    val type: String,
+    val name: String,
+    val url: String = "",
+    val username: String = "",
+    val passwordEnc: String = "",
+    val rootPath: String = "",
+    val share: String = "",
+    val apiKeyEnc: String? = null,
+    val enabled: Boolean = true,
+    val priority: Int = 0,
 )
 
 /**
@@ -45,6 +67,9 @@ class SecureCredentialStore(private val context: Context) {
     private val keyUser = stringPreferencesKey("source_user")
     private val keyPassEnc = stringPreferencesKey("source_pass_enc")
     private val keyRoot = stringPreferencesKey("source_root")
+
+    /** 多数据源注册表（JSON 数组，密码/API Key 为密文）。旧四个标量键保留用于回滚。 */
+    private val keySourcesV2 = stringPreferencesKey("sources_v2")
 
     /** TMDB 凭据（API Read Access Token 或 32 位 api_key）。同样加密存，**绝不进代码/BuildConfig**。 */
     private val keyTmdb = stringPreferencesKey("tmdb_secret_enc")
@@ -100,6 +125,142 @@ class SecureCredentialStore(private val context: Context) {
     var cached: StoredSource? = null
         private set
 
+    /** 最近一次读到的多源列表，供不能挂起的 DataSource 同步取用。 */
+    @Volatile
+    var cachedSources: List<SourceConfig> = emptyList()
+        private set
+
+    /**
+     * 读取全部数据源。首次升级时把旧的单源四个标量键迁移成 id=`webdav` 的条目。
+     *
+     * 某个源的密码解不开时**只丢弃该源的凭据**（credentialOk=false），不会影响其它源；
+     * 扫描/播放必须跳过 credentialOk=false 的源，绝不能带空密码发请求。
+     */
+    suspend fun loadSources(): List<SourceConfig> {
+        val prefs = context.credentialDataStore.data.first()
+        val raw = prefs[keySourcesV2]
+        if (raw == null) {
+            val migrated = migrateLegacy(prefs)
+            if (migrated.isNotEmpty()) persistEntries(migrated)
+            cachedSources = migrated.mapNotNull { it.toConfig() }
+            return cachedSources
+        }
+        val entries = decodeEntries(raw)
+        cachedSources = entries.mapNotNull { it.toConfig() }
+        return cachedSources
+    }
+
+    /** 新增或按 id 覆盖一个源；密码/API Key 在此加密。 */
+    suspend fun saveSource(config: SourceConfig) {
+        val entries = currentEntries()
+            .filterNot { it.id == config.id } + config.toEntry()
+        persistEntries(entries)
+        cachedSources = entries.mapNotNull { it.toConfig() }
+        // 旧版本只认识 `webdav` 这一项：保持旧键同步，降级回滚时仍能登录
+        if (config.id == "webdav") {
+            context.credentialDataStore.edit { p ->
+                p[keyUrl] = config.url
+                p[keyUser] = config.username
+                p[keyPassEnc] = CryptoBox.encrypt(config.password)
+                p[keyRoot] = config.rootPath
+            }
+            cached = config.toStoredSource()
+        }
+    }
+
+    suspend fun removeSource(id: String) {
+        val entries = currentEntries().filterNot { it.id == id }
+        persistEntries(entries)
+        cachedSources = entries.mapNotNull { it.toConfig() }
+        if (id == "webdav") clearLegacyKeys()
+    }
+
+    suspend fun setSourceEnabled(id: String, enabled: Boolean) {
+        val entries = currentEntries().map { if (it.id == id) it.copy(enabled = enabled) else it }
+        persistEntries(entries)
+        cachedSources = entries.mapNotNull { it.toConfig() }
+    }
+
+    private suspend fun currentEntries(): List<StoredSourceEntry> {
+        val prefs = context.credentialDataStore.data.first()
+        val raw = prefs[keySourcesV2] ?: return migrateLegacy(prefs)
+        return decodeEntries(raw)
+    }
+
+    private fun migrateLegacy(prefs: Preferences): List<StoredSourceEntry> {
+        val url = prefs[keyUrl] ?: return emptyList()
+        val user = prefs[keyUser] ?: return emptyList()
+        val passEnc = prefs[keyPassEnc] ?: return emptyList()
+        return listOf(
+            StoredSourceEntry(
+                id = "webdav",
+                type = SourceType.WEBDAV.name,
+                name = runCatching { WebDavUrl.parse(url)?.host }.getOrNull() ?: "WebDAV",
+                url = url,
+                username = user,
+                passwordEnc = passEnc,
+                rootPath = prefs[keyRoot].orEmpty(),
+            ),
+        )
+    }
+
+    private suspend fun persistEntries(entries: List<StoredSourceEntry>) {
+        val json = Json.encodeToString(entries)
+        context.credentialDataStore.edit { it[keySourcesV2] = json }
+    }
+
+    private fun decodeEntries(raw: String): List<StoredSourceEntry> =
+        runCatching { Json.decodeFromString<List<StoredSourceEntry>>(raw) }.getOrElse { emptyList() }
+
+    private suspend fun clearLegacyKeys() {
+        context.credentialDataStore.edit { p ->
+            p.remove(keyUrl)
+            p.remove(keyUser)
+            p.remove(keyPassEnc)
+            p.remove(keyRoot)
+        }
+        cached = null
+    }
+
+    private fun StoredSourceEntry.toConfig(): SourceConfig? {
+        val type = runCatching { SourceType.valueOf(this.type) }.getOrNull() ?: return null
+        val password = if (passwordEnc.isBlank()) null else CryptoBox.decryptOrNull(passwordEnc)
+        val apiKey = apiKeyEnc?.let(CryptoBox::decryptOrNull)
+        val needsPassword = type == SourceType.WEBDAV || type == SourceType.SMB
+        val ok = (!needsPassword || password != null) && (apiKeyEnc == null || apiKey != null)
+        return SourceConfig(
+            id = id,
+            type = type,
+            name = name,
+            url = url,
+            username = username,
+            password = password.orEmpty(),
+            rootPath = rootPath,
+            share = share,
+            apiKey = apiKey,
+            enabled = enabled,
+            priority = priority,
+            credentialOk = ok,
+        )
+    }
+
+    private fun SourceConfig.toEntry(): StoredSourceEntry = StoredSourceEntry(
+        id = id,
+        type = type.name,
+        name = name,
+        url = url,
+        username = username,
+        passwordEnc = if (password.isEmpty()) "" else CryptoBox.encrypt(password),
+        rootPath = rootPath,
+        share = share,
+        apiKeyEnc = apiKey?.takeIf { it.isNotBlank() }?.let(CryptoBox::encrypt),
+        enabled = enabled,
+        priority = priority,
+    )
+
+    private fun SourceConfig.toStoredSource(): StoredSource =
+        StoredSource(url = url, username = username, password = password, rootPath = rootPath)
+
     suspend fun load(): StoredSource? {
         val p = context.credentialDataStore.data.first()
         val url = p[keyUrl]
@@ -126,14 +287,19 @@ class SecureCredentialStore(private val context: Context) {
         return source
     }
 
+    /** @Deprecated 旧的单源写入；内部转成 id=`webdav` 的注册表条目。新代码用 [saveSource]。 */
     suspend fun save(source: StoredSource) {
-        context.credentialDataStore.edit { p ->
-            p[keyUrl] = source.url
-            p[keyUser] = source.username
-            p[keyPassEnc] = CryptoBox.encrypt(source.password)
-            p[keyRoot] = source.rootPath
-        }
-        cached = source
+        saveSource(
+            SourceConfig(
+                id = "webdav",
+                type = SourceType.WEBDAV,
+                name = runCatching { WebDavUrl.parse(source.url)?.host }.getOrNull() ?: "WebDAV",
+                url = source.url,
+                username = source.username,
+                password = source.password,
+                rootPath = source.rootPath,
+            ),
+        )
     }
 
     /**
@@ -150,8 +316,10 @@ class SecureCredentialStore(private val context: Context) {
             p.remove(keyUser)
             p.remove(keyPassEnc)
             p.remove(keyRoot)
+            p.remove(keySourcesV2)
         }
         cached = null
+        cachedSources = emptyList()
     }
 
     suspend fun loadTmdbSecret(): String? =

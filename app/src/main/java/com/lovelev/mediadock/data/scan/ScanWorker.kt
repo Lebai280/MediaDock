@@ -38,17 +38,36 @@ class ScanWorker(
 
         runCatching { setForeground(foregroundInfo(0, 0)) }
 
-        val saved = container.credentials.load()
-        if (saved == null) {
+        val source = container.sources.get(sourceId)
+        if (source == null || !source.credentialOk) {
             return Result.failure(
                 workDataOf(KEY_BLOCKED to false, KEY_MESSAGE to "数据源不可用，请重新添加"),
             )
         }
-        val lister = WebDavDirectoryLister(container.webDavClient) { saved }
+        if (source.isCatalogSource) {
+            return runCatalogSync(container, source)
+        }
+
+        val lister: com.lovelev.mediadock.core.data.scan.DirectoryLister = when (source.type) {
+            com.lovelev.mediadock.core.model.SourceType.WEBDAV ->
+                WebDavDirectoryLister(container.webDavClient) { source }
+            com.lovelev.mediadock.core.model.SourceType.SMB ->
+                com.lovelev.mediadock.data.smb.SmbDirectoryLister { source }
+            else -> return Result.failure(
+                workDataOf(KEY_BLOCKED to false, KEY_MESSAGE to "该数据源类型暂不支持扫描"),
+            )
+        }
         val engine = ScanEngine(container.database, container.libraryStore)
 
         return try {
-            val outcome = engine.run(SourceId(sourceId), mode, lister) { progress ->
+            val outcome = engine.run(
+                sourceId = SourceId(sourceId),
+                mode = mode,
+                lister = lister,
+                legacyPathFor = { key ->
+                    com.lovelev.mediadock.core.model.SourcePaths.qualify(SourceId(sourceId), key)
+                },
+            ) { progress ->
                 setProgress(
                     workDataOf(
                         KEY_DIRS to progress.directories,
@@ -80,6 +99,36 @@ class ScanWorker(
             Result.retry()
         } catch (e: Exception) {
             Result.failure(workDataOf(KEY_BLOCKED to false, KEY_MESSAGE to (e.message ?: "扫描失败")))
+        } finally {
+            (lister as? java.io.Closeable)?.close()
+        }
+    }
+
+    /** Emby / Jellyfin：分页同步条目，进度按条目数上报。 */
+    private suspend fun runCatalogSync(
+        container: com.lovelev.mediadock.di.AppContainer,
+        source: com.lovelev.mediadock.data.source.SourceConfig,
+    ): Result {
+        val engine = CatalogSyncEngine(
+            container.libraryStore,
+            com.lovelev.mediadock.data.emby.EmbyClient(container.mediaOkHttpClient),
+        )
+        return try {
+            val count = engine.run(source) { files ->
+                setProgress(workDataOf(KEY_DIRS to 0, KEY_FILES to files))
+                runCatching { setForeground(foregroundInfo(0, files)) }
+            }
+            Result.success(
+                workDataOf(KEY_DIRS to 0, KEY_FILES to count, KEY_TRUNCATED to false),
+            )
+        } catch (e: CancellationException) {
+            throw e
+        } catch (e: com.lovelev.mediadock.data.emby.EmbyClient.Failure.Auth) {
+            Result.failure(workDataOf(KEY_BLOCKED to true, KEY_MESSAGE to (e.message ?: "认证失败")))
+        } catch (e: com.lovelev.mediadock.data.emby.EmbyClient.Failure.Network) {
+            Result.retry()
+        } catch (e: Exception) {
+            Result.failure(workDataOf(KEY_BLOCKED to false, KEY_MESSAGE to (e.message ?: "同步失败")))
         }
     }
 

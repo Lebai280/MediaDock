@@ -255,6 +255,14 @@ class TmdbClient(private val client: OkHttpClient) {
         fun posterUrl(posterPath: String, width: Int = 342): String =
             "https://image.tmdb.org/t/p/w$width$posterPath"
 
+        /** 完整 URL（Emby/Jellyfin 海报）原样返回，其余按 TMDB path 拼接。 */
+        fun posterModel(posterPath: String, width: Int = 342): String =
+            if (posterPath.startsWith("http://") || posterPath.startsWith("https://")) {
+                posterPath
+            } else {
+                posterUrl(posterPath, width)
+            }
+
         /** 分集剧照。 */
         fun stillUrl(stillPath: String, width: Int = 300): String =
             "https://image.tmdb.org/t/p/w$width$stillPath"

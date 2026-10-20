@@ -46,6 +46,29 @@ interface MediaLibraryWriteDao {
     @Query("SELECT COUNT(*) FROM file_segments WHERE file_id = :fileId")
     suspend fun segmentCount(fileId: String): Int
 
+    @Query("DELETE FROM movie_versions WHERE source_id = :sourceId")
+    suspend fun deleteMovieVersionsBySource(sourceId: String)
+
+    @Query("DELETE FROM episode_versions WHERE source_id = :sourceId")
+    suspend fun deleteEpisodeVersionsBySource(sourceId: String)
+
+    @Query(
+        "DELETE FROM file_segments WHERE file_id IN " +
+            "(SELECT id FROM media_files WHERE source_id = :sourceId)",
+    )
+    suspend fun deleteSegmentsBySource(sourceId: String)
+
+    @Query("DELETE FROM media_files WHERE source_id = :sourceId")
+    suspend fun deleteFilesBySource(sourceId: String)
+
+    /** 作品当前所属的数据源（多源刮削时用于决定逻辑键是否带源后缀）。 */
+    @Query(
+        "SELECT source_id FROM movie_versions WHERE work_id = :workId " +
+            "UNION SELECT ev.source_id FROM episode_versions ev " +
+            "JOIN episodes e ON e.id = ev.episode_id WHERE e.work_id = :workId LIMIT 1",
+    )
+    suspend fun sourceIdOfWork(workId: String): String?
+
     @Query("SELECT episode_id FROM episode_versions WHERE file_id = :fileId LIMIT 1")
     suspend fun episodeIdForFile(fileId: String): String?
 
@@ -59,16 +82,36 @@ interface MediaLibraryWriteDao {
     suspend fun workByLogicalKey(logicalKey: String): WorkEntity?
 
     @Query(
-        "SELECT * FROM works WHERE type = :type AND title = :title " +
-            "AND year IS :year AND tmdb_id IS NOT NULL ORDER BY added_at LIMIT 1",
+        "SELECT * FROM works w WHERE w.type = :type AND w.title = :title " +
+            "AND w.year IS :year AND w.tmdb_id IS NOT NULL " +
+            "AND EXISTS (" +
+            "SELECT 1 FROM movie_versions mv WHERE mv.work_id = w.id AND mv.source_id = :sourceId " +
+            "UNION SELECT 1 FROM episode_versions ev JOIN episodes e ON e.id = ev.episode_id " +
+            "WHERE e.work_id = w.id AND ev.source_id = :sourceId) " +
+            "ORDER BY w.added_at LIMIT 1",
     )
-    suspend fun matchedWorkByTitle(title: String, year: Int?, type: String): WorkEntity?
+    suspend fun matchedWorkByTitle(
+        title: String,
+        year: Int?,
+        type: String,
+        sourceId: String,
+    ): WorkEntity?
 
     @Query(
-        "SELECT * FROM works WHERE type = :type AND title = :title " +
-            "AND year IS :year ORDER BY tmdb_id IS NULL, added_at LIMIT 1",
+        "SELECT * FROM works w WHERE w.type = :type AND w.title = :title " +
+            "AND w.year IS :year " +
+            "AND EXISTS (" +
+            "SELECT 1 FROM movie_versions mv WHERE mv.work_id = w.id AND mv.source_id = :sourceId " +
+            "UNION SELECT 1 FROM episode_versions ev JOIN episodes e ON e.id = ev.episode_id " +
+            "WHERE e.work_id = w.id AND ev.source_id = :sourceId) " +
+            "ORDER BY w.tmdb_id IS NULL, w.added_at LIMIT 1",
     )
-    suspend fun anyWorkByTitle(title: String, year: Int?, type: String): WorkEntity?
+    suspend fun anyWorkByTitle(
+        title: String,
+        year: Int?,
+        type: String,
+        sourceId: String,
+    ): WorkEntity?
 
     @Query("SELECT * FROM works WHERE id = :id")
     suspend fun workById(id: String): WorkEntity?
@@ -123,8 +166,11 @@ interface MediaLibraryWriteDao {
     )
     suspend fun markMissingNotInRun(sourceId: String, runId: Long, at: Long)
 
-    @Query("UPDATE media_files SET missing_at = :at WHERE legacy_path LIKE :prefix || '%'")
-    suspend fun markMissingByPrefix(prefix: String, at: Long)
+    @Query(
+        "UPDATE media_files SET missing_at = :at " +
+            "WHERE source_id = :sourceId AND legacy_path LIKE :prefix || '%'",
+    )
+    suspend fun markMissingByPrefix(sourceId: String, prefix: String, at: Long)
 
     @Query("UPDATE media_files SET missing_at = NULL WHERE id = :id")
     suspend fun clearMissing(id: String)

@@ -78,6 +78,7 @@ import com.lovelev.mediadock.ui.nav.Routes
 import com.lovelev.mediadock.ui.nav.SystemBarAppearance
 import com.lovelev.mediadock.ui.playlist.PlaylistDetailScreen
 import com.lovelev.mediadock.ui.playlist.PlaylistsScreen
+import com.lovelev.mediadock.ui.source.SourcesScreen
 import com.lovelev.mediadock.ui.player.MiniPlayerBar
 import com.lovelev.mediadock.ui.player.NowPlayingViewModel
 import com.lovelev.mediadock.ui.player.PlayerScreen
@@ -108,8 +109,9 @@ class MainActivity : ComponentActivity() {
                 // 起始页看本地有没有已保存的数据源。只读 DataStore，不发任何网络请求。
                 var startRoute by remember { mutableStateOf<String?>(null) }
                 LaunchedEffect(Unit) {
+                    val sources = container.sources.refresh()
                     startRoute =
-                        if (container.credentials.load() != null) Routes.LIBRARY else Routes.ADD_SOURCE
+                        if (sources.any { it.enabled }) Routes.LIBRARY else Routes.ADD_SOURCE
                 }
 
                 val start = startRoute
@@ -325,11 +327,34 @@ private fun AppNavHost(
             AddSourceScreen(
                 vm = vm,
                 onConnected = {
-                    navController.navigate(Routes.LIBRARY) {
-                        popUpTo(navController.graph.id) { inclusive = true }
+                    val previous = navController.previousBackStackEntry?.destination?.route
+                    if (previous == Routes.SOURCES || previous == Routes.EDIT_SOURCE) {
+                        navController.popBackStack()
+                    } else {
+                        navController.navigate(Routes.LIBRARY) {
+                            popUpTo(navController.graph.id) { inclusive = true }
+                        }
                     }
                 },
             )
+        }
+
+        composable(Routes.SOURCES) {
+            SourcesScreen(
+                container = container,
+                onBack = { navController.popBackStack() },
+                onAdd = { navController.navigate(Routes.ADD_SOURCE) },
+                onEdit = { id -> navController.navigate("edit_source/$id") },
+            )
+        }
+
+        composable(Routes.EDIT_SOURCE) { entry ->
+            val id = entry.arguments?.getString("id")
+            if (id != null) {
+                val vm: SourceViewModel = viewModel(factory = SourceViewModel.factory(container))
+                LaunchedEffect(id) { vm.loadForEdit(id) }
+                AddSourceScreen(vm = vm, onConnected = { navController.popBackStack() })
+            }
         }
 
         composable(Routes.LIBRARY) {
@@ -361,8 +386,11 @@ private fun AppNavHost(
 
         composable(Routes.SETTINGS) {
             val vm: SettingsViewModel = viewModel(factory = SettingsViewModel.factory(container))
+            val sourceList by container.sources.sources.collectAsState()
             SettingsScreen(
                 vm = vm,
+                sourceCount = sourceList.size,
+                onOpenSources = { navController.navigate(Routes.SOURCES) },
                 onLoggedOut = relogin,
                 onOpenLogs = { navController.navigate(Routes.LOGS) },
             )

@@ -212,7 +212,7 @@ fun PlaylistDetailScreen(
                         val poster = item?.posterPath
                         if (poster != null) {
                             AsyncImage(
-                                model = TmdbClient.posterUrl(poster, width = 92),
+                                model = TmdbClient.posterModel(poster, width = 92),
                                 contentDescription = null,
                                 contentScale = ContentScale.Crop,
                                 modifier = Modifier

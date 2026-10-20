@@ -133,7 +133,7 @@ private fun FeaturedCard(
         Box(Modifier.fillMaxSize()) {
             if (art != null) {
                 AsyncImage(
-                    model = TmdbClient.posterUrl(art, width = 780),
+                    model = TmdbClient.posterModel(art, width = 780),
                     contentDescription = title,
                     contentScale = if (backdrop != null) ContentScale.Crop else ContentScale.Fit,
                     modifier = Modifier.fillMaxSize(),
@@ -340,7 +340,7 @@ internal fun PosterCard(
             val poster = sample.posterPath
             if (poster != null) {
                 AsyncImage(
-                    model = TmdbClient.posterUrl(poster),
+                    model = TmdbClient.posterModel(poster),
                     contentDescription = sample.parsedTitle,
                     contentScale = ContentScale.Crop,
                     modifier = Modifier.fillMaxSize(),

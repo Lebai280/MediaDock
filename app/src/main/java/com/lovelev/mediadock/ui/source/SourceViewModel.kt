@@ -8,7 +8,8 @@ import androidx.lifecycle.ViewModelProvider
 import androidx.lifecycle.viewModelScope
 import androidx.lifecycle.viewmodel.initializer
 import androidx.lifecycle.viewmodel.viewModelFactory
-import com.lovelev.mediadock.data.prefs.StoredSource
+import com.lovelev.mediadock.core.model.SourceType
+import com.lovelev.mediadock.data.source.SourceConfig
 import com.lovelev.mediadock.data.webdav.ShareConfig
 import com.lovelev.mediadock.data.webdav.WebDavClient
 import com.lovelev.mediadock.data.webdav.WebDavEntry
@@ -16,6 +17,7 @@ import com.lovelev.mediadock.data.webdav.WebDavException
 import com.lovelev.mediadock.data.webdav.WebDavUrl
 import com.lovelev.mediadock.di.AppContainer
 import kotlinx.coroutines.launch
+import java.util.UUID
 
 sealed interface TestState {
     data object Idle : TestState
@@ -26,7 +28,21 @@ sealed interface TestState {
 
 class SourceViewModel(private val container: AppContainer) : ViewModel() {
 
+    /** 编辑已有源时非空；新建时为空。 */
+    var editingId by mutableStateOf<String?>(null)
+        private set
+
+    /** 数据源类型；WebDAV / SMB / Emby / Jellyfin。 */
+    var type by mutableStateOf(SourceType.WEBDAV)
+        private set
+
+    var name by mutableStateOf("")
+        private set
     var url by mutableStateOf("")
+        private set
+    var share by mutableStateOf("")
+        private set
+    var apiKey by mutableStateOf("")
         private set
     var username by mutableStateOf("")
         private set
@@ -78,7 +94,17 @@ class SourceViewModel(private val container: AppContainer) : ViewModel() {
         if (!applyShared(text)) sharedHint = "剪贴板里没识别到分享配置"
     }
 
+    fun selectType(value: SourceType) {
+        if (value == type) return
+        type = value
+        state = TestState.Idle
+        retryBlocked = false
+    }
+
+    fun editName(v: String) { name = v; onEdited() }
     fun editUrl(v: String) { url = v; onEdited() }
+    fun editShare(v: String) { share = v; onEdited() }
+    fun editApiKey(v: String) { apiKey = v; onEdited() }
     fun editUsername(v: String) { username = v; onEdited() }
     fun editPassword(v: String) { password = v; onEdited() }
     fun editRootPath(v: String) { rootPath = v; onEdited() }
@@ -93,9 +119,34 @@ class SourceViewModel(private val container: AppContainer) : ViewModel() {
         }
     }
 
+    /** 编辑已有源：载入其配置（含解密后的凭据）。 */
+    fun loadForEdit(id: String) {
+        viewModelScope.launch {
+            val source = container.sources.get(id) ?: return@launch
+            editingId = source.id
+            type = source.type
+            name = source.name
+            url = source.url
+            username = source.username
+            password = source.password
+            rootPath = source.rootPath
+            share = source.share
+            apiKey = source.apiKey.orEmpty()
+            state = TestState.Idle
+        }
+    }
+
     fun test() {
         if (state is TestState.Running || retryBlocked) return
+        when (type) {
+            SourceType.WEBDAV -> testWebDav()
+            SourceType.SMB -> testSmb()
+            SourceType.EMBY, SourceType.JELLYFIN -> testServer()
+            SourceType.LOCAL -> Unit
+        }
+    }
 
+    private fun testWebDav() {
         val root = WebDavUrl.rootCollection(url, rootPath)
         if (root == null) {
             state = TestState.Failure("地址格式不正确", retryBlocked = false)
@@ -115,10 +166,7 @@ class SourceViewModel(private val container: AppContainer) : ViewModel() {
                     basicAuthHeader = WebDavClient.basicAuth(username, password),
                 )
                 state = TestState.Success(entries.size, preview(entries))
-                // 只有真正连通了才保存凭据
-                container.credentials.save(
-                    StoredSource(url = url.trim(), username = username, password = password, rootPath = rootPath.trim()),
-                )
+                persist(sourceNameFallback = WebDavUrl.parse(url)?.host ?: "WebDAV")
             } catch (e: WebDavException) {
                 // 单次尝试即返回，绝不在此处重试
                 val block = e is WebDavException.Unauthorized || e is WebDavException.Locked
@@ -126,6 +174,103 @@ class SourceViewModel(private val container: AppContainer) : ViewModel() {
                 state = TestState.Failure(e.userMessage, retryBlocked = block)
             }
         }
+    }
+
+    private fun testSmb() {
+        if (url.isBlank()) {
+            state = TestState.Failure("请填写主机地址", retryBlocked = false)
+            return
+        }
+        if (share.isBlank()) {
+            state = TestState.Failure("请填写共享名", retryBlocked = false)
+            return
+        }
+        state = TestState.Running
+        viewModelScope.launch {
+            try {
+                val entries = com.lovelev.mediadock.data.smb.SmbTester.listRoot(
+                    hostRaw = url,
+                    shareName = share,
+                    username = username,
+                    password = password,
+                )
+                state = TestState.Success(entries.size, entries.take(6))
+                persist(sourceNameFallback = com.lovelev.mediadock.data.smb.SmbUrl.hostOf(url) ?: "SMB")
+            } catch (e: Exception) {
+                val authError = e.message?.contains("密码") == true
+                retryBlocked = authError
+                state = TestState.Failure(e.message ?: "连接失败", retryBlocked = authError)
+            }
+        }
+    }
+
+    private fun testServer() {
+        if (url.isBlank()) {
+            state = TestState.Failure("请填写服务器地址", retryBlocked = false)
+            return
+        }
+        if (apiKey.isBlank() && username.isBlank()) {
+            state = TestState.Failure("请填写账号密码或 API Key", retryBlocked = false)
+            return
+        }
+        state = TestState.Running
+        viewModelScope.launch {
+            try {
+                val auth = if (apiKey.isBlank()) {
+                    container.embyClient.authenticate(url, username, password)
+                } else {
+                    null
+                }
+                val items = container.embyClient.items(
+                    baseUrl = url,
+                    auth = auth,
+                    apiKey = apiKey.trim().ifBlank { null },
+                    startIndex = 0,
+                    limit = 6,
+                )
+                state = TestState.Success(items.size, items.map { it.name }.take(6))
+                // 登录成功后把 AccessToken 作为后续同步/播放的凭据保存（同样加密）
+                persist(
+                    sourceNameFallback = WebDavUrl.parse(url)?.host ?: "媒体服务器",
+                    apiKeyOverride = auth?.token,
+                )
+            } catch (e: com.lovelev.mediadock.data.emby.EmbyClient.Failure.Auth) {
+                retryBlocked = true
+                state = TestState.Failure(e.message ?: "认证失败", retryBlocked = true)
+            } catch (e: Exception) {
+                state = TestState.Failure(e.message ?: "连接失败", retryBlocked = false)
+            }
+        }
+    }
+
+    private suspend fun persist(sourceNameFallback: String, apiKeyOverride: String? = null) {
+        val id = editingId ?: generateId(type)
+        container.sources.save(
+            SourceConfig(
+                id = id,
+                type = type,
+                name = name.trim().ifBlank { sourceNameFallback },
+                url = url.trim(),
+                username = username,
+                password = password,
+                rootPath = rootPath.trim(),
+                share = share.trim(),
+                apiKey = (apiKeyOverride ?: apiKey).trim().ifBlank { null },
+            ),
+        )
+    }
+
+    private suspend fun generateId(type: SourceType): String {
+        val known = container.sources.refresh().map { it.id }.toSet()
+        if (type == SourceType.WEBDAV && "webdav" !in known) return "webdav"
+        val prefix = when (type) {
+            SourceType.WEBDAV -> "webdav"
+            SourceType.SMB -> "smb"
+            SourceType.EMBY -> "emby"
+            SourceType.JELLYFIN -> "jellyfin"
+            SourceType.LOCAL -> "local"
+        }
+        return "$prefix-" + UUID.randomUUID().toString().replace("-", "").take(8)
     }
 
     private fun preview(entries: List<WebDavEntry>): List<String> =
