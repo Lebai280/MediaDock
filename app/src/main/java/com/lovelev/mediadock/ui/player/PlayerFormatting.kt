@@ -1,7 +1,10 @@
 package com.lovelev.mediadock.ui.player
 
+import androidx.media3.common.C
 import androidx.media3.common.Format
+import androidx.media3.common.MimeTypes
 import androidx.media3.common.PlaybackException
+import androidx.media3.common.Tracks
 import androidx.media3.datasource.HttpDataSource
 import androidx.media3.session.MediaController
 
@@ -19,6 +22,47 @@ internal fun audioTrackLabel(format: Format, index: Int): String {
     }
     return if (channels != null) "$name · $channels" else name
 }
+
+/** 无解码器音轨的短名，用于提示文案。 */
+internal fun audioCodecName(format: Format): String? = when (format.sampleMimeType) {
+    MimeTypes.AUDIO_TRUEHD -> "TrueHD"
+    MimeTypes.AUDIO_DTS -> "DTS"
+    MimeTypes.AUDIO_DTS_HD -> "DTS-HD"
+    MimeTypes.AUDIO_DTS_EXPRESS -> "DTS Express"
+    else -> null
+}
+
+/**
+ * 当前音轨没有解码器时的提示文案；不影响观看时返回 null。
+ *
+ * 设备（如 S21 Ultra）没有 TrueHD/DTS 解码器，这类轨道会让播放**静音且没有任何反馈**，
+ * 因此播放页必须明确提示（见 ADR-026 / WORKLOG S4 结论）。
+ */
+internal fun unsupportedAudioWarning(statuses: List<AudioTrackStatus>): String? {
+    if (statuses.isEmpty()) return null
+    val selected = statuses.firstOrNull { it.selected }
+    if (selected != null) return if (selected.supported) null else warningText(selected.codec)
+    // 没有任何音轨被选中：ExoPlayer 遇到不支持的轨道时根本不会选它，表现仍是静音。
+    // 只有「全部音轨都不受支持」才提示 —— 用户主动关闭音轨时不得误报。
+    if (statuses.all { !it.supported }) return warningText(statuses.first().codec)
+    return null
+}
+
+private fun warningText(codec: String?): String =
+    codec?.let { "当前音轨（$it）无解码器，播放可能无声" }
+        ?: "当前音轨无解码器，播放可能无声"
+
+/** 音轨的显示相关信息，与 media3 解耦以便单测。 */
+internal data class AudioTrackStatus(
+    val selected: Boolean,
+    val supported: Boolean,
+    val codec: String?,
+)
+
+/** 从播放器轨道列表里取出音轨状态。 */
+internal fun audioTrackStatuses(groups: List<Tracks.Group>): List<AudioTrackStatus> =
+    groups.filter { it.type == C.TRACK_TYPE_AUDIO }
+        .map { AudioTrackStatus(it.isSelected, it.isSupported, audioCodecName(it.getTrackFormat(0))) }
 
 /**
  * media3 报的 `language` 是容器里的原样标记，MKV 里通常是 ISO 639-2/T 的三字母码

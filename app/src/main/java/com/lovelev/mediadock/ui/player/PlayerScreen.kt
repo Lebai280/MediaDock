@@ -96,6 +96,21 @@ fun PlayerScreen(vm: PlayerViewModel, modifier: Modifier = Modifier) {
 }
 
 /**
+ * 记录音轨的解码能力：TrueHD/DTS 在目标机上无解码器，只会静音。
+ * 真机排查时靠这条日志判断提示为什么出现（或没出现）。
+ */
+private fun logAudioTracks(stage: String, tracks: Tracks) {
+    tracks.groups.filter { it.type == C.TRACK_TYPE_AUDIO }.forEachIndexed { index, group ->
+        val format = group.getTrackFormat(0)
+        AppLog.d(
+            "player",
+            "audio $stage #$index mime=${format.sampleMimeType} codecs=${format.codecs} " +
+                "selected=${group.isSelected} supported=${group.isSupported}",
+        )
+    }
+}
+
+/**
  * 播放画面 + **自绘控件层**（不用 PlayerView 的原生控件）。
  *
  * ## 触摸分发（本页关键约束，修改时必须保持）
@@ -166,6 +181,22 @@ private fun PlayerSurface(
     val audio = remember { context.getSystemService(Context.AUDIO_SERVICE) as AudioManager }
     val maxVolume = remember { audio.getStreamMaxVolume(AudioManager.STREAM_MUSIC).coerceAtLeast(1) }
     val path = controller?.currentMediaItem?.mediaId.orEmpty()
+    val audioWarningNow = remember(tracks) {
+        unsupportedAudioWarning(audioTrackStatuses(tracks?.groups.orEmpty()))
+    }
+    // 起播瞬间轨道是分批上报的（先只有一条轨道），直接跟状态走会闪一下提示；
+    // 连续 1.5 秒成立才展示，消失则立即清除。
+    var audioWarning by remember { mutableStateOf<String?>(null) }
+    LaunchedEffect(audioWarningNow) {
+        if (audioWarningNow == null) {
+            audioWarning = null
+        } else {
+            delay(1_500)
+            audioWarning = audioWarningNow
+            // 没有解码器时播放器只会静音，日志里留下证据，便于真机排查
+            AppLog.d("player", "audio unsupported: $audioWarningNow")
+        }
+    }
 
     DisposableEffect(controller) {
         val c = controller ?: return@DisposableEffect onDispose { }
@@ -173,6 +204,7 @@ private fun PlayerSurface(
         // 如果监听器挂上去时播放器早就 prepare 完了（续播、旋转屏、从迷你条进来都会这样），
         // 那个回调永远不会补发，tracks 就一直是 null：音轨菜单和字幕菜单会整块消失。
         tracks = c.currentTracks
+        logAudioTracks("attached", c.currentTracks)
         AppLog.d("player", "tracks attached: ${c.currentTracks.groups.size} groups")
         val listener = object : Player.Listener {
             override fun onPlayerError(error: PlaybackException) {
@@ -186,6 +218,7 @@ private fun PlayerSurface(
             }
 
             override fun onTracksChanged(tracks2: Tracks) {
+                logAudioTracks("changed", tracks2)
                 AppLog.d("player", "tracks changed: ${tracks2.groups.size} groups")
                 tracks = tracks2
             }
@@ -404,6 +437,9 @@ private fun PlayerSurface(
 
             hint?.let { OverlayHint(it) }
         }
+
+        // 常驻提示：选中音轨无解码器时一直可见（含控件隐藏、锁屏状态），非交互不拦触摸
+        audioWarning?.let { AudioWarningBanner(it) }
 
         if (infoOpen) {
             InfoDialog(

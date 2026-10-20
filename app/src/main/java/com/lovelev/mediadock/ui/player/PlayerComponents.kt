@@ -17,6 +17,7 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxScope
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
@@ -24,6 +25,7 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.filled.VolumeOff
 import androidx.compose.material.icons.filled.Lock
 import androidx.compose.material.icons.filled.LockOpen
 import androidx.compose.material3.AlertDialog
@@ -233,6 +235,41 @@ internal fun BoxScope.OverlayMessage(text: String) {
             textAlign = TextAlign.Center,
             modifier = Modifier.padding(horizontal = 20.dp, vertical = 14.dp),
         )
+    }
+}
+
+/**
+ * 选中音轨无解码器时的常驻提示。
+ *
+ * 不放进 [PlayerControls]：控件 4 秒后自动隐藏，而「没有声音」必须一直可见，
+ * 否则用户只会以为片子坏了。提示非交互，不拦触摸。
+ */
+@Composable
+internal fun BoxScope.AudioWarningBanner(text: String) {
+    Surface(
+        color = Color.Black.copy(alpha = 0.72f),
+        shape = MaterialTheme.shapes.medium,
+        modifier = Modifier
+            .align(Alignment.TopCenter)
+            .padding(top = 60.dp, start = 16.dp, end = 16.dp),
+    ) {
+        Row(
+            verticalAlignment = Alignment.CenterVertically,
+            modifier = Modifier.padding(horizontal = 12.dp, vertical = 8.dp),
+        ) {
+            Icon(
+                imageVector = Icons.AutoMirrored.Filled.VolumeOff,
+                contentDescription = null,
+                tint = MaterialTheme.colorScheme.error,
+                modifier = Modifier.size(16.dp),
+            )
+            Spacer(Modifier.width(8.dp))
+            Text(
+                text = text,
+                style = MaterialTheme.typography.labelLarge,
+                color = Color.White,
+            )
+        }
     }
 }
 

@@ -188,14 +188,25 @@ internal fun PlayerControls(
                     )
                 }
 
-                // 音轨面板：列出现有音轨，点一条切过去
+                // 音轨面板：列出现有音轨，点一条切过去；没有解码器的轨道明确标注
                 DropdownMenu(expanded = audioExpanded, onDismissRequest = { audioExpanded = false }) {
                     audioGroups.forEachIndexed { index, group ->
-                        val label = audioTrackLabel(group.getTrackFormat(0), index)
+                        val supported = group.isSupported
+                        val label = audioTrackLabel(group.getTrackFormat(0), index) +
+                            if (supported) "" else " · 无解码器"
                         DropdownMenuItem(
-                            text = { Text(if (group.isSelected) "● $label" else label) },
+                            text = {
+                                Text(
+                                    text = if (group.isSelected) "● $label" else label,
+                                    color = if (supported) {
+                                        Color.Unspecified
+                                    } else {
+                                        MaterialTheme.colorScheme.error
+                                    },
+                                )
+                            },
                             onClick = {
-                                AppLog.d("player", "audio -> $label")
+                                AppLog.d("player", "audio -> $label (supported=$supported)")
                                 controller.trackSelectionParameters = controller.trackSelectionParameters
                                     .buildUpon()
                                     .setOverrideForType(TrackSelectionOverride(group.mediaTrackGroup, 0))

@@ -791,7 +791,7 @@ media_fts USING FTS4(title, aliases, people, tokenize=unicode61)
 | 中文搜索分词 | 搜不到 | 专门的 search_text / trigram 方案，基准测试 |
 | 多模块过度拆分 | 构建/维护成本 | 控制在 8–12 个模块 |
 | FFmpeg 包体/许可证 | APK 变大、合规风险 | S4 实测：nextlib GPL-3.0，arm64 +7.5 MiB；官方扩展仅音频、需自建（LGPL）。视频软解暂不引入 |
-| TrueHD / DTS 无解码器 | 播放静音且无提示 | 轨道 `isSupported=false` 时 UI 明确提示「无音频解码器」；必要时接音频软解 |
+| TrueHD / DTS 无解码器 | 播放静音且无提示 | **0.12.0 已实现提示**：`isSupported=false` 时播放页常驻提醒，音轨菜单标注；必要时再接音频软解 |
 | HDR / DV 设备碎片化 | 黑屏、偏色、错误 HDR | 能力探测 + 解码器实际初始化 + 明确降级 |
 | 投屏无 GMS | Cast 不可用 | DLNA 为主，Cast 可选 |
 | DLNA 无鉴权 / 本地代理 | 局域网可访问代理流 | 仅可信 LAN、随机会话路径、结束即停、用户确认 |
