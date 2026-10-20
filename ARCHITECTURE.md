@@ -1710,8 +1710,9 @@ DB 约 5.7 MB。**选定 FTS4 + `search_text`**，详见 WORKLOG 与 ADR-024。
 - **不合并**：额外源的 TMDB 键追加 `@<sourceId>`，同标题扫描匹配也按源隔离；E2.5 推迟。
 - **验证**：单元测试（SourcePaths/ScopedKey/URL 匹配/SMB URL/Catalog 映射）与
   `MultiSourceStoreTest`、`SourceRegistryTest` 通过；0.13.0 真机覆盖安装与凭据迁移通过。
-- **待补验收**：双 WebDAV 源在线扫描/播放（测试时设备网络到服务器连接被重置，PC 侧 207）；
-  SMB 与 Emby/Jellyfin 需测试环境；浏览页暂只列 WebDAV 源。
+- **真机双源验收（2026-10-20）**：双源扫描 560（280+280）；两个源分别播放 `PLAYING`；
+  删除第二源后复扫回到 280，作品与进度保留。
+- **待补验收**：SMB 与 Emby/Jellyfin 需测试环境；浏览页暂只列 WebDAV 源。
 
 ### 15.10 启动门槛
 
