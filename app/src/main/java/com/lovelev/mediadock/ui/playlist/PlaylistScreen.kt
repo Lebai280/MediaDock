@@ -18,10 +18,14 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
+import androidx.compose.material.icons.automirrored.filled.Sort
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.PlayArrow
+import androidx.compose.material.icons.filled.Share
 import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.DropdownMenu
+import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
@@ -41,6 +45,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.viewmodel.compose.viewModel
@@ -48,6 +53,9 @@ import coil3.compose.AsyncImage
 import com.lovelev.mediadock.data.tmdb.TmdbClient
 import com.lovelev.mediadock.di.AppContainer
 import kotlinx.coroutines.launch
+import android.content.ClipData
+import android.content.ClipboardManager
+import android.content.Context
 
 /** 片单列表：新建、打开、删除。 */
 @Composable
@@ -153,7 +161,7 @@ fun PlaylistsScreen(
     }
 }
 
-/** 片单内容：条目列表，点击播放整张片单。 */
+/** 片单内容：条目列表，点击播放；剧集自动展开为整季分集。 */
 @Composable
 fun PlaylistDetailScreen(
     container: AppContainer,
@@ -164,10 +172,35 @@ fun PlaylistDetailScreen(
     val playlists by container.playlists.playlists().collectAsState(initial = emptyList())
     val playlist = playlists.firstOrNull { it.id == id }
     val rows by container.playlists.items(id).collectAsState(initial = emptyList())
-    val library by container.library.items.collectAsState(initial = emptyList())
+    // 只查片单里这些 path，避免为了海报把整个媒体库读进内存
+    val paths = remember(rows) { rows.map { it.path } }
+    val items by remember(paths) {
+        container.library.observeByPaths(paths)
+    }.collectAsState(initial = emptyList())
+    val byPath = remember(items) { items.associateBy { it.path } }
     val scope = rememberCoroutineScope()
-    val byPath = remember(library) { library.associateBy { it.path } }
-    val queue = rows.map { it.path }
+    val context = LocalContext.current
+
+    var sort by remember { mutableStateOf(PlaylistSort.DEFAULT) }
+    var sortOpen by remember { mutableStateOf(false) }
+    var hint by remember { mutableStateOf<String?>(null) }
+
+    val sortedRows = remember(rows, byPath, sort) {
+        when (sort) {
+            PlaylistSort.DEFAULT -> rows
+            PlaylistSort.TITLE -> rows.sortedBy {
+                byPath[it.path]?.parsedTitle?.lowercase() ?: it.path.lowercase()
+            }
+            PlaylistSort.YEAR -> rows.sortedByDescending { byPath[it.path]?.year ?: 0 }
+        }
+    }
+
+    fun play(path: String) {
+        hint = null
+        scope.launch {
+            onPlay(path, container.playlists.playQueue(path))
+        }
+    }
 
     Column(modifier = Modifier.fillMaxSize()) {
         Row(
@@ -184,15 +217,55 @@ fun PlaylistDetailScreen(
                 overflow = TextOverflow.Ellipsis,
                 modifier = Modifier.weight(1f),
             )
+            Box {
+                IconButton(onClick = { sortOpen = true }) {
+                    Icon(Icons.AutoMirrored.Filled.Sort, contentDescription = "排序")
+                }
+                DropdownMenu(expanded = sortOpen, onDismissRequest = { sortOpen = false }) {
+                    PlaylistSort.entries.forEach { option ->
+                        DropdownMenuItem(
+                            text = { Text(if (option == sort) "● ${option.label}" else option.label) },
+                            onClick = { sort = option; sortOpen = false },
+                        )
+                    }
+                }
+            }
             IconButton(
                 onClick = {
-                    val first = rows.firstOrNull() ?: return@IconButton
-                    onPlay(first.path, queue)
+                    sortedRows.firstOrNull()?.let { play(it.path) }
                 },
                 enabled = rows.isNotEmpty(),
             ) {
                 Icon(Icons.Filled.PlayArrow, contentDescription = "播放")
             }
+            IconButton(
+                onClick = {
+                    val text = buildString {
+                        appendLine("片单：${playlist?.name ?: "片单"}")
+                        sortedRows.forEachIndexed { index, row ->
+                            val item = byPath[row.path]
+                            val title = item?.parsedTitle?.takeIf { it.isNotBlank() }
+                                ?: row.path.substringAfterLast('/')
+                            val year = item?.year?.let { " ($it)" }.orEmpty()
+                            appendLine("${index + 1}. $title$year — ${row.path}")
+                        }
+                    }
+                    val manager = context.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
+                    manager.setPrimaryClip(ClipData.newPlainText("MediaDock 片单", text))
+                    hint = "片单已复制"
+                },
+                enabled = rows.isNotEmpty(),
+            ) {
+                Icon(Icons.Filled.Share, contentDescription = "分享片单")
+            }
+        }
+        hint?.let {
+            Text(
+                text = it,
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.tertiary,
+                modifier = Modifier.padding(horizontal = 16.dp, vertical = 4.dp),
+            )
         }
         if (rows.isEmpty()) {
             Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
@@ -200,12 +273,12 @@ fun PlaylistDetailScreen(
             }
         } else {
             LazyColumn(modifier = Modifier.fillMaxSize()) {
-                items(rows, key = { it.path }) { row ->
+                items(sortedRows, key = { it.path }) { row ->
                     val item = byPath[row.path]
                     Row(
                         modifier = Modifier
                             .fillMaxWidth()
-                            .clickable { onPlay(row.path, queue) }
+                            .clickable { play(row.path) }
                             .padding(horizontal = 16.dp, vertical = 10.dp),
                         verticalAlignment = Alignment.CenterVertically,
                     ) {
@@ -250,4 +323,10 @@ fun PlaylistDetailScreen(
             }
         }
     }
+}
+
+private enum class PlaylistSort(val label: String) {
+    DEFAULT("默认顺序"),
+    TITLE("按名称"),
+    YEAR("按年份"),
 }

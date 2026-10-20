@@ -4,6 +4,14 @@ import androidx.room.Dao
 import androidx.room.Query
 import kotlinx.coroutines.flow.Flow
 
+/** 作品/分集的一个物理版本（可能来自不同数据源）。 */
+data class WorkVersionRow(
+    val path: String,
+    val sourceId: String,
+    val sizeBytes: Long?,
+    val pinned: Int,
+)
+
 /**
  * 媒体库读模型。v9 起 `media_items` 是兼容 VIEW，**这里只保留读查询**；
  * 写路径（扫描/刮削/删除）走 [MediaLibraryWriteDao]。
@@ -33,4 +41,35 @@ interface MediaDao {
 
     @Query("SELECT COUNT(*) FROM media_items WHERE scrapeState = 'MATCHED'")
     fun observeMatchedCount(): Flow<Int>
+
+    @Query("SELECT type FROM works WHERE id = :workId LIMIT 1")
+    suspend fun workType(workId: String): String?
+
+    /** 剧集作品的全部分集路径（按季/集排序）；片单播放时用作队列。 */
+    @Query(
+        "SELECT mf.legacy_path FROM episode_versions ev " +
+            "JOIN episodes e ON e.id = ev.episode_id " +
+            "JOIN media_files mf ON mf.id = ev.file_id " +
+            "WHERE e.work_id = :workId AND mf.missing_at IS NULL " +
+            "ORDER BY e.season, e.episode, mf.legacy_path",
+    )
+    suspend fun episodePathsOfWork(workId: String): List<String>
+
+    /** 电影作品的各源版本。 */
+    @Query(
+        "SELECT mf.legacy_path AS path, mv.source_id AS sourceId, " +
+            "mf.size_bytes AS sizeBytes, mv.pinned AS pinned " +
+            "FROM movie_versions mv JOIN media_files mf ON mf.id = mv.file_id " +
+            "WHERE mv.work_id = :workId AND mf.missing_at IS NULL",
+    )
+    suspend fun movieVersionRows(workId: String): List<WorkVersionRow>
+
+    /** 同一集在各源的版本。 */
+    @Query(
+        "SELECT mf.legacy_path AS path, ev.source_id AS sourceId, " +
+            "mf.size_bytes AS sizeBytes, ev.pinned AS pinned " +
+            "FROM episode_versions ev JOIN media_files mf ON mf.id = ev.file_id " +
+            "WHERE ev.episode_id = :episodeId AND mf.missing_at IS NULL",
+    )
+    suspend fun episodeVersionRows(episodeId: String): List<WorkVersionRow>
 }

@@ -60,22 +60,9 @@ sealed interface LogicalKey {
 }
 
 object LogicalKeyCodec {
-    fun movie(tmdbId: Int, scope: SourceId? = null): String =
-        "tmdb:movie:$tmdbId" + scopeSuffix(scope)
+    fun movie(tmdbId: Int): String = "tmdb:movie:$tmdbId"
 
-    fun show(tmdbId: Int, scope: SourceId? = null): String =
-        "tmdb:tv:$tmdbId" + scopeSuffix(scope)
-
-    /**
-     * 多数据源下**同一作品不跨源合并**：额外的源追加 `@<sourceId>` 后缀。
-     * 旧 WebDAV 与本地沿用不带后缀的格式，保持既有用户数据与合并行为不变。
-     */
-    private fun scopeSuffix(scope: SourceId?): String =
-        if (scope == null || scope == SourceId.WEBDAV || scope == SourceId.LOCAL) {
-            ""
-        } else {
-            "@${scope.value}"
-        }
+    fun show(tmdbId: Int): String = "tmdb:tv:$tmdbId"
 
     fun episode(tmdbId: Int, season: Int, episode: Int): String =
         "tmdb:tv:$tmdbId:s$season:e$episode"

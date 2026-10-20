@@ -98,6 +98,17 @@ class PlayerViewModel(private val container: AppContainer) : ViewModel() {
 
     private var controllerFuture: com.google.common.util.concurrent.ListenableFuture<MediaController>? = null
 
+    /** path → 备选版本的播放地址（按选源规则排序，失败时依次尝试）。 */
+    private val fallbackUrls = mutableMapOf<String, MutableList<String>>()
+
+    /** 取出当前条目下一个备选地址；没有返回 null。401/429 时调用方不得调用。 */
+    fun takeFallback(path: String?): String? {
+        if (path == null) return null
+        return synchronized(fallbackUrls) {
+            fallbackUrls[path]?.removeFirstOrNull()
+        }
+    }
+
     init {
         connect()
         start()
@@ -136,6 +147,7 @@ class PlayerViewModel(private val container: AppContainer) : ViewModel() {
         }
 
         viewModelScope.launch {
+            synchronized(fallbackUrls) { fallbackUrls.clear() }
             // 刷新注册表：DataSource 用的是同一份内存快照
             val allSources = container.sources.refresh().filter { it.enabled && it.credentialOk }
             val byId = allSources.associateBy { it.id }
@@ -151,13 +163,21 @@ class PlayerViewModel(private val container: AppContainer) : ViewModel() {
                 if (allLocal) emptyMap() else findSubtitles(byId)
 
             val items = queue.mapNotNull { path ->
-                resolveUrl(path, sourceFor(path, byId, known), known)?.let { url ->
-                    Playable(
-                        path = path,
-                        url = url,
-                        subtitleUrls = subtitleUrls[path].orEmpty(),
-                    )
+                val url = resolveUrl(path, sourceFor(path, byId, known), known)
+                    ?: return@mapNotNull null
+                // 同作品/同集在其它源的版本，作为播放失败时的备选（按选源规则排序）
+                val alternatives = container.library.versionsOf(path)
+                    .map { it.path }
+                    .filter { it != path }
+                    .mapNotNull { alt -> resolveUrl(alt, sourceFor(alt, byId, known), known) }
+                if (alternatives.isNotEmpty()) {
+                    synchronized(fallbackUrls) { fallbackUrls[path] = alternatives.toMutableList() }
                 }
+                Playable(
+                    path = path,
+                    url = url,
+                    subtitleUrls = subtitleUrls[path].orEmpty(),
+                )
             }
             if (items.isEmpty()) {
                 state = PlayerState.Unavailable("解析不出可播的地址")

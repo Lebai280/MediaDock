@@ -82,8 +82,7 @@ internal fun MediaController.holdsQueue(signature: String): Boolean {
 }
 
 /** 将 ExoPlayer 错误转换为可操作的用户提示。 */
-internal fun describePlaybackError(error: PlaybackException): String {
-    // 状态码未必位于最外层 cause，沿因果链逐层查找
+internal fun describePlaybackError(error: PlaybackException): String {    // 状态码未必位于最外层 cause，沿因果链逐层查找
     val httpCode = generateSequence(error.cause) { it.cause }
         .take(10)
         .filterIsInstance<HttpDataSource.InvalidResponseCodeException>()
@@ -97,6 +96,14 @@ internal fun describePlaybackError(error: PlaybackException): String {
         else -> "播放失败：服务器返回 HTTP $httpCode"
     }
 }
+
+/** 401/429：绝不自动重试（也包括不切到其它版本）。 */
+internal fun isAuthOrLockedError(error: PlaybackException): Boolean =
+    generateSequence(error.cause) { it.cause }
+        .take(10)
+        .filterIsInstance<HttpDataSource.InvalidResponseCodeException>()
+        .firstOrNull()
+        ?.responseCode in setOf(401, 429)
 
 internal fun speedLabel(value: Float): String =
     if (value % 1f == 0f) "${value.toInt()}×" else "$value×"

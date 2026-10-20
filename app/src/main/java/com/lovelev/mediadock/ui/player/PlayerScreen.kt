@@ -208,6 +208,22 @@ private fun PlayerSurface(
         AppLog.d("player", "tracks attached: ${c.currentTracks.groups.size} groups")
         val listener = object : Player.Listener {
             override fun onPlayerError(error: PlaybackException) {
+                // 多源合并后同一内容可能有多个版本：非认证类错误按选源顺序自动换源。
+                // 401/429 绝不重试，也不切换（OpenList 按来源 IP 计锁定）。
+                val mediaId = c.currentMediaItem?.mediaId
+                if (!isAuthOrLockedError(error)) {
+                    val fallback = vm.takeFallback(mediaId)
+                    val index = c.currentMediaItemIndex
+                    val item = c.currentMediaItem
+                    if (fallback != null && item != null && index >= 0) {
+                        AppLog.d("player", "failover -> $fallback")
+                        c.replaceMediaItem(index, item.buildUpon().setUri(fallback).build())
+                        c.prepare()
+                        c.play()
+                        message = null
+                        return
+                    }
+                }
                 message = describePlaybackError(error)
                 // 带上原始异常 —— 给用户看的是人话，落到日志里的是能查的堆栈
                 AppLog.e("player", "播放出错: $message", error)

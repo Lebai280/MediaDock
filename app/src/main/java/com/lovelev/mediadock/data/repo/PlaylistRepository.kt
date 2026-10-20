@@ -38,4 +38,18 @@ class PlaylistRepository(
     suspend fun delete(id: Long) = store.deletePlaylist(id)
 
     suspend fun paths(id: Long): List<String> = db.playlistDao().items(id).map { it.path }
+
+    /**
+     * 片单条目的播放队列：剧集展开为整剧的分集（按季/集排序），电影只播选中的版本。
+     * 解析不到作品时退回单条路径，保证永远能播。
+     */
+    suspend fun playQueue(path: String): List<String> {
+        val resolved = store.resolve(path) ?: return listOf(path)
+        val type = db.mediaDao().workType(resolved.workId)
+        return if (type == "tv") {
+            db.mediaDao().episodePathsOfWork(resolved.workId).ifEmpty { listOf(path) }
+        } else {
+            listOf(path)
+        }
+    }
 }

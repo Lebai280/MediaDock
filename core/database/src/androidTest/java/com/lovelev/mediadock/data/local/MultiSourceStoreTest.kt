@@ -48,7 +48,7 @@ class MultiSourceStoreTest {
         )
 
     @Test
-    fun sameRelativeKeyCoexistsAcrossSources() = runBlocking {
+    fun sameWorkFromTwoSourcesMergesIntoSingleWorkWithVersions() = runBlocking {
         val legacy = SourceId.WEBDAV
         val second = SourceId("webdav-b")
         store.applyDirectoryListing(
@@ -62,21 +62,24 @@ class MultiSourceStoreTest {
             listOf(file("电影/同名.mkv", "source:webdav-b/电影/同名.mkv", "同名")),
         )
 
+        // 两个源的文件行必须共存（同一相对路径不能互相覆盖）
         val rows = query("SELECT id, source_id, legacy_path FROM media_files ORDER BY source_id")
         assertEquals(2, rows.size)
-        assertEquals(
-            listOf("webdav", "webdav-b"),
-            rows.map { it[1] },
-        )
+        assertEquals(listOf("webdav", "webdav-b"), rows.map { it[1] })
         assertEquals("电影/同名.mkv", rows[0][2])
         assertEquals("source:webdav-b/电影/同名.mkv", rows[1][2])
         assertNotEquals(rows[0][0], rows[1][0])
 
+        // E2.5：同标题/年份/类型跨源合并为同一作品，两个文件成为该作品的版本
         val legacyResolved = store.resolve("电影/同名.mkv")
         val secondResolved = store.resolve("source:webdav-b/电影/同名.mkv")
         assertNotNull(legacyResolved)
         assertNotNull(secondResolved)
-        assertNotEquals(legacyResolved!!.workId, secondResolved!!.workId)
+        assertEquals(legacyResolved!!.workId, secondResolved!!.workId)
+
+        val versions = db.mediaDao().movieVersionRows(legacyResolved.workId)
+        assertEquals(2, versions.size)
+        assertEquals(setOf("webdav", "webdav-b"), versions.map { it.sourceId }.toSet())
     }
 
     private fun query(sql: String): List<List<String>> =

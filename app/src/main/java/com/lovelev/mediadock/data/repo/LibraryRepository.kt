@@ -226,6 +226,54 @@ class LibraryRepository(
     fun observeByPaths(paths: List<String>): Flow<List<MediaItemEntity>> =
         query.observeByPaths(paths)
 
+    /** 一个物理版本：同一作品/分集可能来自不同数据源。 */
+    data class PlayableVersion(
+        val path: String,
+        val name: String,
+        val sourceId: String,
+        val sourceName: String,
+        val sizeBytes: Long?,
+        val pinned: Boolean,
+    )
+
+    /**
+     * 某个文件所属内容的全部版本，按选源规则排序：
+     * 固定（pinned）> 源优先级（数字小者优先）> 本地源优先 > 体积更大者。
+     */
+    suspend fun versionsOf(path: String): List<PlayableVersion> {
+        val resolved = store.resolve(path) ?: return emptyList()
+        val dao = db.mediaDao()
+        val episodeId = resolved.episodeId
+        val rows = if (episodeId != null) {
+            dao.episodeVersionRows(episodeId)
+        } else {
+            dao.movieVersionRows(resolved.workId)
+        }
+        if (rows.isEmpty()) return emptyList()
+        if (sources.cachedAll().isEmpty()) sources.refresh()
+        val byId = sources.cachedAll().associateBy { it.id }
+        return rows
+            .sortedWith(
+                compareByDescending<com.lovelev.mediadock.data.local.WorkVersionRow> { it.pinned > 0 }
+                    .thenBy { byId[it.sourceId]?.priority ?: 100 }
+                    .thenBy {
+                        if (byId[it.sourceId]?.type == com.lovelev.mediadock.core.model.SourceType.LOCAL) 0 else 1
+                    }
+                    .thenByDescending { it.sizeBytes ?: 0L }
+                    .thenBy { it.path },
+            )
+            .map {
+                PlayableVersion(
+                    path = it.path,
+                    name = it.path.substringAfterLast('/'),
+                    sourceId = it.sourceId,
+                    sourceName = byId[it.sourceId]?.name ?: it.sourceId,
+                    sizeBytes = it.sizeBytes,
+                    pinned = it.pinned > 0,
+                )
+            }
+    }
+
     /** 手工改片名/年份。空标题表示清除覆盖，回到自动解析的结果。 */
     suspend fun saveOverride(path: String, title: String, year: Int?) =
         saveOverride(listOf(path), title, year)

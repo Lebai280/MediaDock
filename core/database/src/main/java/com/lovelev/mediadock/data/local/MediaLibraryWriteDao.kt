@@ -81,36 +81,30 @@ interface MediaLibraryWriteDao {
     @Query("SELECT * FROM works WHERE logical_key = :logicalKey LIMIT 1")
     suspend fun workByLogicalKey(logicalKey: String): WorkEntity?
 
+    /** 0.13.0 的多源后缀键（`tmdb:movie:1@webdav-x`），用于升级后归一化。 */
+    @Query("SELECT * FROM works WHERE logical_key LIKE :logicalKey || '@%' LIMIT 1")
+    suspend fun workByScopedLogicalKey(logicalKey: String): WorkEntity?
+
     @Query(
         "SELECT * FROM works w WHERE w.type = :type AND w.title = :title " +
             "AND w.year IS :year AND w.tmdb_id IS NOT NULL " +
-            "AND EXISTS (" +
-            "SELECT 1 FROM movie_versions mv WHERE mv.work_id = w.id AND mv.source_id = :sourceId " +
-            "UNION SELECT 1 FROM episode_versions ev JOIN episodes e ON e.id = ev.episode_id " +
-            "WHERE e.work_id = w.id AND ev.source_id = :sourceId) " +
             "ORDER BY w.added_at LIMIT 1",
     )
     suspend fun matchedWorkByTitle(
         title: String,
         year: Int?,
         type: String,
-        sourceId: String,
     ): WorkEntity?
 
     @Query(
         "SELECT * FROM works w WHERE w.type = :type AND w.title = :title " +
             "AND w.year IS :year " +
-            "AND EXISTS (" +
-            "SELECT 1 FROM movie_versions mv WHERE mv.work_id = w.id AND mv.source_id = :sourceId " +
-            "UNION SELECT 1 FROM episode_versions ev JOIN episodes e ON e.id = ev.episode_id " +
-            "WHERE e.work_id = w.id AND ev.source_id = :sourceId) " +
             "ORDER BY w.tmdb_id IS NULL, w.added_at LIMIT 1",
     )
     suspend fun anyWorkByTitle(
         title: String,
         year: Int?,
         type: String,
-        sourceId: String,
     ): WorkEntity?
 
     @Query("SELECT * FROM works WHERE id = :id")

@@ -200,8 +200,8 @@ class MediaLibraryStore(private val db: MediaDatabase) {
         val now = System.currentTimeMillis()
         val isEpisode = file.season != null || file.episode != null
         return if (isEpisode) {
-            val work = w.matchedWorkByTitle(file.title, file.year, "tv", sourceId.value)
-                ?: w.anyWorkByTitle(file.title, file.year, "tv", sourceId.value)
+            val work = w.matchedWorkByTitle(file.title, file.year, "tv")
+                ?: w.anyWorkByTitle(file.title, file.year, "tv")
                 ?: run {
                     val key = LogicalKeyCodec.file(
                         sourceId,
@@ -254,8 +254,8 @@ class MediaLibraryStore(private val db: MediaDatabase) {
             w.upsertSegment(FileSegmentEntity(fileId, ep.id, 0, 0L, null))
             Resolved(work.id, ep.id, fileId, 1)
         } else {
-            val work = w.matchedWorkByTitle(file.title, file.year, "movie", sourceId.value)
-                ?: w.anyWorkByTitle(file.title, file.year, "movie", sourceId.value)
+            val work = w.matchedWorkByTitle(file.title, file.year, "movie")
+                ?: w.anyWorkByTitle(file.title, file.year, "movie")
                 ?: run {
                     val key = LogicalKeyCodec.file(
                         sourceId,
@@ -510,14 +510,21 @@ class MediaLibraryStore(private val db: MediaDatabase) {
             return
         }
         val id = tmdbId
-        // 多数据源：额外源的作品键带 @sourceId 后缀，同一影片不会跨源自动合并
-        val scope = w.sourceIdOfWork(work.id)?.let(::SourceId)
+        // E2.5：同一 tmdbId 跨源合并成一个作品，版本由 movie_versions/episode_versions 保存
         val targetKey = if (work.type == "tv") {
-            LogicalKeyCodec.show(id, scope)
+            LogicalKeyCodec.show(id)
         } else {
-            LogicalKeyCodec.movie(id, scope)
+            LogicalKeyCodec.movie(id)
         }
-        val target = w.workByLogicalKey(targetKey)
+        var target = w.workByLogicalKey(targetKey)
+        if (target == null) {
+            // 兼容 0.13.0 带 @sourceId 后缀的历史作品键：先归一化再参与合并
+            val legacy = w.workByScopedLogicalKey(targetKey)
+            if (legacy != null) {
+                w.updateWork(legacy.copy(logicalKey = targetKey))
+                target = legacy.copy(logicalKey = targetKey)
+            }
+        }
         if (target != null && target.id != work.id) {
             mergeWorkLocked(work, target)
             work = target

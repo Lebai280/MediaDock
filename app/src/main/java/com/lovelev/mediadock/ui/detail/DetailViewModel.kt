@@ -41,23 +41,21 @@ class DetailViewModel(private val container: AppContainer) : ViewModel() {
     /**
      * 播放队列。
      *
-     * 剧集（≥2 集）就是这几集；**单片则取同目录的视频** —— 和从「浏览」页点进来时的行为一致。
-     *
-     * 为什么单片也要给队列：用户的库里全是独立的短片/电影，没有剧集，
-     * 只传 `paths`（1 条）的话播放页的「上一集 / 下一集」会**永远是灰的**，
-     * 那两个按钮就等于没做。
+     * 剧集就是这几集；**单片只播选中的版本**（多源合并后 paths 可能是同一部片的多版本，
+     * 不能当连续剧集播）。单文件的短片仍取同目录视频，保留「上一集 / 下一集」。
      */
-    val playQueue: StateFlow<List<String>> = container.library.items
-        .map { items ->
-            if (paths.size >= 2) return@map paths
+    val playQueue: StateFlow<List<String>> =
+        combine(entries, container.library.items) { eps, items ->
+            val isSeries = eps.any { it.episode != null || it.season != null }
+            if (isSeries) return@combine eps.map { it.path }.distinct()
             val primary = paths.firstOrNull().orEmpty()
+            if (paths.size >= 2) return@combine listOf(primary)
             val folder = primary.substringBeforeLast('/', "")
             val siblings = items
                 .filter { it.path.substringBeforeLast('/', "") == folder }
                 .map { it.path }
             if (siblings.size >= 2) siblings else paths
-        }
-        .stateIn(viewModelScope, SharingStarted.Eagerly, paths)
+        }.stateIn(viewModelScope, SharingStarted.Eagerly, paths)
 
     val detail: StateFlow<TitleDetail?> = container.details.observe(primaryPath)
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), null)
@@ -75,15 +73,14 @@ class DetailViewModel(private val container: AppContainer) : ViewModel() {
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptySet())
 
     /**
-     * 同一部电影的其它版本（按 tmdbId 关联，排除剧集文件）。
-     * 海报墙已把多版本合并成一块，这里提供详情页的版本切换。
+     * 同一部电影/同一集在各数据源的版本，按选源规则排序（pinned > 优先级 > 本地 > 体积）。
+     * 剧集不在详情页展示版本切换。
      */
-    val versions: StateFlow<List<MediaItemEntity>> =
-        combine(container.library.items, entries) { items, eps ->
-            val first = eps.firstOrNull() ?: return@combine emptyList()
-            if (eps.size >= 2) return@combine emptyList()
-            val tmdbId = first.tmdbId ?: return@combine emptyList()
-            items.filter { it.tmdbId == tmdbId && it.path != first.path && it.episode == null }
+    val versions: StateFlow<List<com.lovelev.mediadock.data.repo.LibraryRepository.PlayableVersion>> =
+        entries.map { eps ->
+            val first = eps.firstOrNull() ?: return@map emptyList()
+            if (eps.any { it.episode != null || it.season != null }) return@map emptyList()
+            container.library.versionsOf(first.path)
         }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
 
     /** 右上角菜单里那条操作的结果（成功为空）。 */

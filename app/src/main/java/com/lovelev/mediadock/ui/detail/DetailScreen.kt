@@ -129,9 +129,9 @@ fun DetailScreen(
     }
 
     val sample = entries.first()
-    // 队列：剧集用这几集；单片用同目录的视频（见 DetailViewModel.playQueue 的注释）
+    // 队列：剧集用这几集；电影只播选中的版本（多源合并后 paths 可能是一组版本）
     val queue by vm.playQueue.collectAsState()
-    val isSeries = entries.size >= 2
+    val isSeries = entries.any { it.episode != null || it.season != null }
 
     // 「继续播放」的目标 = 最近看过的那一集；没看过就从第一集开始
     val resumable = entries
@@ -139,10 +139,10 @@ fun DetailScreen(
         .maxByOrNull { progress.getValue(it.path).updatedAt }
     val target = resumable ?: sample
 
-    var chosenVersion by remember(entries) { mutableStateOf<MediaItemEntity?>(null) }
-    val playItem = chosenVersion ?: target
-    val playPosition = progress[playItem.path]?.positionMs ?: 0L
-    val playQueue = if (chosenVersion != null) listOf(playItem.path) else queue
+    var chosenVersionPath by remember(entries) { mutableStateOf<String?>(null) }
+    val playPath = chosenVersionPath ?: target.path
+    val playPosition = progress[playPath]?.positionMs ?: 0L
+    val playQueue = if (isSeries) queue else listOf(playPath)
 
     fun seasonOf(e: MediaItemEntity): Int? = e.season ?: TitleParser.seasonOfPath(e.path)
     val seasons = entries.map { seasonOf(it) }.filterNotNull().distinct().sorted()
@@ -240,7 +240,7 @@ fun DetailScreen(
 
                 // ---- 白色播放按钮（爆米花样式）----
                 Surface(
-                    onClick = { onPlay(playItem.path, playQueue) },
+                    onClick = { onPlay(playPath, playQueue) },
                     shape = RoundedCornerShape(10.dp),
                     color = Color.White,
                     modifier = Modifier.fillMaxWidth().height(56.dp),
@@ -277,15 +277,11 @@ fun DetailScreen(
                             style = MaterialTheme.typography.labelLarge,
                             color = OnBackdropFaint,
                         )
-                        VersionChip(
-                            text = versionLabel(sample),
-                            selected = chosenVersion == null,
-                        ) { chosenVersion = null }
                         versions.forEach { version ->
                             VersionChip(
                                 text = versionLabel(version),
-                                selected = chosenVersion?.path == version.path,
-                            ) { chosenVersion = version }
+                                selected = playPath == version.path,
+                            ) { chosenVersionPath = version.path }
                         }
                     }
                 }
@@ -347,8 +343,8 @@ fun DetailScreen(
         TopBar(
             item = sample,
             vm = vm,
-            targetPath = playItem.path,
-            targetDurationMs = progress[playItem.path]?.durationMs ?: progress[target.path]?.durationMs,
+            targetPath = playPath,
+            targetDurationMs = progress[playPath]?.durationMs ?: progress[target.path]?.durationMs,
             paths = entries.map { it.path },
             isTv = isSeries,
             onBack = onBack,
@@ -852,11 +848,13 @@ private fun OverviewSection(overview: String) {
     }
 }
 
-/** 版本标签（分辨率 / 体积）。 */
-private fun versionLabel(item: MediaItemEntity): String {
-    val resolution = MediaTypes.resolutionLabel(item.name)
-    val size = formatSize(item.sizeBytes).takeIf { it.isNotBlank() }
-    return listOfNotNull(resolution, size).joinToString(" · ").ifBlank { item.name }
+/** 版本标签：来源 · 分辨率 · 体积。 */
+private fun versionLabel(version: com.lovelev.mediadock.data.repo.LibraryRepository.PlayableVersion): String {
+    val resolution = MediaTypes.resolutionLabel(version.name)
+    val size = formatSize(version.sizeBytes ?: 0L).takeIf { it.isNotBlank() }
+    return listOfNotNull(version.sourceName, resolution, size)
+        .joinToString(" · ")
+        .ifBlank { version.name }
 }
 
 @Composable
