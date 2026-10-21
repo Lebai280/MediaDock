@@ -1,5 +1,7 @@
 package com.lovelev.mediadock
 
+import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.animation.core.spring
 import androidx.compose.animation.core.tween
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
@@ -50,6 +52,7 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.viewmodel.compose.viewModel
 import androidx.navigation.NavHostController
@@ -66,6 +69,7 @@ import com.lovelev.mediadock.ui.theme.resolveDark
 import com.lovelev.mediadock.ui.theme.ThemeMode
 import com.lovelev.mediadock.ui.browse.BrowserScreen
 import com.lovelev.mediadock.ui.browse.BrowserViewModel
+import com.lovelev.mediadock.ui.common.rememberHapticTick
 import com.lovelev.mediadock.ui.detail.DetailScreen
 import com.lovelev.mediadock.ui.detail.DetailViewModel
 import com.lovelev.mediadock.ui.favorites.FavoritesScreen
@@ -155,6 +159,7 @@ private fun HomeScaffold(
     val entry by navController.currentBackStackEntryAsState()
     val currentRoute = entry?.destination?.route
     val onTab = TABS.any { it.first == currentRoute }
+    val tick = rememberHapticTick()
 
     // 迷你播放条挂在外壳上（活动级），不会因为进出播放页被清掉。
     // 播放页自己不显示它 —— 那里整屏都在播，再挂一条是多余的。
@@ -220,7 +225,10 @@ private fun HomeScaffold(
                             }
                             Spacer(Modifier.width(8.dp))
                             FilledIconButton(
-                                onClick = { navController.navigate(Routes.SEARCH) },
+                                onClick = {
+                                    tick()
+                                    navController.navigate(Routes.SEARCH)
+                                },
                                 shape = CircleShape,
                                 modifier = Modifier.size(56.dp),
                             ) {
@@ -275,17 +283,35 @@ private fun RowScope.TabItem(
     currentRoute: String?,
     navController: NavHostController,
 ) {
+    val selected = currentRoute == route
+    val tick = rememberHapticTick()
+    // 选中态轻微放大：底栏没有文字，这点缩放是唯一能被眼睛抓到的切换反馈
+    val iconScale by animateFloatAsState(
+        targetValue = if (selected) 1.08f else 1f,
+        animationSpec = spring(dampingRatio = 0.6f, stiffness = 700f),
+        label = "tabIconScale",
+    )
     NavigationBarItem(
-        selected = currentRoute == route,
+        selected = selected,
         onClick = {
             // saveState/restoreState 让每个 Tab 各自记住自己的浏览位置，来回切不会越堆越深
-            if (currentRoute != route) navController.switchTab(route)
+            if (!selected) {
+                tick()
+                navController.switchTab(route)
+            }
         },
         // 只放图标不放文字（用户要求）；label 仍保留给无障碍朗读
         icon = {
             // 收藏那个按主流做法：未选中空心、选中实心
-            val shown = if (label == "收藏" && currentRoute == route) Icons.Filled.Favorite else icon
-            Icon(imageVector = shown, contentDescription = label)
+            val shown = if (label == "收藏" && selected) Icons.Filled.Favorite else icon
+            Icon(
+                imageVector = shown,
+                contentDescription = label,
+                modifier = Modifier.graphicsLayer {
+                    scaleX = iconScale
+                    scaleY = iconScale
+                },
+            )
         },
         colors = NavigationBarItemDefaults.colors(
             selectedTextColor = MaterialTheme.colorScheme.onSurface,

@@ -30,6 +30,7 @@ import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableLongStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -54,15 +55,25 @@ import androidx.media3.common.Player
 import androidx.media3.common.Tracks
 import androidx.media3.ui.PlayerView
 import com.lovelev.mediadock.data.log.AppLog
+import com.lovelev.mediadock.ui.common.rememberHapticTick
 import com.lovelev.mediadock.ui.nav.findActivity
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import kotlin.math.abs
 
 private const val TAG = "MediaDock"
+
+/** 双击判定窗口与每次快进的时长。 */
+private const val DOUBLE_TAP_MS = 280L
+private const val DOUBLE_TAP_SEEK_MS = 10_000L
+
+/** 长按快进：按住多久开始、按住期间用几倍速。 */
+private const val LONG_PRESS_MS = 450L
+private const val LONG_PRESS_SPEED = 3f
 
 /** 画中画参数：16:9；Android 12+ 额外支持「按 Home 自动进入」。 */
 private fun pipParams(autoEnter: Boolean): PictureInPictureParams {
@@ -181,6 +192,12 @@ private fun PlayerSurface(
     val deviceCapabilities = vm.deviceCapabilities
     var playerView by remember { mutableStateOf<PlayerView?>(null) }
     val scope = rememberCoroutineScope()
+    val tick = rememberHapticTick()
+
+    // 双击快进/回退：单击切换控件要等双击窗口过去，否则第二下会被当成两次「切换」
+    var lastTapAt by remember { mutableLongStateOf(0L) }
+    var lastTapX by remember { mutableFloatStateOf(0f) }
+    var pendingTapJob by remember { mutableStateOf<Job?>(null) }
 
     val activity = context.findActivity() as? ComponentActivity
     val subtitleSize = vm.subtitleSize
@@ -420,13 +437,33 @@ private fun PlayerSurface(
                             ?.window?.attributes?.screenBrightness
                             ?.takeIf { it >= 0f } ?: 0.5f
 
+                        // 长按快进：按住不动 450ms 后临时提速，松手还原
+                        var previousSpeed: Float? = null
+                        val longPressJob = scope.launch {
+                            delay(LONG_PRESS_MS)
+                            val c = controller ?: return@launch
+                            if (!dragging && !locked && c.isPlaying) {
+                                previousSpeed = c.playbackParameters.speed
+                                c.setPlaybackSpeed(LONG_PRESS_SPEED)
+                                tick()
+                                hint = "${LONG_PRESS_SPEED.toInt()}× 快进"
+                                AppLog.d("player", "long press -> ${LONG_PRESS_SPEED}x")
+                            }
+                        }
+
                         while (true) {
                             val event = awaitPointerEvent()
                             val change = event.changes.firstOrNull { it.id == down.id } ?: break
                             if (!change.pressed) break
 
                             travelledY += change.position.y - change.previousPosition.y
-                            if (!dragging && abs(travelledY) > viewConfiguration.touchSlop) dragging = true
+                            if (!dragging && abs(travelledY) > viewConfiguration.touchSlop) {
+                                dragging = true
+                                // 已经开始拖拽，之前那一下就不算「单击」，也取消长按快进
+                                pendingTapJob?.cancel()
+                                longPressJob.cancel()
+                                lastTapAt = 0L
+                            }
 
                             if (dragging && !locked) {
                                 // 用**累计**位移算：每次事件的增量只有一点点，直接拿去加起始值
@@ -449,14 +486,54 @@ private fun PlayerSurface(
                             }
                         }
 
-                        // 没成拖拽就当成「点了一下」
-                        if (!dragging) {
+                        longPressJob.cancel()
+                        // 松开后还原长按前的倍速
+                        val boosted = previousSpeed != null
+                        previousSpeed?.let { prev ->
+                            controller?.setPlaybackSpeed(prev)
+                            hint = null
+                            AppLog.d("player", "long press end -> ${prev}x")
+                        }
+
+                        // 没成拖拽就当成「点了一下」；两下挨得近就是双击快进/回退
+                        if (!dragging && !boosted) {
                             if (locked) {
                                 AppLog.d("player", "tap while locked -> show unlock")
                                 unlockHintVisible = true
                             } else {
-                                AppLog.d("player", "overlay tap -> controls ${if (controlsVisible) "hide" else "show"}")
-                                controlsVisible = !controlsVisible
+                                val now = SystemClock.elapsedRealtime()
+                                val isDoubleTap = now - lastTapAt <= DOUBLE_TAP_MS &&
+                                    abs(down.position.x - lastTapX) < size.width * 0.25f
+                                if (isDoubleTap) {
+                                    pendingTapJob?.cancel()
+                                    lastTapAt = 0L
+                                    val c = controller
+                                    if (c != null) {
+                                        val forward = down.position.x >= size.width / 2f
+                                        val delta =
+                                            if (forward) DOUBLE_TAP_SEEK_MS else -DOUBLE_TAP_SEEK_MS
+                                        val max = if (c.duration > 0L) c.duration else Long.MAX_VALUE
+                                        val target = (c.currentPosition + delta).coerceIn(0L, max)
+                                        c.seekTo(target)
+                                        tick()
+                                        hint = if (forward) "+10 秒" else "−10 秒"
+                                        AppLog.d("player", "double tap seek -> $target")
+                                    }
+                                } else {
+                                    lastTapAt = now
+                                    lastTapX = down.position.x
+                                    // 等双击窗口过去再切控件：第二下到来时会取消，避免闪一下
+                                    pendingTapJob?.cancel()
+                                    pendingTapJob = scope.launch {
+                                        delay(DOUBLE_TAP_MS)
+                                        AppLog.d(
+                                            "player",
+                                            "overlay tap -> controls " +
+                                                if (controlsVisible) "hide" else "show",
+                                        )
+                                        controlsVisible = !controlsVisible
+                                    }
+                                }
                             }
                         }
                     }

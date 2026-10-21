@@ -2,6 +2,7 @@ package com.lovelev.mediadock.ui.library
 
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -24,7 +25,9 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
+import androidx.compose.material3.ripple
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -38,6 +41,8 @@ import androidx.compose.ui.unit.dp
 import coil3.compose.AsyncImage
 import com.lovelev.mediadock.core.data.WorkCard
 import com.lovelev.mediadock.data.tmdb.TmdbClient
+import com.lovelev.mediadock.ui.common.pressScale
+import com.lovelev.mediadock.ui.common.rememberHapticTick
 
 /** 分类行的一块（works 版本）。 */
 data class GenreCardRow(val genre: String, val cards: List<WorkCard>)
@@ -118,10 +123,19 @@ private fun WorkFeaturedCard(
     val backdrop = card.backdropPath
     val art = backdrop ?: card.posterPath
     val title = card.title
+    val interaction = remember { MutableInteractionSource() }
+    val tick = rememberHapticTick()
     Surface(
         shape = MaterialTheme.shapes.medium,
         color = MaterialTheme.colorScheme.surfaceVariant,
-        modifier = modifier.aspectRatio(16f / 9f).clickable(onClick = onClick),
+        modifier = modifier
+            .aspectRatio(16f / 9f)
+            .pressScale(interaction)
+            .clickable(
+                interactionSource = interaction,
+                indication = ripple(),
+                onClick = { tick(); onClick() },
+            ),
     ) {
         Box(Modifier.fillMaxSize()) {
             if (art != null) {
@@ -272,10 +286,18 @@ internal fun WorkPosterCard(
     onClick: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
+    val interaction = remember { MutableInteractionSource() }
+    val tick = rememberHapticTick()
     Surface(
         shape = MaterialTheme.shapes.small,
         color = MaterialTheme.colorScheme.surfaceVariant,
-        modifier = modifier.clickable(onClick = onClick),
+        modifier = modifier
+            .pressScale(interaction)
+            .clickable(
+                interactionSource = interaction,
+                indication = ripple(),
+                onClick = { tick(); onClick() },
+            ),
     ) {
         Box(modifier = Modifier.fillMaxSize()) {
             val poster = card.posterPath

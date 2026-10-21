@@ -2,6 +2,7 @@ package com.lovelev.mediadock.ui.library
 
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -28,6 +29,7 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
+import androidx.compose.material3.ripple
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
@@ -43,6 +45,8 @@ import androidx.compose.ui.unit.dp
 import coil3.compose.AsyncImage
 import com.lovelev.mediadock.data.local.MediaItemEntity
 import com.lovelev.mediadock.data.tmdb.TmdbClient
+import com.lovelev.mediadock.ui.common.pressScale
+import com.lovelev.mediadock.ui.common.rememberHapticTick
 
 /** 横滑行里一块海报的宽度。 */
 internal val SECTION_CARD_WIDTH = 104.dp
@@ -331,10 +335,18 @@ internal fun PosterCard(
     modifier: Modifier = Modifier,
 ) {
     val sample = entry.sample
+    val interaction = remember { MutableInteractionSource() }
+    val tick = rememberHapticTick()
     Surface(
         shape = MaterialTheme.shapes.small,
         color = MaterialTheme.colorScheme.surfaceVariant,
-        modifier = modifier.clickable(onClick = onClick),
+        modifier = modifier
+            .pressScale(interaction)
+            .clickable(
+                interactionSource = interaction,
+                indication = ripple(),
+                onClick = { tick(); onClick() },
+            ),
     ) {
         Box(modifier = Modifier.fillMaxSize()) {
             val poster = sample.posterPath

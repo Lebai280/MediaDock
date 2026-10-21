@@ -1,8 +1,19 @@
 package com.lovelev.mediadock.ui.search
 
+import androidx.compose.animation.animateColorAsState
+import androidx.compose.animation.core.LinearEasing
+import androidx.compose.animation.core.RepeatMode
+import androidx.compose.animation.core.Spring
+import androidx.compose.animation.core.animateFloat
+import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.animation.core.infiniteRepeatable
+import androidx.compose.animation.core.rememberInfiniteTransition
+import androidx.compose.animation.core.spring
+import androidx.compose.animation.core.tween
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -35,6 +46,7 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
+import androidx.compose.material3.ripple
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
@@ -48,6 +60,9 @@ import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.graphics.graphicsLayer
+import com.lovelev.mediadock.ui.common.pressScale
+import com.lovelev.mediadock.ui.common.rememberHapticTick
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.Shadow
 import androidx.compose.ui.graphics.SolidColor
@@ -91,17 +106,28 @@ fun SearchScreen(
             IconButton(onClick = onBack) {
                 Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "返回")
             }
+            val borderColor by animateColorAsState(
+                targetValue = if (focused) {
+                    MaterialTheme.colorScheme.primary
+                } else {
+                    MaterialTheme.colorScheme.outlineVariant
+                },
+                animationSpec = tween(180),
+                label = "searchBorder",
+            )
+            val fieldColor by animateColorAsState(
+                targetValue = if (focused) {
+                    MaterialTheme.colorScheme.surface
+                } else {
+                    MaterialTheme.colorScheme.surfaceVariant
+                },
+                animationSpec = tween(180),
+                label = "searchField",
+            )
             Surface(
                 shape = CircleShape,
-                color = MaterialTheme.colorScheme.surfaceVariant,
-                border = BorderStroke(
-                    width = 1.dp,
-                    color = if (focused) {
-                        MaterialTheme.colorScheme.primary
-                    } else {
-                        MaterialTheme.colorScheme.outlineVariant
-                    },
-                ),
+                color = fieldColor,
+                border = BorderStroke(width = 1.dp, color = borderColor),
                 modifier = Modifier.weight(1f).height(48.dp),
             ) {
                 Row(verticalAlignment = Alignment.CenterVertically) {
@@ -152,47 +178,99 @@ fun SearchScreen(
             }
         }
 
-        FilterRow(
-            options = listOf("全部", "电视剧", "电影", "动漫", "综艺"),
-            selected = state.type,
-            onSelect = vm::setType,
-        )
-        FilterRow(
-            options = listOf("最新更新", "最新上映", "影片评分"),
-            selected = state.sort,
-            onSelect = vm::setSort,
-        )
-        FilterRow(label = "类型", options = options.genres, selected = state.genre, onSelect = vm::setGenre)
-        FilterRow(label = "地区", options = options.regions, selected = state.region, onSelect = vm::setRegion)
-        FilterRow(label = "年份", options = options.years, selected = state.year, onSelect = vm::setYear)
-
         val refreshing = results.loadState.refresh is LoadState.Loading
         val empty = results.itemCount == 0 && results.loadState.refresh is LoadState.NotLoading
 
-        when {
-            empty -> Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-                Text("无结果", color = MaterialTheme.colorScheme.onSurfaceVariant)
+        val skeletonTransition = rememberInfiniteTransition(label = "searchSkeleton")
+        val skeletonAlpha by skeletonTransition.animateFloat(
+            initialValue = 0.35f,
+            targetValue = 0.75f,
+            animationSpec = infiniteRepeatable(
+                animation = tween(900, easing = LinearEasing),
+                repeatMode = RepeatMode.Reverse,
+            ),
+            label = "searchSkeletonAlpha",
+        )
+
+        LazyVerticalGrid(
+            columns = GridCells.Fixed(3),
+            modifier = Modifier.fillMaxSize(),
+            contentPadding = PaddingValues(start = 12.dp, end = 12.dp, bottom = 24.dp),
+            horizontalArrangement = Arrangement.spacedBy(10.dp),
+            verticalArrangement = Arrangement.spacedBy(16.dp),
+        ) {
+            // 筛选行跟着内容一起上滑：搜索框固定，标签把空间让给结果
+            item(span = { GridItemSpan(maxLineSpan) }, key = "filters") {
+                Column(modifier = Modifier.padding(top = 4.dp)) {
+                    FilterRow(
+                        options = listOf("全部", "电视剧", "电影", "动漫", "综艺"),
+                        selected = state.type,
+                        onSelect = vm::setType,
+                        contentPadding = PaddingValues(0.dp),
+                    )
+                    FilterRow(
+                        options = listOf("最新更新", "最新上映", "影片评分"),
+                        selected = state.sort,
+                        onSelect = vm::setSort,
+                        contentPadding = PaddingValues(0.dp),
+                    )
+                    FilterRow(
+                        label = "类型",
+                        options = options.genres,
+                        selected = state.genre,
+                        onSelect = vm::setGenre,
+                        contentPadding = PaddingValues(0.dp),
+                    )
+                    FilterRow(
+                        label = "地区",
+                        options = options.regions,
+                        selected = state.region,
+                        onSelect = vm::setRegion,
+                        contentPadding = PaddingValues(0.dp),
+                    )
+                    FilterRow(
+                        label = "年份",
+                        options = options.years,
+                        selected = state.year,
+                        onSelect = vm::setYear,
+                        contentPadding = PaddingValues(0.dp),
+                    )
+                }
             }
-            refreshing && results.itemCount == 0 -> Box(
-                Modifier.fillMaxSize(),
-                contentAlignment = Alignment.Center,
-            ) {
-                LinearProgressIndicator(modifier = Modifier.fillMaxWidth(0.4f))
-            }
-            results.loadState.refresh is LoadState.Error && results.itemCount == 0 -> Box(
-                Modifier.fillMaxSize(),
-                contentAlignment = Alignment.Center,
-            ) {
-                TextButton(onClick = { results.retry() }) { Text("加载失败，点击重试") }
-            }
-            else -> {
-                LazyVerticalGrid(
-                    columns = GridCells.Fixed(3),
-                    modifier = Modifier.fillMaxSize(),
-                    contentPadding = PaddingValues(start = 12.dp, end = 12.dp, top = 8.dp, bottom = 24.dp),
-                    horizontalArrangement = Arrangement.spacedBy(10.dp),
-                    verticalArrangement = Arrangement.spacedBy(16.dp),
-                ) {
+
+            when {
+                empty -> item(span = { GridItemSpan(maxLineSpan) }, key = "empty") {
+                    Box(
+                        Modifier.fillMaxWidth().height(220.dp),
+                        contentAlignment = Alignment.Center,
+                    ) {
+                        Text("无结果", color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    }
+                }
+
+                refreshing && results.itemCount == 0 -> items(count = 9) {
+                    Box(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .aspectRatio(2f / 3f)
+                            .clip(RoundedCornerShape(8.dp))
+                            .background(
+                                MaterialTheme.colorScheme.surfaceVariant.copy(alpha = skeletonAlpha),
+                            ),
+                    )
+                }
+
+                results.loadState.refresh is LoadState.Error && results.itemCount == 0 ->
+                    item(span = { GridItemSpan(maxLineSpan) }, key = "error") {
+                        Box(
+                            Modifier.fillMaxWidth().height(220.dp),
+                            contentAlignment = Alignment.Center,
+                        ) {
+                            TextButton(onClick = { results.retry() }) { Text("加载失败，点击重试") }
+                        }
+                    }
+
+                else -> {
                     items(
                         count = results.itemCount,
                         key = results.itemKey { it.id },
@@ -224,9 +302,10 @@ private fun FilterRow(
     selected: String,
     label: String? = null,
     onSelect: (String) -> Unit,
+    contentPadding: PaddingValues = PaddingValues(horizontal = 12.dp),
 ) {
     LazyRow(
-        contentPadding = PaddingValues(horizontal = 12.dp),
+        contentPadding = contentPadding,
         horizontalArrangement = Arrangement.spacedBy(16.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
@@ -241,20 +320,49 @@ private fun FilterRow(
         }
         items(options) { option ->
             val active = option == selected
+            val tick = rememberHapticTick()
+            val container by animateColorAsState(
+                targetValue = if (active) {
+                    MaterialTheme.colorScheme.primaryContainer
+                } else {
+                    Color.Transparent
+                },
+                animationSpec = tween(180),
+                label = "chipContainer",
+            )
+            val contentColor by animateColorAsState(
+                targetValue = if (active) {
+                    MaterialTheme.colorScheme.onPrimaryContainer
+                } else {
+                    MaterialTheme.colorScheme.onSurface
+                },
+                animationSpec = tween(180),
+                label = "chipContent",
+            )
+            val scale by animateFloatAsState(
+                targetValue = if (active) 1f else 0.97f,
+                animationSpec = spring(dampingRatio = 0.7f, stiffness = 700f),
+                label = "chipScale",
+            )
             Surface(
-                onClick = { onSelect(option) },
+                onClick = {
+                    if (!active) {
+                        tick()
+                        onSelect(option)
+                    }
+                },
                 shape = CircleShape,
-                color = if (active) MaterialTheme.colorScheme.primaryContainer else Color.Transparent,
+                color = container,
+                modifier = Modifier.graphicsLayer {
+                    scaleX = scale
+                    scaleY = scale
+                },
             ) {
                 Text(
                     text = option,
                     style = MaterialTheme.typography.bodyMedium,
                     fontWeight = if (active) FontWeight.SemiBold else null,
-                    color = if (active) {
-                        MaterialTheme.colorScheme.onPrimaryContainer
-                    } else {
-                        MaterialTheme.colorScheme.onSurface
-                    },
+                    color = contentColor,
                     modifier = Modifier.padding(horizontal = 12.dp, vertical = 6.dp),
                 )
             }
@@ -264,7 +372,17 @@ private fun FilterRow(
 
 @Composable
 private fun SearchCard(card: WorkCard, onClick: () -> Unit) {
-    Column(modifier = Modifier.clickable(onClick = onClick)) {
+    val interaction = remember { MutableInteractionSource() }
+    val tick = rememberHapticTick()
+    Column(
+        modifier = Modifier
+            .pressScale(interaction)
+            .clickable(
+                interactionSource = interaction,
+                indication = ripple(),
+                onClick = { tick(); onClick() },
+            ),
+    ) {
         Box(
             modifier = Modifier
                 .fillMaxWidth()

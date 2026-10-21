@@ -4,11 +4,13 @@ import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Shapes
+import androidx.compose.material3.Typography
 import androidx.compose.material3.darkColorScheme
 import androidx.compose.material3.lightColorScheme
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
 
 /**
  * 配色取用户自己站点（星屿）那颗柠檬绿。
@@ -70,6 +72,20 @@ private val MediaDockShapes = Shapes(
     extraLarge = RoundedCornerShape(30.dp),
 )
 
+/**
+ * 中文字形比拉丁字母方正，M3 默认给标题加的 0.1–0.15sp 字距会让中文看起来「散」。
+ * 标题与标签统一收成 0，正文保持默认。
+ */
+private val AppTypography = Typography().let { base ->
+    base.copy(
+        headlineSmall = base.headlineSmall.copy(letterSpacing = 0.sp),
+        titleLarge = base.titleLarge.copy(letterSpacing = 0.sp),
+        titleMedium = base.titleMedium.copy(letterSpacing = 0.sp),
+        titleSmall = base.titleSmall.copy(letterSpacing = 0.sp),
+        labelLarge = base.labelLarge.copy(letterSpacing = 0.sp),
+    )
+}
+
 @Composable
 fun MediaDockTheme(
     darkTheme: Boolean = isSystemInDarkTheme(),
@@ -78,6 +94,7 @@ fun MediaDockTheme(
     MaterialTheme(
         colorScheme = if (darkTheme) DarkColors else LightColors,
         shapes = MediaDockShapes,
+        typography = AppTypography,
         content = content,
     )
 }

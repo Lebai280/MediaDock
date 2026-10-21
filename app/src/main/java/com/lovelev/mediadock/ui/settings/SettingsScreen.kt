@@ -1,5 +1,7 @@
 package com.lovelev.mediadock.ui.settings
 
+import androidx.compose.animation.animateColorAsState
+import androidx.compose.animation.core.tween
 import androidx.compose.foundation.layout.size
 import androidx.compose.material3.Icon
 import com.lovelev.mediadock.R
@@ -445,14 +447,19 @@ private fun PlaybackChoiceRow(
         Text(label, style = MaterialTheme.typography.bodyLarge)
         Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
             options.forEachIndexed { index, (text, selected) ->
+                val color by animateColorAsState(
+                    targetValue = if (selected) {
+                        MaterialTheme.colorScheme.primary
+                    } else {
+                        MaterialTheme.colorScheme.onSurfaceVariant
+                    },
+                    animationSpec = tween(180),
+                    label = "choiceColor",
+                )
                 TextButton(onClick = { onPick(index) }) {
                     Text(
                         text = if (selected) "● $text" else text,
-                        color = if (selected) {
-                            MaterialTheme.colorScheme.primary
-                        } else {
-                            MaterialTheme.colorScheme.onSurfaceVariant
-                        },
+                        color = color,
                     )
                 }
             }
@@ -468,14 +475,28 @@ private fun ThemeModeRow(current: ThemeMode, onPick: (ThemeMode) -> Unit) {
     ) {
         ThemeMode.entries.forEach { mode ->
             val selected = mode == current
-            Surface(
-                onClick = { onPick(mode) },
-                shape = RoundedCornerShape(12.dp),
-                color = if (selected) {
+            val containerColor by animateColorAsState(
+                targetValue = if (selected) {
                     MaterialTheme.colorScheme.primaryContainer
                 } else {
                     MaterialTheme.colorScheme.surfaceVariant
                 },
+                animationSpec = tween(180),
+                label = "themeModeContainer",
+            )
+            val contentColor by animateColorAsState(
+                targetValue = if (selected) {
+                    MaterialTheme.colorScheme.onPrimaryContainer
+                } else {
+                    MaterialTheme.colorScheme.onSurfaceVariant
+                },
+                animationSpec = tween(180),
+                label = "themeModeContent",
+            )
+            Surface(
+                onClick = { onPick(mode) },
+                shape = RoundedCornerShape(12.dp),
+                color = containerColor,
                 modifier = Modifier.weight(1f),
             ) {
                 Column(
@@ -485,22 +506,14 @@ private fun ThemeModeRow(current: ThemeMode, onPick: (ThemeMode) -> Unit) {
                     Icon(
                         painter = painterResource(mode.iconRes()),
                         contentDescription = null,
-                        tint = if (selected) {
-                            MaterialTheme.colorScheme.onPrimaryContainer
-                        } else {
-                            MaterialTheme.colorScheme.onSurfaceVariant
-                        },
+                        tint = contentColor,
                         modifier = Modifier.size(22.dp),
                     )
                     Spacer(Modifier.height(4.dp))
                     Text(
                         text = mode.label,
                         style = MaterialTheme.typography.labelSmall,
-                        color = if (selected) {
-                            MaterialTheme.colorScheme.onPrimaryContainer
-                        } else {
-                            MaterialTheme.colorScheme.onSurfaceVariant
-                        },
+                        color = contentColor,
                     )
                 }
             }
@@ -527,6 +540,7 @@ private fun Section(title: String, content: @Composable () -> Unit) {
         Surface(
             shape = MaterialTheme.shapes.medium,
             color = MaterialTheme.colorScheme.surfaceVariant,
+            tonalElevation = 1.dp,
             modifier = Modifier.fillMaxWidth(),
         ) {
             Column { content() }

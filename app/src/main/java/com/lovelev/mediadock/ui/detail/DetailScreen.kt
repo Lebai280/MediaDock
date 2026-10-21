@@ -1,7 +1,11 @@
 package com.lovelev.mediadock.ui.detail
 
+import androidx.compose.animation.core.animateDpAsState
+import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.animation.core.tween
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxScope
@@ -26,6 +30,7 @@ import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.ScrollState
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -47,6 +52,7 @@ import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
+import androidx.compose.material3.ripple
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
@@ -57,10 +63,12 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.clipToBounds
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.Shadow
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.text.font.FontFamily
@@ -74,6 +82,8 @@ import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.window.DialogProperties
 import coil3.compose.AsyncImage
 import com.lovelev.mediadock.core.model.BadgeSupport
+import com.lovelev.mediadock.ui.common.pressScale
+import com.lovelev.mediadock.ui.common.rememberHapticTick
 import com.lovelev.mediadock.core.model.MediaSpecBadges
 import com.lovelev.mediadock.core.model.SpecBadge
 import com.lovelev.mediadock.data.local.EpisodeMeta
@@ -133,6 +143,20 @@ fun DetailScreen(
     }
 
     val sample = entries.first()
+    val tick = rememberHapticTick()
+    // 标题区入场：淡入 + 轻微上移，只在进入详情页时跑一次
+    var entered by remember { mutableStateOf(false) }
+    LaunchedEffect(Unit) { entered = true }
+    val headerAlpha by animateFloatAsState(
+        targetValue = if (entered) 1f else 0f,
+        animationSpec = tween(380),
+        label = "detailHeaderAlpha",
+    )
+    val headerShift by animateDpAsState(
+        targetValue = if (entered) 0.dp else 14.dp,
+        animationSpec = tween(380),
+        label = "detailHeaderShift",
+    )
     // 队列：剧集用这几集；电影只播选中的版本（多源合并后 paths 可能是一组版本）
     val queue by vm.playQueue.collectAsState()
     val isSeries = entries.any { it.episode != null || it.season != null }
@@ -178,9 +202,16 @@ fun DetailScreen(
 
     BoxWithConstraints(modifier.fillMaxSize().background(tone)) {
         val art = sample.heroArt()
-        // 用户要求：详情页横幅约占半屏
-        val heroHeight = if (art != null) maxHeight * 0.5f else HERO_NO_ART_HEIGHT
-        val heroBottom = if (art != null) 0.5f else 0f
+        // 竖版海报按 2:3 铺满宽度（约 2/3 屏）——两侧不留缝，海报完整不裁剪；
+        // 只有横版图时按 16:9 完整显示；横屏下高度封顶，避免大图超过一屏。
+        val heroHeight = when {
+            !sample.posterPath.isNullOrBlank() ->
+                (maxWidth * 1.5f).coerceAtMost(maxHeight * 0.9f)
+            art != null -> maxWidth * 9f / 16f
+            else -> HERO_NO_ART_HEIGHT
+        }
+        val heroBottom = if (art != null) (heroHeight / maxHeight).coerceIn(0f, 1f) else 0f
+        val scrollState = rememberScrollState()
 
         // 海报以下：同一个色往下铺，略微渐暗（内容区够暗，白字才读得清）
         PageBackground(tone, heroBottom)
@@ -189,11 +220,24 @@ fun DetailScreen(
             modifier = Modifier
                 .fillMaxSize()
                 .navigationBarsPadding()
-                .verticalScroll(rememberScrollState()),
+                .verticalScroll(scrollState),
         ) {
-            HeroArt(item = sample, tone = tone, height = heroHeight)
+            HeroArt(
+                item = sample,
+                tone = tone,
+                height = heroHeight,
+                scrollState = scrollState,
+            )
 
-            Column(modifier = Modifier.fillMaxWidth().padding(horizontal = 20.dp, vertical = 16.dp)) {
+            Column(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = 20.dp, vertical = 16.dp)
+                    .graphicsLayer {
+                        alpha = headerAlpha
+                        translationY = headerShift.toPx()
+                    },
+            ) {
                 // ---- 标题 + 元数据（爆米花式：图下、左对齐）----
                 Text(
                     text = titleLine,
@@ -255,7 +299,10 @@ fun DetailScreen(
 
                 // ---- 白色播放按钮（爆米花样式）----
                 Surface(
-                    onClick = { onPlay(playPath, playQueue) },
+                    onClick = {
+                        tick()
+                        onPlay(playPath, playQueue)
+                    },
                     shape = RoundedCornerShape(10.dp),
                     color = Color.White,
                     modifier = Modifier.fillMaxWidth().height(56.dp),
@@ -397,8 +444,8 @@ private val HeroTextShadow = Shadow(
     blurRadius = 8f,
 )
 
-/** 详情页用哪张图：**横版背景图优先**（爆米花式横幅），没有才退回竖版海报。 */
-internal fun MediaItemEntity.heroArt(): String? = backdropPath ?: posterPath
+/** 详情页用哪张图：**竖版海报优先**（按原比例完整显示）；没有海报才退回横版背景图。 */
+internal fun MediaItemEntity.heroArt(): String? = posterPath ?: backdropPath
 
 /**
  * 把海报底部那个平均色压成**能当页面底色**的色调：保留色相，把亮度压到
@@ -444,15 +491,16 @@ private fun HeroArt(
     item: MediaItemEntity,
     tone: Color,
     height: Dp? = null,
+    scrollState: ScrollState? = null,
     content: (@Composable ColumnScope.() -> Unit)? = null,
 ) {
     val art = item.heroArt()
-    // 横版背景图铺满横幅没问题；只有竖版海报时用 Fit 完整显示 ——
-    // 半屏高的横幅比 2:3 海报更宽扁，Crop 会把海报上下裁掉（用户反馈「被局部放大」）。
-    val isBackdrop = !item.backdropPath.isNullOrBlank()
+    // 一律 Fit：横版图铺进半屏高会按高度放大、只剩中间一条（用户反馈「被放大」）；
+    // 竖版海报更要完整显示。两侧露出的页面底色与下方同色，接得上。
     Box(
         modifier = Modifier
             .fillMaxWidth()
+            .clipToBounds()
             .background(tone)
             .then(
                 if (height != null) {
@@ -468,8 +516,16 @@ private fun HeroArt(
             AsyncImage(
                 model = TmdbClient.posterModel(art, width = 780),
                 contentDescription = null,
-                contentScale = if (isBackdrop) ContentScale.Crop else ContentScale.Fit,
-                modifier = Modifier.matchParentSize(),
+                contentScale = ContentScale.Fit,
+                modifier = Modifier
+                    .matchParentSize()
+                    .graphicsLayer {
+                        // 视差：图比内容慢一点；轻微放大给位移留余量（不露边）。
+                        // scrollState 在绘制阶段读取，滚动时不触发整页重组。
+                        translationY = (scrollState?.value ?: 0) * 0.08f
+                        scaleX = 1.12f
+                        scaleY = 1.12f
+                    },
             )
             // 下半部压暗给白字回退；**颜色是页面主色不是黑** —— 压完正好和底下的背景同色
             Box(
@@ -1012,7 +1068,17 @@ private fun EpisodeCard(
     onClick: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
-    Column(modifier = modifier.clickable(onClick = onClick)) {
+    val interaction = remember { MutableInteractionSource() }
+    val tick = rememberHapticTick()
+    Column(
+        modifier = modifier
+            .pressScale(interaction)
+            .clickable(
+                interactionSource = interaction,
+                indication = ripple(),
+                onClick = { tick(); onClick() },
+            ),
+    ) {
         Box(
             modifier = Modifier
                 .fillMaxWidth()

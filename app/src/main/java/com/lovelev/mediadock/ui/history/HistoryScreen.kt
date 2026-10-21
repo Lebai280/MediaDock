@@ -19,6 +19,7 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
+import androidx.compose.material.icons.filled.DateRange
 import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.HorizontalDivider
@@ -42,6 +43,7 @@ import coil3.compose.AsyncImage
 import com.lovelev.mediadock.data.local.MediaItemEntity
 import com.lovelev.mediadock.data.local.PlaybackProgress
 import com.lovelev.mediadock.data.tmdb.TmdbClient
+import com.lovelev.mediadock.ui.common.EmptyState
 import com.lovelev.mediadock.ui.formatClock
 
 /**
@@ -102,13 +104,7 @@ fun HistoryScreen(
         },
     ) { insets ->
         if (ui.recent.isEmpty()) {
-            Box(Modifier.padding(insets).fillMaxSize(), contentAlignment = Alignment.Center) {
-                Text(
-                    text = "暂无记录",
-                    style = MaterialTheme.typography.bodyMedium,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                )
-            }
+            EmptyState(Icons.Filled.DateRange, "暂无记录", Modifier.padding(insets))
             return@Scaffold
         }
 

@@ -130,9 +130,7 @@ fun LibraryScreen(
                 onAddSource = onAddSource,
             )
 
-            refreshing && cards.itemCount == 0 -> Center {
-                LinearProgressIndicator(modifier = Modifier.fillMaxWidth(0.4f))
-            }
+            refreshing && cards.itemCount == 0 -> LibrarySkeleton()
 
             cards.loadState.refresh is LoadState.Error && cards.itemCount == 0 -> Center {
                 TextButton(onClick = { cards.retry() }) { Text("加载失败，点击重试") }

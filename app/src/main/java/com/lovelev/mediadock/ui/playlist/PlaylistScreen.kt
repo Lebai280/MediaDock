@@ -20,6 +20,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.automirrored.filled.Sort
 import androidx.compose.material.icons.filled.Add
+import androidx.compose.material.icons.filled.BookmarkBorder
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.Share
@@ -42,6 +43,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import com.lovelev.mediadock.ui.common.EmptyState
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.style.TextOverflow
@@ -82,9 +84,7 @@ fun PlaylistsScreen(
             }
         }
         if (playlists.isEmpty()) {
-            Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-                Text("暂无片单", color = MaterialTheme.colorScheme.onSurfaceVariant)
-            }
+            EmptyState(Icons.Filled.BookmarkBorder, "暂无片单")
         } else {
             LazyColumn(modifier = Modifier.fillMaxSize()) {
                 items(playlists, key = { it.id }) { playlist ->
@@ -224,9 +224,7 @@ fun PlaylistDetailScreen(
             )
         }
         if (state.rows.isEmpty()) {
-            Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-                Text("片单为空", color = MaterialTheme.colorScheme.onSurfaceVariant)
-            }
+            EmptyState(Icons.Filled.BookmarkBorder, "片单为空")
         } else {
             LazyColumn(modifier = Modifier.fillMaxSize()) {
                 items(state.sortedRows, key = { it.path }) { row ->
