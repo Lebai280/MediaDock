@@ -1,9 +1,11 @@
 package com.lovelev.mediadock.ui.playlist
 
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
@@ -35,15 +37,19 @@ import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
+import androidx.compose.material3.ripple
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import com.lovelev.mediadock.ui.common.EmptyState
+import com.lovelev.mediadock.ui.common.pressScale
+import com.lovelev.mediadock.ui.common.rememberHapticTick
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.style.TextOverflow
@@ -86,25 +92,44 @@ fun PlaylistsScreen(
         if (playlists.isEmpty()) {
             EmptyState(Icons.Filled.BookmarkBorder, "暂无片单")
         } else {
-            LazyColumn(modifier = Modifier.fillMaxSize()) {
+            LazyColumn(
+                modifier = Modifier.fillMaxSize(),
+                contentPadding = PaddingValues(12.dp),
+                verticalArrangement = Arrangement.spacedBy(8.dp),
+            ) {
                 items(playlists, key = { it.id }) { playlist ->
-                    Row(
+                    val interaction = remember { MutableInteractionSource() }
+                    val tick = rememberHapticTick()
+                    Surface(
+                        shape = MaterialTheme.shapes.medium,
+                        color = MaterialTheme.colorScheme.surfaceVariant,
+                        tonalElevation = 1.dp,
                         modifier = Modifier
                             .fillMaxWidth()
-                            .clickable { onOpen(playlist.id) }
-                            .padding(horizontal = 20.dp, vertical = 16.dp),
-                        verticalAlignment = Alignment.CenterVertically,
+                            .pressScale(interaction)
+                            .clickable(
+                                interactionSource = interaction,
+                                indication = ripple(),
+                                onClick = {
+                                    tick()
+                                    onOpen(playlist.id)
+                                },
+                            ),
                     ) {
-                        Text(
-                            text = playlist.name,
-                            style = MaterialTheme.typography.bodyLarge,
-                            modifier = Modifier.weight(1f),
-                        )
-                        IconButton(onClick = { vm.requestDelete(playlist.id) }) {
-                            Icon(Icons.Filled.Delete, contentDescription = "删除片单")
+                        Row(
+                            modifier = Modifier.padding(horizontal = 16.dp, vertical = 12.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                        ) {
+                            Text(
+                                text = playlist.name,
+                                style = MaterialTheme.typography.bodyLarge,
+                                modifier = Modifier.weight(1f),
+                            )
+                            IconButton(onClick = { vm.requestDelete(playlist.id) }) {
+                                Icon(Icons.Filled.Delete, contentDescription = "删除片单")
+                            }
                         }
                     }
-                    HorizontalDivider()
                 }
             }
         }
@@ -226,14 +251,33 @@ fun PlaylistDetailScreen(
         if (state.rows.isEmpty()) {
             EmptyState(Icons.Filled.BookmarkBorder, "片单为空")
         } else {
-            LazyColumn(modifier = Modifier.fillMaxSize()) {
+            LazyColumn(
+                modifier = Modifier.fillMaxSize(),
+                contentPadding = PaddingValues(12.dp),
+                verticalArrangement = Arrangement.spacedBy(8.dp),
+            ) {
                 items(state.sortedRows, key = { it.path }) { row ->
                     val item = state.byPath[row.path]
-                    Row(
+                    val interaction = remember { MutableInteractionSource() }
+                    val tick = rememberHapticTick()
+                    Surface(
+                        shape = MaterialTheme.shapes.medium,
+                        color = MaterialTheme.colorScheme.surfaceVariant,
+                        tonalElevation = 1.dp,
                         modifier = Modifier
                             .fillMaxWidth()
-                            .clickable { play(row.path) }
-                            .padding(horizontal = 16.dp, vertical = 10.dp),
+                            .pressScale(interaction)
+                            .clickable(
+                                interactionSource = interaction,
+                                indication = ripple(),
+                                onClick = {
+                                    tick()
+                                    play(row.path)
+                                },
+                            ),
+                    ) {
+                    Row(
+                        modifier = Modifier.padding(horizontal = 16.dp, vertical = 10.dp),
                         verticalAlignment = Alignment.CenterVertically,
                     ) {
                         val poster = item?.posterPath
@@ -272,7 +316,7 @@ fun PlaylistDetailScreen(
                             Icon(Icons.Filled.Delete, contentDescription = "移出片单")
                         }
                     }
-                    HorizontalDivider()
+                    }
                 }
             }
         }

@@ -6,6 +6,9 @@ import android.content.pm.PackageManager
 import android.os.Build
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.animation.core.animateDpAsState
+import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.animation.core.tween
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.gestures.awaitEachGesture
@@ -43,6 +46,7 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.input.pointer.pointerInput
@@ -58,6 +62,7 @@ import com.lovelev.mediadock.core.model.AudioMode
 import com.lovelev.mediadock.core.model.DeviceCapabilities
 import com.lovelev.mediadock.core.model.HdrFormat
 import com.lovelev.mediadock.core.model.HdrMode
+import com.lovelev.mediadock.ui.common.rememberHapticTick
 import com.lovelev.mediadock.core.model.PlaybackPlanner
 import com.lovelev.mediadock.player.diagnostics.PlaybackDiagnostics
 import com.lovelev.mediadock.player.probe.planInputFrom
@@ -281,17 +286,34 @@ internal fun ThinSeekBar(
     var dragValue by remember { mutableLongStateOf(0L) }
     val shown = if (dragging) dragValue else position
     val fraction = if (duration > 0L) (shown.toFloat() / duration).coerceIn(0f, 1f) else 0f
+    val tick = rememberHapticTick()
+    // 拖动时轨道加粗、端点出现圆点：给「正在拖」一个明确的手感
+    val barHeight by animateDpAsState(
+        targetValue = if (dragging) 6.dp else 3.dp,
+        animationSpec = tween(120),
+        label = "seekBarHeight",
+    )
+    val thumbAlpha by animateFloatAsState(
+        targetValue = if (dragging) 1f else 0f,
+        animationSpec = tween(120),
+        label = "seekThumbAlpha",
+    )
 
     Box(
         modifier = modifier
             .height(24.dp)
             .pointerInput(duration) {
                 if (duration <= 0L) return@pointerInput
-                val at = { x: Float -> (x / size.width * duration).toLong().coerceIn(0L, duration) }
+                // 吸附到整秒：松手不会停在 12:34.847 这种小数位置
+                val at = { x: Float ->
+                    val raw = (x / size.width * duration).toLong().coerceIn(0L, duration)
+                    (raw / 1000L) * 1000L
+                }
                 awaitEachGesture {
                     val down = awaitFirstDown()
                     // 吃掉按下事件：否则父层的手势也会跟着启动，在进度条上拖动会被误判成「点了一下」
                     down.consume()
+                    tick()
                     val startAt = at(down.position.x)
                     dragging = true
                     dragValue = startAt
@@ -314,16 +336,32 @@ internal fun ThinSeekBar(
             modifier = Modifier
                 .align(Alignment.CenterStart)
                 .fillMaxWidth()
-                .height(3.dp)
+                .height(barHeight)
                 .background(Color.White.copy(alpha = 0.30f), CircleShape),
         )
         Box(
             modifier = Modifier
                 .align(Alignment.CenterStart)
                 .fillMaxWidth(fraction)
-                .height(3.dp)
+                .height(barHeight)
                 .background(MaterialTheme.colorScheme.primary, CircleShape),
         )
+        // 拖动端点的圆点
+        Box(
+            modifier = Modifier
+                .align(Alignment.CenterStart)
+                .fillMaxWidth(fraction)
+                .height(24.dp),
+        ) {
+            Box(
+                modifier = Modifier
+                    .align(Alignment.CenterEnd)
+                    .size(12.dp)
+                    .alpha(thumbAlpha)
+                    .clip(CircleShape)
+                    .background(MaterialTheme.colorScheme.primary),
+            )
+        }
     }
 }
 

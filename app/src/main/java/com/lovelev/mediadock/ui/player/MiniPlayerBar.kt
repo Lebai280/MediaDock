@@ -1,6 +1,10 @@
 package com.lovelev.mediadock.ui.player
 
+import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.animation.core.tween
 import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
+import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -20,15 +24,19 @@ import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
+import androidx.compose.material3.ripple
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
-import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.shape.CircleShape
+import com.lovelev.mediadock.ui.common.rememberHapticTick
 
 /**
  * 外壳底部常驻的「正在播放」条（迷你播放器）。
@@ -45,25 +53,35 @@ fun MiniPlayerBar(
     modifier: Modifier = Modifier,
 ) {
     val title = vm.title ?: return
+    val interaction = remember { MutableInteractionSource() }
+    val tick = rememberHapticTick()
 
     Surface(
         modifier = modifier.fillMaxWidth(),
         color = MaterialTheme.colorScheme.surface,
+        tonalElevation = 2.dp,
     ) {
         Column(modifier = Modifier.fillMaxWidth()) {
-            // 顶部一条细进度：一眼看出播到哪了，不占地方
-            val fraction =
+            // 顶部一条细进度：动画跟随，避免每 200ms 跳一格
+            val rawFraction =
                 if (vm.duration > 0L) (vm.position.toFloat() / vm.duration).coerceIn(0f, 1f) else 0f
+            val fraction by animateFloatAsState(
+                targetValue = rawFraction,
+                animationSpec = tween(500),
+                label = "miniProgress",
+            )
             Box(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .height(2.dp)
+                    .height(3.dp)
+                    .clip(CircleShape)
                     .background(MaterialTheme.colorScheme.outlineVariant),
             ) {
                 Box(
                     modifier = Modifier
                         .fillMaxWidth(fraction)
                         .fillMaxHeight()
+                        .clip(CircleShape)
                         .background(MaterialTheme.colorScheme.primary),
                 )
             }
@@ -71,14 +89,26 @@ fun MiniPlayerBar(
             Row(
                 modifier = Modifier
                     .fillMaxWidth()
-                    // 50 + 上面那条 2dp 进度 = 52dp 整条，与 NagoMusic 的迷你条同高
-                    .height(50.dp)
+                    // 3 + 53 = 56dp，触摸高度比原先多一档
+                    .height(53.dp)
                     // 点条身进播放页；按钮是子节点，先拿到事件，不会被这里抢走
-                    .clickable(onClick = onOpen)
+                    .clickable(
+                        interactionSource = interaction,
+                        indication = ripple(),
+                    ) {
+                        tick()
+                        onOpen()
+                    }
                     .padding(horizontal = 4.dp),
                 verticalAlignment = Alignment.CenterVertically,
             ) {
-                IconButton(onClick = vm::togglePlay, modifier = Modifier.size(44.dp)) {
+                IconButton(
+                    onClick = {
+                        tick()
+                        vm.togglePlay()
+                    },
+                    modifier = Modifier.size(48.dp),
+                ) {
                     Icon(
                         imageVector = if (vm.playing) Icons.Filled.Pause else Icons.Filled.PlayArrow,
                         contentDescription = if (vm.playing) "暂停" else "播放",
@@ -108,7 +138,13 @@ fun MiniPlayerBar(
 
                 Spacer(Modifier.width(4.dp))
 
-                IconButton(onClick = vm::stop, modifier = Modifier.size(44.dp)) {
+                IconButton(
+                    onClick = {
+                        tick()
+                        vm.stop()
+                    },
+                    modifier = Modifier.size(48.dp),
+                ) {
                     Icon(
                         imageVector = Icons.Filled.Close,
                         contentDescription = "停止播放",

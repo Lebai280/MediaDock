@@ -40,6 +40,13 @@ private val DarkColors = darkColorScheme(
     surfaceVariant = Color(0xFF26272B),
     onSurfaceVariant = Color(0xFFA8A9AD),
     outline = Color(0xFF3A3B40),
+    // 深色下阴影几乎不可见，层次靠 tonal 面色区分；显式给出，避免 M3 默认中性色与本配色打架
+    outlineVariant = Color(0xFF2E2F33),
+    surfaceContainerLowest = Color(0xFF0E0F11),
+    surfaceContainerLow = Color(0xFF17181B),
+    surfaceContainer = Color(0xFF1B1C1F),
+    surfaceContainerHigh = Color(0xFF222327),
+    surfaceContainerHighest = Color(0xFF2A2B30),
 )
 
 private val LightColors = lightColorScheme(
@@ -57,6 +64,12 @@ private val LightColors = lightColorScheme(
     surfaceVariant = Color(0xFFEFEFEA),
     onSurfaceVariant = Color(0xFF5F6063),
     outline = Color(0xFFE1E1DB),
+    outlineVariant = Color(0xFFE4E4DE),
+    surfaceContainerLowest = Color(0xFFFFFFFF),
+    surfaceContainerLow = Color(0xFFF7F7F4),
+    surfaceContainer = Color(0xFFF1F1EC),
+    surfaceContainerHigh = Color(0xFFEBEBE5),
+    surfaceContainerHighest = Color(0xFFE5E5DF),
 )
 
 /**

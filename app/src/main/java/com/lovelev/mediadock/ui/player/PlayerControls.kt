@@ -1,6 +1,10 @@
 package com.lovelev.mediadock.ui.player
 
+import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.animation.core.spring
 import androidx.compose.foundation.background
+import androidx.compose.foundation.interaction.MutableInteractionSource
+import androidx.compose.foundation.interaction.collectIsPressedAsState
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -44,6 +48,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
@@ -53,6 +58,7 @@ import androidx.media3.common.Tracks
 import androidx.media3.session.MediaController
 import com.lovelev.mediadock.R
 import com.lovelev.mediadock.data.log.AppLog
+import com.lovelev.mediadock.ui.common.rememberHapticTick
 import com.lovelev.mediadock.ui.formatClock
 import java.util.Locale
 
@@ -397,11 +403,27 @@ private fun BarIconButton(
     enabled: Boolean = true,
     content: @Composable () -> Unit,
 ) {
+    val interaction = remember { MutableInteractionSource() }
+    val pressed by interaction.collectIsPressedAsState()
+    val scale by animateFloatAsState(
+        targetValue = if (pressed && enabled) 0.9f else 1f,
+        animationSpec = spring(dampingRatio = 0.6f, stiffness = 800f),
+        label = "barIconScale",
+    )
+    val tick = rememberHapticTick()
     IconButton(
-        onClick = onClick,
+        onClick = {
+            if (enabled) tick()
+            onClick()
+        },
         enabled = enabled,
+        interactionSource = interaction,
         modifier = Modifier
             .size(44.dp)
+            .graphicsLayer {
+                scaleX = scale
+                scaleY = scale
+            }
             .clip(CircleShape)
             .background(Color.Black.copy(alpha = 0.35f)),
     ) {

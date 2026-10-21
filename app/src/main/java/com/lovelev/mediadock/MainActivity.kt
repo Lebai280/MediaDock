@@ -2,9 +2,12 @@ package com.lovelev.mediadock
 
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.spring
+import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.core.tween
+import androidx.compose.animation.expandVertically
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
+import androidx.compose.animation.shrinkVertically
 import androidx.compose.animation.slideInHorizontally
 import androidx.compose.animation.slideOutHorizontally
 import androidx.compose.foundation.layout.size
@@ -182,17 +185,24 @@ private fun HomeScaffold(
             // M3 的 NavigationBar 默认 80dp（内部是 defaultMinSize，所以外面给 .height 能压下来），
             // 80 在手机上明显偏高。
             Column {
-                if (showMini) {
-                    MiniPlayerBar(
-                        vm = nowPlaying,
-                        onOpen = {
-                            // 进程被杀过的话 playbackSelection 是空的（它只在内存里）——
-                            // 先从控制器把队列读回来，否则播放页会显示「没有选中要播放的文件」
-                            nowPlaying.syncSelection()
-                            navController.navigate(Routes.PLAYER)
-                        },
-                    )
-                    Spacer(Modifier.height(6.dp))
+                AnimatedVisibility(
+                    // 停止播放时标题变 null，也要走退出动画，而不是瞬间塌掉
+                    visible = showMini && nowPlaying.title != null,
+                    enter = fadeIn(tween(180)) + expandVertically(tween(220)),
+                    exit = fadeOut(tween(140)) + shrinkVertically(tween(180)),
+                ) {
+                    Column {
+                        MiniPlayerBar(
+                            vm = nowPlaying,
+                            onOpen = {
+                                // 进程被杀过的话 playbackSelection 是空的（它只在内存里）——
+                                // 先从控制器把队列读回来，否则播放页会显示「没有选中要播放的文件」
+                                nowPlaying.syncSelection()
+                                navController.navigate(Routes.PLAYER)
+                            },
+                        )
+                        Spacer(Modifier.height(6.dp))
+                    }
                 }
                 if (onTab) {
                     // 底部：左边是三个 Tab，右边一颗圆形搜索按钮 —— 照 NagoMusic 的底栏。

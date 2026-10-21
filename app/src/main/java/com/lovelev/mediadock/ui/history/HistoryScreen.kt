@@ -3,9 +3,11 @@ package com.lovelev.mediadock.ui.history
 import androidx.compose.runtime.setValue
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
@@ -28,11 +30,14 @@ import androidx.compose.material3.IconButton
 import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Scaffold
+import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TopAppBar
+import androidx.compose.material3.ripple
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -44,6 +49,8 @@ import com.lovelev.mediadock.data.local.MediaItemEntity
 import com.lovelev.mediadock.data.local.PlaybackProgress
 import com.lovelev.mediadock.data.tmdb.TmdbClient
 import com.lovelev.mediadock.ui.common.EmptyState
+import com.lovelev.mediadock.ui.common.pressScale
+import com.lovelev.mediadock.ui.common.rememberHapticTick
 import com.lovelev.mediadock.ui.formatClock
 
 /**
@@ -108,7 +115,11 @@ fun HistoryScreen(
             return@Scaffold
         }
 
-        LazyColumn(modifier = Modifier.padding(insets).fillMaxSize()) {
+        LazyColumn(
+            modifier = Modifier.padding(insets).fillMaxSize(),
+            contentPadding = PaddingValues(12.dp),
+            verticalArrangement = Arrangement.spacedBy(8.dp),
+        ) {
             items(ui.recent, key = { it.path }) { entry ->
                 HistoryRow(
                     entry = entry,
@@ -118,7 +129,6 @@ fun HistoryScreen(
                         onPlay(entry.path, vm.queueFor(entry.path))
                     },
                 )
-                HorizontalDivider()
             }
         }
     }
@@ -140,13 +150,25 @@ private fun HistoryRow(
         0f
     }
 
-    Row(
+    val interaction = remember { MutableInteractionSource() }
+    val tick = rememberHapticTick()
+    Surface(
+        shape = MaterialTheme.shapes.medium,
+        color = MaterialTheme.colorScheme.surfaceVariant,
+        tonalElevation = 1.dp,
         modifier = Modifier
             .fillMaxWidth()
-            .clickable(onClick = onClick)
-            .padding(horizontal = 14.dp, vertical = 10.dp),
-        verticalAlignment = Alignment.CenterVertically,
+            .pressScale(interaction)
+            .clickable(
+                interactionSource = interaction,
+                indication = ripple(),
+                onClick = { tick(); onClick() },
+            ),
     ) {
+        Row(
+            modifier = Modifier.padding(horizontal = 14.dp, vertical = 12.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
         Poster(item?.posterPath, title)
 
         Column(modifier = Modifier.weight(1f).padding(start = 12.dp)) {
@@ -181,6 +203,7 @@ private fun HistoryRow(
                 contentDescription = "接着看",
                 tint = MaterialTheme.colorScheme.primary,
             )
+        }
         }
     }
 }
