@@ -10,6 +10,13 @@ enum class AudioChannelCap(val max: Int) {
     STEREO(2),
 }
 
+enum class SubtitleSize(val scale: Float) {
+    SMALL(0.8f),
+    NORMAL(1f),
+    LARGE(1.25f),
+    HUGE(1.5f),
+}
+
 /**
  * 播放质量设置。用 SharedPreferences 是为了让 [PlaybackService] 能同步读取；
  * 设置变更在下一次播放/服务重建时生效。
@@ -32,9 +39,17 @@ class PlaybackSettingsStore(context: Context) {
         prefs.edit().putString(KEY_CHANNELS, cap.name).apply()
     }
 
+    fun subtitleSize(): SubtitleSize =
+        parseSubtitleSize(prefs.getString(KEY_SUB_SIZE, null))
+
+    fun setSubtitleSize(size: SubtitleSize) {
+        prefs.edit().putString(KEY_SUB_SIZE, size.name).apply()
+    }
+
     private companion object {
         const val KEY_REFRESH = "refresh_matching"
         const val KEY_CHANNELS = "audio_channel_cap"
+        const val KEY_SUB_SIZE = "subtitle_size"
     }
 }
 
@@ -43,3 +58,6 @@ internal fun parseRefreshMatching(value: String?): RefreshMatchingMode =
 
 internal fun parseAudioChannelCap(value: String?): AudioChannelCap =
     AudioChannelCap.entries.firstOrNull { it.name == value } ?: AudioChannelCap.AUTO
+
+internal fun parseSubtitleSize(value: String?): SubtitleSize =
+    SubtitleSize.entries.firstOrNull { it.name == value } ?: SubtitleSize.NORMAL

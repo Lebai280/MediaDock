@@ -23,6 +23,7 @@ import androidx.compose.material.icons.filled.Monitor
 import androidx.compose.material.icons.filled.MoreHoriz
 import androidx.compose.material.icons.filled.Pause
 import androidx.compose.material.icons.filled.PhotoCamera
+import androidx.compose.material.icons.filled.PictureInPicture
 import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.Subtitles
 import androidx.compose.material3.DropdownMenu
@@ -73,6 +74,7 @@ internal fun PlayerControls(
     onSeek: (Long) -> Unit,
     onInfo: () -> Unit,
     onDiagnostics: () -> Unit,
+    onEnterPip: () -> Unit,
     onScreenshot: () -> Unit,
     onLoadLocalSubtitle: () -> Unit,
     onSearchSubtitles: () -> Unit,
@@ -172,6 +174,18 @@ internal fun PlayerControls(
                             onClick = { moreExpanded = false; audioExpanded = true },
                         )
                     }
+                    DropdownMenuItem(
+                        text = { Text("画中画") },
+                        leadingIcon = {
+                            Icon(
+                                Icons.Filled.PictureInPicture,
+                                null,
+                                tint = MaterialTheme.colorScheme.primary,
+                            )
+                        },
+                        contentPadding = PaddingValues(horizontal = 12.dp, vertical = 6.dp),
+                        onClick = { moreExpanded = false; onEnterPip() },
+                    )
                     DropdownMenuItem(
                         text = { Text("详细") },
                         leadingIcon = {

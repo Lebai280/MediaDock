@@ -2623,6 +2623,77 @@ sha256 `1f8437a6104e7e3d77b0b0e42bee5bf1fa9baec32544a55e8a62fd82bf6724ee`
 `application/vnd.android.package-archive`。本机 curl 受网络重置影响，改用服务器回环验证。
 GitHub `master` 与 `v0.14.0` tag 推送后由 CI 构建并发布 Release。
 
+### 2026-10-21 · Phase 3C（部分）：FFmpeg 软解回退
+
+**背景**：3C 原计划色调映射、DV 基础层与 FFmpeg 软解。本轮只接入 FFmpeg 软解回退；
+按用户要求**不做真机验证**。
+
+**变更**
+- 依赖 `io.github.anilbeesetti:nextlib-media3ext:1.11.1-0.16.0`（GPL-3.0，ADR-027；版本前缀须与 media3 一致）。
+- `PlaybackService` 改用 `NextRenderersFactory`，扩展渲染器模式为 `ON`：FFmpeg 排在平台渲染器之后，
+  只在平台没有可用解码器时接管。未使用 `PREFER`；硬解优先级与 401/429 策略均未改动。
+- `DeviceCapabilityProbe` 把 FFmpeg 能解的 MIME 并入设备能力（只补平台缺失的 MIME）。
+  不做这一步，播放计划与诊断会把 TrueHD/DTS 判成「无解码器，将静音」，与实际不符。
+  MIME 表与 `FfmpegLibrary.getCodecName` 一一对应，升级 nextlib 时必须同步核对。
+- `packaging.jniLibs.useLegacyPackaging = true`：四 ABI 的 FFmpeg 原生库压缩存放，
+  APK 40.9 MB → **19.8 MB**。未裁剪 ABI，保留 MuMu（x86_64）可安装性。
+
+**能力范围（更正旧文档预期）**
+- 视频：H.264 / HEVC / VP8 / VP9 / AV1 / MPEG-1 / MPEG-2。
+- 音频：AAC、MP3、AC-3、E-AC-3（含 JOC）、TrueHD、DTS / DTS-HD、Vorbis、Opus、FLAC、ALAC、AMR、G.711。
+- **不含 RMVB（RV40）与 DivX / MPEG-4 ASP**；Media3 也没有 RealMedia 容器解析器。
+  旧文里「RMVB / AVI 可播」的预期不成立：AVI 容器能识别，但常见老编码解不了；RMVB 连容器都不认。
+- S21 Ultra 上平台已有 H.264/HEVC/VP9 硬解与 AV1 软解，实际收益主要是
+  **TrueHD/DTS 音频从静音变为可解**；视频软解只在平台缺解码器的设备上生效。
+
+**验证**
+- `:core:model:test` 58 条 + `:app:testDebugUnitTest` 125 条，全部通过。
+- `assembleRelease` 成功；APK 标签仍为 `Mooring`，包名 `com.lovelev.mediadock`，
+  版本 0.14.0 / vc34 未变；包含四个 ABI 的 `libavcodec.so` 与 `libmedia3ext.so`；
+  R8 mapping 中 `FfmpegLibrary` 保持原名（native 方法 keep 规则生效）。
+- **未做真机验证**（用户明确要求跳过），因此「DTS/TrueHD 实际出声」「软解画质与功耗」
+  均未实测，下次装包时应补。
+
+**备注**
+- 运行时硬解失败不会自动切到 FFmpeg（nextlib 的 `ON` 只解决「没有平台解码器」）。
+  要覆盖这类失败需引入 `DecoderManager` 手动切换与错误恢复策略，列入后续工作。
+- 包体由 5.1 MB 增至 19.8 MB；若需更小，可只保留 `arm64-v8a` + `x86_64` 两个 ABI（约减半），
+  代价是放弃 32 位设备。
+
+### 2026-10-21 · Phase 3D（部分）：字幕字号与画中画
+
+**背景**：3C 剩余项（色调映射、DV 基础层、运行时切软解）暂缓后转入 3D。
+首版曾提供字号/颜色/背景/描边四组覆盖，真机发现它会把带特效的 ASS 字幕换成系统默认字体、
+并抹掉原有底色。按用户要求收敛为「只改字号」，带特效的字幕一律不碰。
+
+**变更**
+- 字幕：设置页新增「字幕」→「字号」（小/标准/大/特大），存 SharedPreferences。
+- 应用：仅当选中字幕不是 ASS/SSA 且字号不是「标准」时，对 `PlayerView.subtitleView`
+  关闭内嵌字号并设置 `DEFAULT_TEXT_SIZE_FRACTION × scale`；字体、颜色、底色、描边全部沿用字幕文件本身。
+- 特效字幕：当前选中轨为 `MimeTypes.TEXT_SSA` 时完全不改 `SubtitleView`（含字号），原样渲染。
+- 画中画：manifest 增加 `supportsPictureInPicture` 与 `configChanges`（避免进出小窗重建 Activity）；
+  播放页「⋯」菜单新增「画中画」；Android 12+ 播放中按 Home 自动进入；进入后隐藏全部自绘控件；
+  离开播放页时关闭自动进入，避免其它页面回桌面也缩成小窗。比例 16:9。
+
+**验证（真机 SM-G998U1）**
+- 画中画：播放中按 Home，日志 `pip mode -> true`，窗口树中 MainActivity 变为 792×446 小窗；
+  小窗内播放位置继续推进（237s → 273s）；回到全屏记录 `pip mode -> false`。
+- 字幕：修复后「中文特效by晓之绿」恢复黑底白字与原有字体（截图确认）；
+  设置页只有字号一项，选项可持久化（重进设置仍保持）。
+- **字号放大实测**：同一「简体中文」轨，标准字号字幕字形高 67 px，特大 100 px（×1.49，
+  与 1.5 倍一致）。截图取自真机横屏 3200×1440。
+- 单测 **126 条**通过；`assembleRelease` 成功；APK 标签 Mooring、`com.lovelev.mediadock`
+  0.14.0 / vc34 未变；`aapt2 dump xmltree` 确认 `supportsPictureInPicture=true`。
+
+**备注**
+- **特效字幕判定必须看 `Format.codecs`，不能看 `sampleMimeType`**：Media3 把字幕轨的
+  `sampleMimeType` 统一成 `application/x-media3-cues`，原始格式只保留在 `codecs`
+  （实测 ASS 为 `text/x-ssa`，SRT 为 `application/x-subrip`）。首版按 MIME 判断失效，
+  已在真机日志中发现并修正。
+- 新增 `logTextTracks`：每次轨道变化打印字幕轨的 mime/codecs/label/选中状态，便于排查。
+- `configChanges` 带来的旋转行为变化未系统回归；设备旋转锁为横屏时，播放页与其它页都跟随锁定。
+- 版本号未提升，改动待统一发版。
+
 ---
 
 ## 8. 待办

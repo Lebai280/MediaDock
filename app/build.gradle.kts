@@ -30,8 +30,8 @@ android {
         applicationId = "com.lovelev.mediadock"
         minSdk = 26
         targetSdk = 36
-        versionCode = 34
-        versionName = "0.14.0"
+        versionCode = 35
+        versionName = "0.15.0"
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
     }
 
@@ -78,6 +78,14 @@ android {
         compose = true
         buildConfig = true
     }
+
+    packaging {
+        jniLibs {
+            // nextlib 的 FFmpeg 原生库占包体大头；压缩存放，安装时解压。
+            // 不裁剪 ABI：保留现有设备（arm）与 MuMu 模拟器（x86_64）的可安装性。
+            useLegacyPackaging = true
+        }
+    }
 }
 
 kotlin {
@@ -110,6 +118,8 @@ dependencies {
     implementation(libs.media3.ui)
     implementation(libs.media3.session)
     implementation(libs.media3.datasource.okhttp)
+    // GPL-3.0（ADR-027）：FFmpeg 软解回退，仅在平台解码器不可用时接管。
+    implementation(libs.nextlib.media3ext)
     implementation(libs.smbj)
 
     implementation(project(":core:model"))

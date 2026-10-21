@@ -42,7 +42,10 @@ import androidx.media3.common.C
 import androidx.media3.common.MediaItem
 import androidx.media3.common.MimeTypes
 import androidx.media3.session.MediaController
+import androidx.media3.ui.PlayerView
+import androidx.media3.ui.SubtitleView
 import com.lovelev.mediadock.data.log.AppLog
+import com.lovelev.mediadock.data.prefs.SubtitleSize
 import com.lovelev.mediadock.data.repo.LocalSubtitle
 import com.lovelev.mediadock.data.subtitle.SubtitleHit
 import com.lovelev.mediadock.data.subtitle.subtitleLanguageLabel
@@ -82,8 +85,23 @@ internal fun mountSubtitle(controller: MediaController?, local: LocalSubtitle) {
     AppLog.d("player", "subtitle mounted: ${local.file.name} @${position}ms (queue=${items.size})")
 }
 
-/** 从 SAF 的 content:// 里问出显示名（带扩展名，好判断字幕类型）。 */
-internal fun queryDisplayName(context: Context, uri: Uri): String {
+/**
+ * 只调字号：字体、颜色、灰色底框、描边全部保持字幕文件原样。
+ * 当前选中的是 ASS/SSA（带特效）时一律不碰 —— 特效字幕的排版不能被字号覆盖破坏。
+ */
+internal fun PlayerView.applySubtitleSize(size: SubtitleSize, effectSubtitle: Boolean) {
+    val view = subtitleView ?: return
+    if (effectSubtitle || size == SubtitleSize.NORMAL) {
+        view.setApplyEmbeddedStyles(true)
+        view.setApplyEmbeddedFontSizes(true)
+        return
+    }
+    view.setApplyEmbeddedStyles(true)
+    view.setApplyEmbeddedFontSizes(false)
+    view.setFractionalTextSize(SubtitleView.DEFAULT_TEXT_SIZE_FRACTION * size.scale)
+}
+
+/** 从 SAF 的 content:// 里问出显示名（带扩展名，好判断字幕类型）。 */internal fun queryDisplayName(context: Context, uri: Uri): String {
     runCatching {
         context.contentResolver.query(uri, arrayOf(OpenableColumns.DISPLAY_NAME), null, null, null)
             ?.use { cursor ->

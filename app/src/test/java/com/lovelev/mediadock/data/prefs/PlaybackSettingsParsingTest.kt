@@ -22,4 +22,15 @@ class PlaybackSettingsParsingTest {
         assertEquals(6, AudioChannelCap.SURROUND.max)
         assertEquals(2, AudioChannelCap.STEREO.max)
     }
+
+    @Test
+    fun `subtitle size defaults to normal and parses variants`() {
+        assertEquals(SubtitleSize.NORMAL, parseSubtitleSize(null))
+        assertEquals(SubtitleSize.NORMAL, parseSubtitleSize("garbage"))
+        assertEquals(SubtitleSize.SMALL, parseSubtitleSize("SMALL"))
+        assertEquals(SubtitleSize.HUGE, parseSubtitleSize("HUGE"))
+        assertEquals(0.8f, SubtitleSize.SMALL.scale)
+        assertEquals(1f, SubtitleSize.NORMAL.scale)
+        assertEquals(1.5f, SubtitleSize.HUGE.scale)
+    }
 }

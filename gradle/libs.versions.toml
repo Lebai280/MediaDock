@@ -5,6 +5,7 @@ ksp = "2.3.12"
 
 composeBom = "2026.09.00"
 media3 = "1.11.1"
+nextlib = "1.11.1-0.16.0"
 room = "2.8.5"
 okhttp = "5.5.0"
 coil = "3.6.3"
@@ -52,6 +53,8 @@ media3-exoplayer = { module = "androidx.media3:media3-exoplayer", version.ref = 
 media3-ui = { module = "androidx.media3:media3-ui", version.ref = "media3" }
 media3-session = { module = "androidx.media3:media3-session", version.ref = "media3" }
 media3-datasource-okhttp = { module = "androidx.media3:media3-datasource-okhttp", version.ref = "media3" }
+# GPL-3.0：FFmpeg 软件解码回退（ADR-027）。版本号前缀必须与本项目的 media3 一致。
+nextlib-media3ext = { module = "io.github.anilbeesetti:nextlib-media3ext", version.ref = "nextlib" }
 
 room-runtime = { module = "androidx.room:room-runtime", version.ref = "room" }
 room-ktx = { module = "androidx.room:room-ktx", version.ref = "room" }

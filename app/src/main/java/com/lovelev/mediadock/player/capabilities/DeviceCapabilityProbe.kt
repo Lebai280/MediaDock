@@ -7,6 +7,7 @@ import android.media.MediaCodecList
 import android.os.Build
 import android.view.Display
 import androidx.media3.common.Format
+import androidx.media3.common.MimeTypes
 import androidx.media3.exoplayer.audio.AudioCapabilities
 import com.lovelev.mediadock.core.model.AudioDecoderCapability
 import com.lovelev.mediadock.core.model.AudioOutputCapabilities
@@ -18,6 +19,7 @@ import com.lovelev.mediadock.core.model.DisplayCapabilities
 import com.lovelev.mediadock.core.model.DisplayModeInfo
 import com.lovelev.mediadock.core.model.HdrFormat
 import com.lovelev.mediadock.core.model.VideoDecoderCapability
+import io.github.anilbeesetti.nextlib.media3ext.ffdecoder.FfmpegLibrary
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 
@@ -54,6 +56,7 @@ class DeviceCapabilityProbe(private val context: Context) {
 
     private fun build(): DeviceCapabilities {
         val display = displayCapabilities()
+        val (systemVideo, systemAudio) = codecCapabilities()
         return DeviceCapabilities(
             identity = DeviceIdentity(
                 manufacturer = Build.MANUFACTURER.orEmpty(),
@@ -64,8 +67,8 @@ class DeviceCapabilityProbe(private val context: Context) {
                 abis = Build.SUPPORTED_ABIS.toList(),
             ),
             display = display,
-            videoDecoders = codecCapabilities().first,
-            audioDecoders = codecCapabilities().second,
+            videoDecoders = withFfmpegVideo(systemVideo),
+            audioDecoders = withFfmpegAudio(systemAudio),
             audioOutputs = audioOutputs(),
             audioOutputCapabilities = audioOutputCapabilities(),
             probedAt = System.currentTimeMillis(),
@@ -164,6 +167,48 @@ class DeviceCapabilityProbe(private val context: Context) {
             audios.distinctBy { it.mime to it.decoderName }
     }
 
+    /**
+     * 并入 nextlib 的软件解码器：否则播放计划与诊断会把 TrueHD / DTS 判成
+     * 「无解码器，将静音」，而实际播放已经能由 FFmpeg 接管。
+     * 只补平台没有任何解码器的 MIME；原生库不可用（ABI 不支持）时不添加。
+     */
+    private fun withFfmpegAudio(system: List<AudioDecoderCapability>): List<AudioDecoderCapability> {
+        if (!ffmpegAvailable()) return system
+        val present = system.mapTo(HashSet()) { it.mime }
+        return system + FFMPEG_AUDIO_MIMES
+            .filter { it !in present && FfmpegLibrary.supportsFormat(it) }
+            .map {
+                AudioDecoderCapability(
+                    mime = it,
+                    decoderName = FFMPEG_DECODER_NAME,
+                    hardware = false,
+                    maxChannels = null,
+                )
+            }
+    }
+
+    private fun withFfmpegVideo(system: List<VideoDecoderCapability>): List<VideoDecoderCapability> {
+        if (!ffmpegAvailable()) return system
+        val present = system.mapTo(HashSet()) { it.mime }
+        return system + FFMPEG_VIDEO_MIMES
+            .filter { it !in present && FfmpegLibrary.supportsFormat(it) }
+            .map {
+                VideoDecoderCapability(
+                    mime = it,
+                    decoderName = FFMPEG_DECODER_NAME,
+                    hardware = false,
+                    softwareOnly = true,
+                    profiles = emptyList(),
+                    maxWidth = null,
+                    maxHeight = null,
+                    maxFrameRate = null,
+                )
+            }
+    }
+
+    private fun ffmpegAvailable(): Boolean =
+        runCatching { FfmpegLibrary.isAvailable() }.getOrDefault(false)
+
     private fun audioOutputs(): List<AudioOutputDevice> {
         val am = context.getSystemService(AudioManager::class.java) ?: return emptyList()
         return runCatching {
@@ -202,6 +247,43 @@ class DeviceCapabilityProbe(private val context: Context) {
     }
 
     private companion object {
+        const val FFMPEG_DECODER_NAME = "ffmpeg (nextlib)"
+
+        /**
+         * 与 nextlib 1.11.1-0.16.0 的 `FfmpegLibrary.getCodecName` 一一对应。
+         * 升级 nextlib 时必须同步核对这张表，否则诊断会多报或漏报解码能力。
+         */
+        val FFMPEG_AUDIO_MIMES = listOf(
+            MimeTypes.AUDIO_AAC,
+            MimeTypes.AUDIO_MPEG,
+            MimeTypes.AUDIO_MPEG_L1,
+            MimeTypes.AUDIO_MPEG_L2,
+            MimeTypes.AUDIO_AC3,
+            MimeTypes.AUDIO_E_AC3,
+            MimeTypes.AUDIO_E_AC3_JOC,
+            MimeTypes.AUDIO_TRUEHD,
+            MimeTypes.AUDIO_DTS,
+            MimeTypes.AUDIO_DTS_HD,
+            MimeTypes.AUDIO_VORBIS,
+            MimeTypes.AUDIO_OPUS,
+            MimeTypes.AUDIO_AMR_NB,
+            MimeTypes.AUDIO_AMR_WB,
+            MimeTypes.AUDIO_FLAC,
+            MimeTypes.AUDIO_ALAC,
+            MimeTypes.AUDIO_MLAW,
+            MimeTypes.AUDIO_ALAW,
+        )
+
+        val FFMPEG_VIDEO_MIMES = listOf(
+            MimeTypes.VIDEO_H264,
+            MimeTypes.VIDEO_H265,
+            MimeTypes.VIDEO_AV1,
+            MimeTypes.VIDEO_MPEG,
+            MimeTypes.VIDEO_MPEG2,
+            MimeTypes.VIDEO_VP8,
+            MimeTypes.VIDEO_VP9,
+        )
+
         val PASSTHROUGH_MIMES = listOf(
             "audio/ac3",
             "audio/eac3",

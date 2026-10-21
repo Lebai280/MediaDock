@@ -18,6 +18,7 @@ import androidx.lifecycle.viewmodel.viewModelFactory
 import com.lovelev.mediadock.ui.theme.ThemeMode
 import com.lovelev.mediadock.data.prefs.AudioChannelCap
 import com.lovelev.mediadock.data.prefs.RefreshMatchingMode
+import com.lovelev.mediadock.data.prefs.SubtitleSize
 import com.lovelev.mediadock.data.repo.ScanState
 import com.lovelev.mediadock.BuildConfig
 import com.lovelev.mediadock.data.subtitle.OpenSubtitlesCredentials
@@ -78,6 +79,14 @@ class SettingsViewModel(private val container: AppContainer) : ViewModel() {
     fun pickAudioChannelCap(cap: AudioChannelCap) {
         audioChannelCap = cap
         container.playbackSettings.setAudioChannelCap(cap)
+    }
+
+    var subtitleSize by mutableStateOf(container.playbackSettings.subtitleSize())
+        private set
+
+    fun pickSubtitleSize(size: SubtitleSize) {
+        subtitleSize = size
+        container.playbackSettings.setSubtitleSize(size)
     }
 
     /** 数据源那一行显示的主机名（只显示 host，不显示账号密码）。 */

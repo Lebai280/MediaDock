@@ -50,6 +50,7 @@ import com.lovelev.mediadock.ui.formatSize
 import com.lovelev.mediadock.data.log.AppLog
 import com.lovelev.mediadock.data.prefs.AudioChannelCap
 import com.lovelev.mediadock.data.prefs.RefreshMatchingMode
+import com.lovelev.mediadock.data.prefs.SubtitleSize
 import com.lovelev.mediadock.BuildConfig
 import kotlinx.coroutines.launch
 
@@ -126,6 +127,26 @@ fun SettingsScreen(
             )
             Text(
                 text = "下次播放生效；声道上限只限制轨道选择，实际下混由系统/解码器处理。",
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                modifier = Modifier.padding(horizontal = 16.dp, vertical = 10.dp),
+            )
+        }
+
+        // ---- 字幕字号 ----
+        Section("字幕") {
+            PlaybackChoiceRow(
+                label = "字号",
+                options = listOf(
+                    "小" to (vm.subtitleSize == SubtitleSize.SMALL),
+                    "标准" to (vm.subtitleSize == SubtitleSize.NORMAL),
+                    "大" to (vm.subtitleSize == SubtitleSize.LARGE),
+                    "特大" to (vm.subtitleSize == SubtitleSize.HUGE),
+                ),
+                onPick = { vm.pickSubtitleSize(SubtitleSize.entries[it]) },
+            )
+            Text(
+                text = "只调整字号；字幕自带的字体、颜色、底色与描边保持不变。带特效的字幕（ASS/SSA）不调整。进入播放页后生效。",
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                 modifier = Modifier.padding(horizontal = 16.dp, vertical = 10.dp),

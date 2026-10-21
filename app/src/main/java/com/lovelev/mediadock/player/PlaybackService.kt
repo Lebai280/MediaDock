@@ -6,6 +6,7 @@ import androidx.media3.common.AudioAttributes
 import androidx.media3.common.C
 import androidx.media3.common.Player
 import androidx.media3.exoplayer.DefaultLoadControl
+import androidx.media3.exoplayer.DefaultRenderersFactory
 import androidx.media3.exoplayer.ExoPlayer
 import androidx.media3.exoplayer.source.DefaultMediaSourceFactory
 import androidx.media3.exoplayer.trackselection.DefaultTrackSelector
@@ -14,6 +15,7 @@ import androidx.media3.session.MediaSessionService
 import com.lovelev.mediadock.MainActivity
 import com.lovelev.mediadock.MediaDockApp
 import com.lovelev.mediadock.data.repo.ProgressRepository
+import io.github.anilbeesetti.nextlib.media3ext.ffdecoder.NextRenderersFactory
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
@@ -44,6 +46,13 @@ class PlaybackService : MediaSessionService() {
         val playbackSettings = container.playbackSettings
 
         val exo = ExoPlayer.Builder(this)
+            // 软解回退：FFmpeg 渲染器排在平台渲染器之后（ON），只在平台解码器
+            // 无法支持该格式时接管（如 TrueHD / DTS 音频）。PREFER 会抢走硬解，不得使用。
+            // 它不负责运行时解码失败后的重试，那仍由 Media3 的默认策略处理。
+            .setRenderersFactory(
+                NextRenderersFactory(this)
+                    .setExtensionRendererMode(DefaultRenderersFactory.EXTENSION_RENDERER_MODE_ON),
+            )
             .setMediaSourceFactory(
                 DefaultMediaSourceFactory(container.playbackDataSourceFactory)
                     // 默认策略会把 401/429 当作可重试错误（点播默认重试 3 次）——

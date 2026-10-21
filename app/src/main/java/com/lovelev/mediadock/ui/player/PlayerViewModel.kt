@@ -283,6 +283,10 @@ class PlayerViewModel(private val container: AppContainer) : ViewModel() {
     val maxAudioChannels: Int
         get() = container.playbackSettings.audioChannelCap().max
 
+    /** 字幕字号在进入播放页时读取一次；设置页改动返回后生效。 */
+    val subtitleSize: com.lovelev.mediadock.data.prefs.SubtitleSize
+        get() = container.playbackSettings.subtitleSize()
+
     fun updateLocked(value: Boolean) {
         locked = value
     }

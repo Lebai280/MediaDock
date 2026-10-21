@@ -1,8 +1,12 @@
 package com.lovelev.mediadock.ui.player
 
+import android.app.PictureInPictureParams
 import android.content.Context
 import android.media.AudioManager
+import android.os.Build
 import android.os.SystemClock
+import android.util.Rational
+import androidx.activity.ComponentActivity
 import androidx.activity.compose.LocalOnBackPressedDispatcherOwner
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
@@ -39,9 +43,12 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.viewinterop.AndroidView
+import androidx.core.app.PictureInPictureModeChangedInfo
+import androidx.core.util.Consumer
 import androidx.media3.common.C
 import androidx.media3.common.MediaItem
 import androidx.media3.common.MediaMetadata
+import androidx.media3.common.MimeTypes
 import androidx.media3.common.PlaybackException
 import androidx.media3.common.Player
 import androidx.media3.common.Tracks
@@ -56,6 +63,15 @@ import kotlinx.coroutines.withContext
 import kotlin.math.abs
 
 private const val TAG = "MediaDock"
+
+/** 画中画参数：16:9；Android 12+ 额外支持「按 Home 自动进入」。 */
+private fun pipParams(autoEnter: Boolean): PictureInPictureParams {
+    val builder = PictureInPictureParams.Builder().setAspectRatio(Rational(16, 9))
+    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+        builder.setAutoEnterEnabled(autoEnter)
+    }
+    return builder.build()
+}
 
 /** 控件显示后多久自动隐藏（播放中且没锁定时）。 */
 private const val CONTROLS_HIDE_MS = 4_000L
@@ -111,6 +127,19 @@ private fun logAudioTracks(stage: String, tracks: Tracks) {
     }
 }
 
+/** 字幕轨类型决定字号能否套用：ASS/SSA 不碰，普通文本才调。 */
+private fun logTextTracks(stage: String, tracks: Tracks) {
+    tracks.groups.filter { it.type == C.TRACK_TYPE_TEXT }.forEachIndexed { index, group ->
+        val format = group.getTrackFormat(0)
+        AppLog.d(
+            "player",
+            "text $stage #$index mime=${format.sampleMimeType} codecs=${format.codecs} " +
+                "label=${format.label} lang=${format.language} " +
+                "selected=${group.isSelected} supported=${group.isSupported}",
+        )
+    }
+}
+
 /**
  * 播放画面 + **自绘控件层**（不用 PlayerView 的原生控件）。
  *
@@ -152,6 +181,39 @@ private fun PlayerSurface(
     val deviceCapabilities = vm.deviceCapabilities
     var playerView by remember { mutableStateOf<PlayerView?>(null) }
     val scope = rememberCoroutineScope()
+
+    val activity = context.findActivity() as? ComponentActivity
+    val subtitleSize = vm.subtitleSize
+    // ASS/SSA 通常带特效排版：这类字幕不套用字号，原样渲染。
+    // Media3 会把字幕轨的 sampleMimeType 统一成 application/x-media3-cues，
+    // 原始格式只保留在 codecs 里（实测：ASS 为 text/x-ssa，SRT 为 application/x-subrip）。
+    val effectSubtitle = remember(tracks) {
+        val format = tracks?.groups
+            ?.firstOrNull { it.type == C.TRACK_TYPE_TEXT && it.isSelected }
+            ?.getTrackFormat(0)
+        format?.sampleMimeType == MimeTypes.TEXT_SSA || format?.codecs == MimeTypes.TEXT_SSA
+    }
+    var inPip by remember { mutableStateOf(activity?.isInPictureInPictureMode == true) }
+
+    DisposableEffect(activity) {
+        if (activity == null) return@DisposableEffect onDispose { }
+        val listener = Consumer<PictureInPictureModeChangedInfo> { info ->
+            inPip = info.isInPictureInPictureMode
+            AppLog.d("player", "pip mode -> ${info.isInPictureInPictureMode}")
+        }
+        activity.addOnPictureInPictureModeChangedListener(listener)
+        onDispose { activity.removeOnPictureInPictureModeChangedListener(listener) }
+    }
+
+    // Android 12+：播放中按 Home 直接缩成小窗。离开播放页时必须关掉，
+    // 否则从其它页面回桌面也会进画中画。
+    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+        DisposableEffect(activity, playing) {
+            if (activity == null) return@DisposableEffect onDispose { }
+            activity.setPictureInPictureParams(pipParams(autoEnter = playing))
+            onDispose { activity.setPictureInPictureParams(pipParams(autoEnter = false)) }
+        }
+    }
 
     // 本地字幕：挑一个文件 → 读出来 → 存进应用目录 → 挂到当前播放上
     val pickSubtitle = rememberLauncherForActivityResult(
@@ -209,6 +271,7 @@ private fun PlayerSurface(
         // 那个回调永远不会补发，tracks 就一直是 null：音轨菜单和字幕菜单会整块消失。
         tracks = c.currentTracks
         logAudioTracks("attached", c.currentTracks)
+        logTextTracks("attached", c.currentTracks)
         AppLog.d("player", "tracks attached: ${c.currentTracks.groups.size} groups")
         val listener = object : Player.Listener {
             override fun onPlayerError(error: PlaybackException) {
@@ -239,6 +302,7 @@ private fun PlayerSurface(
 
             override fun onTracksChanged(tracks2: Tracks) {
                 logAudioTracks("changed", tracks2)
+                logTextTracks("changed", tracks2)
                 AppLog.d("player", "tracks changed: ${tracks2.groups.size} groups")
                 tracks = tracks2
             }
@@ -328,10 +392,14 @@ private fun PlayerSurface(
                 PlayerView(ctx).apply {
                     // 自绘控件：关掉原生控件，画面之外的东西全由下面的 Compose 层画
                     useController = false
+                    applySubtitleSize(subtitleSize, effectSubtitle)
                     playerView = this
                 }
             },
-            update = { it.player = controller },
+            update = {
+                it.player = controller
+                it.applySubtitleSize(subtitleSize, effectSubtitle)
+            },
             onRelease = { it.player = null },
         )
 
@@ -395,6 +463,8 @@ private fun PlayerSurface(
                 },
         ) {
             if (controller == null) return@Box
+            // 画中画里只留画面：小窗容不下自绘控件，系统也会提供自己的控件
+            if (inPip) return@Box
 
             // 锁定按钮**固定在左侧中间**。解锁时跟着控件显隐；锁上后显示 3 秒自动隐藏，
             // 点一下再出现 —— 位置不变，找得着就行。
@@ -446,6 +516,13 @@ private fun PlayerSurface(
                     onDiagnostics = {
                         AppLog.d("player", "diagnostics tapped")
                         vm.updateDiagnosticsOpen(true)
+                    },
+                    onEnterPip = {
+                        AppLog.d("player", "pip tapped")
+                        val ok = runCatching {
+                            activity?.enterPictureInPictureMode(pipParams(autoEnter = true))
+                        }.getOrNull() == true
+                        if (!ok) hint = "此设备不支持画中画"
                     },
                     onScreenshot = {
                         AppLog.d("player", "screenshot tapped")
