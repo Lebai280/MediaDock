@@ -2694,6 +2694,26 @@ GitHub `master` 与 `v0.14.0` tag 推送后由 CI 构建并发布 Release。
 - `configChanges` 带来的旋转行为变化未系统回归；设备旋转锁为横屏时，播放页与其它页都跟随锁定。
 - 版本号未提升，改动待统一发版。
 
+### 2026-10-21 · 0.15.0 发布
+
+**版本**：`versionCode 35` / `0.15.0`；签名 APK **19,793,481 B**，sha256
+`98bbac8cffb8c560e5b2c3778c7bc9f86b3fd5ee2c8f4b57243b952bf5e5cec1`（本地与服务器一致）。
+内容：FFmpeg 软解回退、字幕字号、画中画。
+
+**站点**：`/var/www/portal/mediadock/` 已更新 `MediaDock-0.15.0.apk`、`version.json`、`index.html`
+（旧页备份为 `index.html.bak-0.14.0`）。服务器侧 HTTPS 验证：`version.json` 为 vc35；
+APK HTTP/2 200 / `content-length: 19793481` / `application/vnd.android.package-archive`；
+页面显示「最新 0.15.0」。
+
+**GitHub**：`master`（96dc50c）与 `v0.15.0` 已推送。本机到 `github.com:22` 被代理拦截
+（连接被 `198.18.0.170` 关闭），改用 `ssh.github.com:443` 推送，未修改仓库 remote 配置；
+CI 按 tag 构建 Release。
+
+**真机**：release 包 `install -r` 覆盖安装成功，版本 0.15.0 / vc35，数据保留、启动正常。
+
+**备注**：发布页仍使用 MediaDock 品牌名（应用显示名自 0.14.0 起为 Mooring），本次未改；
+APK 体积由 5.1 MB 增至 18.9 MB，来源是四 ABI 的 FFmpeg 原生库。
+
 ---
 
 ## 8. 待办
