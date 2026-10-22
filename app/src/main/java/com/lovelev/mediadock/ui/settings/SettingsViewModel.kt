@@ -290,14 +290,18 @@ class SettingsViewModel(private val container: AppContainer) : ViewModel() {
      * 生成「分享给朋友」的文本（读一次已保存的数据源）。
      * 没有数据源返回 null —— 界面据此提示，不得复制空文本。
      */
-    suspend fun buildShareText(): String? = container.credentials.load()?.let {
+    suspend fun buildShareText(): String? = container.credentials.load()?.let { source ->
+        val subtitle = container.credentials.loadSubtitleCredentials()
         ShareConfig.build(
-            url = it.url,
-            username = it.username,
-            password = it.password,
-            rootPath = it.rootPath,
-            // TMDB 是全局设置、不随数据源走，但一起发过去朋友装上就能刮削，省得再问一遍
+            url = source.url,
+            username = source.username,
+            password = source.password,
+            rootPath = source.rootPath,
+            // TMDB 与字幕源是全局设置、不随数据源走，但一起发过去朋友装上就能用
             tmdbSecret = container.credentials.loadTmdbSecret(),
+            subtitleApiKey = subtitle?.apiKey,
+            subtitleUser = subtitle?.username,
+            subtitlePassword = subtitle?.password,
         )
     }
 

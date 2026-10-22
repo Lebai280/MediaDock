@@ -2786,6 +2786,28 @@ APK 体积由 5.1 MB 增至 18.9 MB，来源是四 ABI 的 FFmpeg 原生库。
 **备注**
 - 未提交、未发版；正式发版需升 versionCode。
 
+### 2026-10-22 · 分享文本携带 TMDB 与字幕源（未发版）
+
+**背景**：朋友拿到分享配置后，刮削与在线字幕还要再问一遍密钥。要求分享文本直接带上。
+
+**变更**
+- `ShareConfig.build` 增加可选参数：`tmdbSecret`、`subtitleApiKey` / `subtitleUser` /
+  `subtitlePassword`，有值才写对应行（`TMDB 密钥：` / `字幕 API Key：` / `字幕账号：` / `字幕密码：`）。
+- 新增 `ShareConfig.parseSubtitle`：至少要有 API Key 才返回字幕凭据。
+- 解析数据源前先剥掉字幕行 —— 否则「字幕账号」会被「账号」正则当成 WebDAV 账号。
+- `SourcesViewModel.shareText` 改为 suspend，分享时读取 TMDB 与字幕凭据一并拼入。
+- `SourceViewModel.applyShared`：导入时同时写入 TMDB 与字幕凭据；字幕缺的字段沿用本机已有值，
+  不会把账号密码冲掉；提示注明包含哪些。
+- 单测新增 3 条（生成/解析、账号不串味、无字幕源返回 null）。
+
+**验证**
+- 单测 **129 条**通过；release 包覆盖安装（vc36 本地）。
+
+**备注**
+- 分享文本现在含明文密钥，转发需谨慎；界面未加额外警告（用户要求直接分享）。
+- 0.15.1 的服务器发布仍待完成：2026-10-21 起 VPS SSH 在密钥交换阶段被断开（网页 443 正常），
+  GitHub master 与 tag v0.15.1 已推送。
+
 ---
 
 ## 8. 待办

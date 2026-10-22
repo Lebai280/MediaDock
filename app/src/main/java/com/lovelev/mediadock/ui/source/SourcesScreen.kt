@@ -27,6 +27,8 @@ import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.rememberCoroutineScope
+import kotlinx.coroutines.launch
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
@@ -44,6 +46,7 @@ fun SourcesScreen(
 ) {
     val state by vm.state.collectAsState()
     val context = LocalContext.current
+    val scope = rememberCoroutineScope()
 
     Column(modifier = Modifier.fillMaxSize()) {
         Row(
@@ -149,9 +152,11 @@ fun SourcesScreen(
                     if (source.type == SourceType.WEBDAV) {
                         TextButton(onClick = {
                             vm.dismissDetail()
-                            vm.shareText(source)?.let { text ->
-                                copyToClipboard(context, text)
-                                vm.showHint("分享配置已复制")
+                            scope.launch {
+                                vm.shareText(source)?.let { text ->
+                                    copyToClipboard(context, text)
+                                    vm.showHint("分享配置已复制")
+                                }
                             }
                         }) { Text("分享") }
                     }

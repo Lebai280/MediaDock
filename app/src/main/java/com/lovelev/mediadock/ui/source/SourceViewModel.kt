@@ -10,6 +10,7 @@ import androidx.lifecycle.viewmodel.initializer
 import androidx.lifecycle.viewmodel.viewModelFactory
 import com.lovelev.mediadock.core.model.SourceType
 import com.lovelev.mediadock.data.source.SourceConfig
+import com.lovelev.mediadock.data.subtitle.OpenSubtitlesCredentials
 import com.lovelev.mediadock.data.webdav.ShareConfig
 import com.lovelev.mediadock.data.webdav.WebDavClient
 import com.lovelev.mediadock.data.webdav.WebDavEntry
@@ -98,7 +99,26 @@ class SourceViewModel(private val container: AppContainer) : ViewModel() {
         // 就会把用户的密钥覆盖掉。
         val tmdb = ShareConfig.parseTmdb(text.orEmpty())
         if (tmdb != null) viewModelScope.launch { container.credentials.saveTmdbSecret(tmdb) }
-        sharedHint = "已填入分享配置 · ${source.url}" + if (tmdb != null) "（含 TMDB 密钥）" else ""
+        // 字幕源凭据同样只在认得出这段文本时才写；缺的字段沿用本机已有的，避免把账号密码冲掉
+        val subtitle = ShareConfig.parseSubtitle(text.orEmpty())
+        if (subtitle != null) {
+            viewModelScope.launch {
+                val current = container.credentials.loadSubtitleCredentials()
+                container.credentials.saveSubtitleCredentials(
+                    OpenSubtitlesCredentials(
+                        apiKey = subtitle.apiKey.ifBlank { current?.apiKey.orEmpty() },
+                        username = subtitle.username.ifBlank { current?.username.orEmpty() },
+                        password = subtitle.password.ifBlank { current?.password.orEmpty() },
+                    ),
+                )
+            }
+        }
+        val extras = buildList {
+            if (tmdb != null) add("TMDB 密钥")
+            if (subtitle != null) add("字幕源")
+        }
+        sharedHint = "已填入分享配置 · ${source.url}" +
+            if (extras.isNotEmpty()) "（含 ${extras.joinToString(" / ")}）" else ""
         return true
     }
 

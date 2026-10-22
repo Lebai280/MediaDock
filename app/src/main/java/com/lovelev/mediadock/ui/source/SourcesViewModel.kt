@@ -75,13 +75,18 @@ class SourcesViewModel(private val container: AppContainer) : ViewModel() {
         }
     }
 
-    /** 分享配置只含地址、账号、密码与根路径；文本拼装在 VM，剪贴板仍由 UI 处理。 */
-    fun shareText(source: SourceConfig): String? = runCatching {
+    /** 分享配置含地址/账号/密码/根路径，外加全局的 TMDB 与字幕源凭据。 */
+    suspend fun shareText(source: SourceConfig): String? = runCatching {
+        val subtitle = container.credentials.loadSubtitleCredentials()
         ShareConfig.build(
             url = source.url,
             username = source.username,
             password = source.password,
             rootPath = source.rootPath,
+            tmdbSecret = container.credentials.loadTmdbSecret(),
+            subtitleApiKey = subtitle?.apiKey,
+            subtitleUser = subtitle?.username,
+            subtitlePassword = subtitle?.password,
         )
     }.getOrNull()
 

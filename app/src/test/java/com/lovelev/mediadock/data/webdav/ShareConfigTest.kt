@@ -142,4 +142,49 @@ class ShareConfigTest {
             ShareConfig.parseTmdb("tmdb api key: abdf0b0880f6d953e31f61f58a300ac5"),
         )
     }
+
+    // ---- 字幕源一起带（2026-10-22 加）----
+
+    @Test
+    fun `分享文本携带字幕源 能原样解回`() {
+        val text = ShareConfig.build(
+            url = "https://files.example.com/dav",
+            username = "dav-user",
+            password = "dav-pass",
+            rootPath = "/movies",
+            tmdbSecret = "tmdb-key",
+            subtitleApiKey = "sub-key",
+            subtitleUser = "sub-user",
+            subtitlePassword = "sub-pass",
+        )
+        val subtitle = ShareConfig.parseSubtitle(text)
+        assertEquals("sub-key", subtitle?.apiKey)
+        assertEquals("sub-user", subtitle?.username)
+        assertEquals("sub-pass", subtitle?.password)
+        // 数据源本身不受字幕行影响
+        assertEquals("dav-user", ShareConfig.parse(text)?.username)
+        assertEquals("dav-pass", ShareConfig.parse(text)?.password)
+    }
+
+    @Test
+    fun `字幕账号不会被当成 WebDAV 账号`() {
+        val text = """
+            Mooring 数据源
+            地址：https://a.com/dav
+            账号：dav-user
+            密码：dav-pass
+            字幕 API Key：sub-key
+            字幕账号：sub-user
+            字幕密码：sub-pass
+        """.trimIndent()
+        assertEquals("dav-user", ShareConfig.parse(text)?.username)
+        assertEquals("dav-pass", ShareConfig.parse(text)?.password)
+        assertEquals("sub-user", ShareConfig.parseSubtitle(text)?.username)
+    }
+
+    @Test
+    fun `没有字幕源时解析返回 null`() {
+        val text = ShareConfig.build("https://a.com/dav", "u", "p", "")
+        assertNull(ShareConfig.parseSubtitle(text))
+    }
 }
