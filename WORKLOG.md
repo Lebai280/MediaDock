@@ -2808,6 +2808,25 @@ APK 体积由 5.1 MB 增至 18.9 MB，来源是四 ABI 的 FFmpeg 原生库。
 - 0.15.1 的服务器发布仍待完成：2026-10-21 起 VPS SSH 在密钥交换阶段被断开（网页 443 正常），
   GitHub master 与 tag v0.15.1 已推送。
 
+### 2026-10-22 · 0.15.2 发布
+
+**版本**：`versionCode 37` / `0.15.2`；签名 APK **19,806,317 B**，sha256
+`cd3f5bf3c47381588c4a0c47e238c41cced6802f0135de3c2ff045e3f176afea`（本地与服务器一致）。
+内容：分享文本携带 TMDB 与字幕源，加上 0.15.1 的 UI 观感批次（0.15.1 未上传站点，直接发 0.15.2）。
+
+**站点**：`/var/www/portal/mediadock/` 已更新 `MediaDock-0.15.2.apk`、`version.json`、`index.html`
+（旧页备份 `index.html.bak-0.15.0`）。HTTPS 验证：`version.json` 为 vc37；APK HTTP/2 200 /
+`content-length: 19806317` / `application/vnd.android.package-archive`；页面显示「最新 0.15.2」。
+
+**GitHub**：`master`（9f2b7ed）与 `v0.15.2` 已推送（走 `ssh.github.com:443`）。
+
+**真机**：release 包覆盖安装成功，0.15.2 / vc37。
+
+**SSH 故障与处理**：2026-10-21 起 VPS SSH 在密钥交换阶段被断开，网页 443 正常。
+日志显示大量 `[preauth]` 爆破连接，`MaxStartups`（默认 10:30:100）被打满后 sshd 丢弃新连接。
+经 Azure「运行命令」（无需 SSH）写入 `sshd_config.d/99-anti-flood.conf`：
+`MaxStartups 100:30:200`、`LoginGraceTime 20`，reload 后恢复。fail2ban 当前封禁 0。
+
 ---
 
 ## 8. 待办
